@@ -203,7 +203,7 @@ export const definition: ToolDefinition = {
         if (!result.answered) {
           const text =
             result.reason === 'timeout'
-              ? `No answer received within ${Math.round(DEFAULT_TIMEOUT_MS / 1000)}s. Proceed with a reasonable default and note the assumption in your reply.`
+              ? `No answer received within ${Math.round(DEFAULT_TIMEOUT_MS / 1000)}s. If you were asking for approval of an action, treat the silence as "no": do not take that action, and say what still needs the user's approval. Otherwise proceed with a reasonable default and note the assumption in your reply.`
               : `Question was cancelled.`
           return {
             data: { text, answered: false } satisfies AskUserQuestionOutput,
