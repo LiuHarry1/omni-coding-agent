@@ -8,8 +8,9 @@
 
 | 路径 | 说明 |
 |------|------|
-| `workspace-seed/.ai-agent/settings.json` | `agents.picker` / `agents.default` + browser 默认（无密钥） |
+| `workspace-seed/.ai-agent/settings.json` | `agents.picker` / `agents.default` + browser 默认 + `permissions.defaultMode: bypassPermissions`（文件工具访问工作区外路径不弹确认；`deny` 规则仍生效；无密钥） |
 | `workspace-seed/.ai-agent/agents/browser.md` | Browser Automation primary |
+| `workspace-seed/.ai-agent/agents/assistant.md` | Personal Assistant primary（桌面文件 / 应用 / 系统 / 网页 / 提醒 / 跨会话记忆） |
 
 密钥（`apiKey` 等）**不要**放进 seed；装机后写入用户 `~/.ai-agent/settings.json` 或项目 local settings。
 
@@ -26,13 +27,13 @@
 ```json
 {
   "agents": {
-    "picker": { "modes": [], "primaries": ["browser"] },
+    "picker": { "modes": [], "primaries": ["browser", "assistant"] },
     "default": { "mode": "agent", "agentType": "browser" }
   }
 }
 ```
 
-页面上只出现 Browser Automation；后端仍是 `permissionMode=agent` + `agentType=browser`。
+页面上出现 Browser Automation 和 Personal Assistant，新会话默认 Browser；后端是 `permissionMode=agent` + `agentType=browser|assistant`。Personal Assistant 的 `browser_*` 依赖 `browser.enabled: true`。
 
 ### 改成全功能 coding
 
@@ -90,7 +91,7 @@ npm run check:ripgrep -- --target darwin-arm64
 
 ## 验收清单
 
-1. 干净目录打开桌面版：出现 `.ai-agent/agents/browser.md`，ModePicker 只见 Browser Automation。
+1. 干净目录打开桌面版：出现 `browser.md` 和 `assistant.md`，ModePicker 只见 Browser Automation 和 Personal Assistant。
 2. 新会话为 `agent` + `browser`。
 3. 临时改 settings 为三模式 + `primaries: ["browser"]`：三模式 + 仅 Browser。
 4. 去掉 `agents` 段：三模式 + 全部 primary。

@@ -120,10 +120,14 @@ export function assembleToolPool(
     )
   }
 
-  // Browser specialist: these tools are the job, not a deferred lookup.
+  // A primary's allow-list is the job, not a deferred lookup.
   // Qwen (and others) call ToolSearch in parallel with browser_* and the
   // sibling calls fail because activation only happens on the next step.
-  if (mainThreadProfile?.agentType === BROWSER_AGENT_TYPE) {
+  if (
+    mainThreadProfile &&
+    ((allowList && allowList.length > 0) ||
+      mainThreadProfile.agentType === BROWSER_AGENT_TYPE)
+  ) {
     const promote =
       allowList && allowList.length > 0 ? allowList : [...BROWSER_TOOL_NAMES]
     for (const name of promote) {

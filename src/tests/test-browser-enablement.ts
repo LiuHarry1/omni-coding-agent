@@ -22,6 +22,7 @@ import {
   BROWSER_CLICK_TOOL_NAME,
   BROWSER_MOUSE_CLICK_XY_TOOL_NAME,
   BROWSER_RESIZE_TOOL_NAME,
+  CRON_CREATE_TOOL_NAME,
   ENTER_PLAN_MODE_TOOL_NAME,
   LSP_TOOL_NAME,
   TOOL_SEARCH_TOOL_NAME,
@@ -129,6 +130,30 @@ for (const name of [
   )
 }
 console.log('ok workspace browser profile exposes visual and CDP tools')
+
+const assistantPool = assembleToolPool({
+  registry: defaultRegistry,
+  cwd: process.cwd(),
+  session: minimalSession('assistant'),
+  toolContext: minimalToolContext(),
+  mcpTools: {},
+  activeAgents: workspace.agents.activeAgents,
+  toolEnablement: {},
+  browserConfig: { enabled: true },
+})
+for (const name of [
+  BROWSER_CLICK_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
+  ASK_USER_QUESTION_TOOL_NAME,
+  CRON_CREATE_TOOL_NAME,
+]) {
+  assert.ok(
+    name in assistantPool.tools,
+    `${name} must be active for the assistant primary`,
+  )
+}
+assert.ok(!(LSP_TOOL_NAME in assistantPool.tools))
+console.log('ok allow-listed primary tools load eagerly')
 
 const optedIn = poolFor(null, { enabled: true })
 assert.ok(!(BROWSER_CLICK_TOOL_NAME in optedIn.tools))
