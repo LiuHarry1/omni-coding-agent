@@ -3,12 +3,8 @@ import {
   MAX_OUTPUT_SIZE_BYTES,
   PDF_MAX_PAGES_PER_READ,
 } from './limits.js'
-import {
-  BASH_TOOL_NAME,
-  FILE_READ_TOOL_NAME,
-  POWERSHELL_TOOL_NAME,
-} from '../../constants/tool_names.js'
-import { isPowerShellToolEnabled } from '../../core/shell/shell-utils.js'
+import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
+import { getAvailableShellToolNames } from '../../core/shell/shell-utils.js'
 
 export { FILE_READ_TOOL_NAME }
 
@@ -22,9 +18,9 @@ const OFFSET_INSTRUCTION =
   "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters"
 
 function directoryListTool(): string {
-  return isPowerShellToolEnabled()
-    ? `\`${BASH_TOOL_NAME}\` or \`${POWERSHELL_TOOL_NAME}\``
-    : `\`${BASH_TOOL_NAME}\``
+  return getAvailableShellToolNames()
+    .map(name => `\`${name}\``)
+    .join(' or ')
 }
 
 /**

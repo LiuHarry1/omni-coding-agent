@@ -1,9 +1,7 @@
 import type { Message, UserContentPart, UserMessage } from '../../core/types.js'
 import type { Attachment } from './types.js'
-import {
-  BASH_TOOL_NAME,
-  FILE_READ_TOOL_NAME,
-} from '../../constants/tool_names.js'
+import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
+import { getDefaultShellToolName } from '../../core/shell/shell-utils.js'
 import { MAX_LINES_TO_READ } from '../../constants/api_limits.js'
 import { formatReadOutputAsToolString } from '../read/index.js'
 import type { ReadOutput } from '../read/types.js'
@@ -102,14 +100,16 @@ function formatFileSize(bytes: number): string {
 
 export function attachmentToMessages(attachment: Attachment): Message[] {
   switch (attachment.type) {
-    case 'directory':
+    case 'directory': {
+      const shellToolName = getDefaultShellToolName()
       return [
-        createToolUseMessage(BASH_TOOL_NAME, {
+        createToolUseMessage(shellToolName, {
           command: `ls ${JSON.stringify(attachment.path)}`,
           description: `Lists files in ${attachment.displayPath}`,
         }),
-        createToolResultTextMessage(BASH_TOOL_NAME, attachment.content),
+        createToolResultTextMessage(shellToolName, attachment.content),
       ]
+    }
 
     case 'file':
     case 'already_read_file':
@@ -121,7 +121,7 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
           `The user attached ${attachment.displayPath} (${attachment.mediaType}, ${formatFileSize(attachment.fileSize)}). ` +
             `Its contents cannot be shown inline. The file is saved at ${toModelFilePath(attachment.filename)} — ` +
             `copy or process that on-disk path (do not rebuild it from the original filename). ` +
-            `Use ${BASH_TOOL_NAME} to inspect or convert it (for example a Python one-liner with python-docx, openpyxl, or python-pptx) ` +
+            `Use ${getDefaultShellToolName()} to inspect or convert it (for example a Python one-liner with python-docx, openpyxl, or python-pptx) ` +
             `before answering questions about it.`,
         ),
       ]

@@ -19,7 +19,7 @@ import {
   clearAllLSPDiagnostics,
 } from '../services/lsp/LSPDiagnosticRegistry.js'
 import { getLspWorkspaceKey, hasLspServers } from '../services/lsp/manager.js'
-import { BASH_TOOL_NAME } from '../constants/tool_names.js'
+import { getAvailableShellToolNames } from '../core/shell/shell-utils.js'
 import { getAgentListingDeltaAttachments } from '../tools/AgentTool/agentListing.js'
 import { drainTaskNotifications } from '../utils/task/pendingNotifications.js'
 import { loadConditionalRulesForPaths } from './rules-loader.js'
@@ -100,7 +100,8 @@ async function maybe<A>(label: string, f: () => Promise<A[]>): Promise<A[]> {
 async function getLSPDiagnosticAttachments(
   ctx: ToolUseContext,
 ): Promise<Attachment[]> {
-  if (!Object.keys(ctx.options.tools).includes(BASH_TOOL_NAME)) {
+  const shellTools = getAvailableShellToolNames()
+  if (!Object.keys(ctx.options.tools).some(name => shellTools.includes(name))) {
     return []
   }
   if (!hasLspServers(ctx.lspServers)) return []
