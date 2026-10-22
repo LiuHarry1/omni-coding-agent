@@ -25,10 +25,7 @@ import type {
   ToolDefinition,
   ToolResultBlockParam,
 } from '../../core/types.js'
-import {
-  AGENT_TOOL_NAME,
-  GREP_TOOL_NAME,
-} from '../../constants/tool_names.js'
+import { AGENT_TOOL_NAME, GREP_TOOL_NAME } from '../../constants/tool_names.js'
 import { getAvailableShellToolNames } from '../../core/shell/shell-utils.js'
 import { buildRgExcludeGlobs } from '../../constants/file_filters.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'

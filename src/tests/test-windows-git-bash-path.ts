@@ -45,7 +45,10 @@ assert(
 
 const windowsWithoutGit = resolveShellCapabilities(true, false)
 assert(!windowsWithoutGit.bash, 'Windows without Git Bash omits Bash')
-assert(windowsWithoutGit.powershell, 'Windows without Git Bash keeps PowerShell')
+assert(
+  windowsWithoutGit.powershell,
+  'Windows without Git Bash keeps PowerShell',
+)
 assert(
   windowsWithoutGit.defaultKind === 'powershell',
   'Windows without Git Bash defaults to PowerShell',

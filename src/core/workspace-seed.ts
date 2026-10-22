@@ -14,11 +14,7 @@ import * as path from 'path'
 export const WORKSPACE_SEEDED_MARKER = '.workspace-seeded'
 
 const DEFAULT_SEED_DIR = '/opt/workspace-seed'
-const ASSISTANT_RELATIVE_PATH = path.join(
-  '.ai-agent',
-  'agents',
-  'assistant.md',
-)
+const ASSISTANT_RELATIVE_PATH = path.join('.ai-agent', 'agents', 'assistant.md')
 const LEGACY_WINDOWS_SHELL_GUIDANCE =
   '- The shell runs as the user on their real machine, with no sandbox. On Windows, use `PowerShell` for every command — `Bash` needs Git for Windows, which most users do not have. On macOS / Linux, use `Bash`.'
 const CURRENT_WINDOWS_SHELL_GUIDANCE =
@@ -125,7 +121,9 @@ export function seedUserWorkspaceIfNeeded(userWorkspace: string): boolean {
   const markerPath = path.join(userWorkspace, WORKSPACE_SEEDED_MARKER)
   if (fs.existsSync(markerPath)) {
     const seedDir = getWorkspaceSeedDir()
-    return seedDir ? applyWorkspaceSeedMigrations(userWorkspace, seedDir) : false
+    return seedDir
+      ? applyWorkspaceSeedMigrations(userWorkspace, seedDir)
+      : false
   }
 
   const raw = process.env.WORKSPACE_SEED_DIR
