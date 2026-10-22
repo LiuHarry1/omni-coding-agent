@@ -5,6 +5,7 @@ import {
   bashExeFromGitExe,
   findGitBashPath,
 } from '../core/shell/windows-paths.js'
+import { resolveShellCapabilities } from '../core/shell/shell-utils.js'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg)
@@ -34,10 +35,34 @@ assertEq(
   'Program Files (x86) cmd\\git.exe',
 )
 
+const windowsWithGit = resolveShellCapabilities(true, true)
+assert(windowsWithGit.bash, 'Windows with Git Bash enables Bash')
+assert(windowsWithGit.powershell, 'Windows enables PowerShell')
+assert(
+  windowsWithGit.defaultKind === 'bash',
+  'Windows with Git Bash defaults to Bash',
+)
+
+const windowsWithoutGit = resolveShellCapabilities(true, false)
+assert(!windowsWithoutGit.bash, 'Windows without Git Bash omits Bash')
+assert(windowsWithoutGit.powershell, 'Windows without Git Bash keeps PowerShell')
+assert(
+  windowsWithoutGit.defaultKind === 'powershell',
+  'Windows without Git Bash defaults to PowerShell',
+)
+
+const unix = resolveShellCapabilities(false, false)
+assert(unix.bash, 'Unix enables Bash')
+assert(!unix.powershell, 'Unix omits PowerShell')
+assert(unix.defaultKind === 'bash', 'Unix defaults to Bash')
+
 if (process.platform === 'win32') {
   const found = findGitBashPath()
-  assert(found, 'findGitBashPath should resolve Git Bash on this machine')
-  console.log(`Git Bash: ${found}`)
+  console.log(
+    found
+      ? `Git Bash: ${found}`
+      : 'Git Bash not installed; PowerShell fallback will be used',
+  )
 }
 
 console.log('windows git-bash path checks passed')

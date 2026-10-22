@@ -5,7 +5,8 @@
  * Desktop: Electron sets WORKSPACE_SEED_DIR; discovery via
  * loadWorkspaceContributions applies the seed once (marker file).
  *
- * Existing files are never overwritten (`errorOnExist: false`).
+ * Existing files are never overwritten (`errorOnExist: false`). Narrow,
+ * content-matched migrations may update obsolete product-owned seed text.
  */
 import * as fs from 'fs'
 import * as path from 'path'
@@ -13,6 +14,15 @@ import * as path from 'path'
 export const WORKSPACE_SEEDED_MARKER = '.workspace-seeded'
 
 const DEFAULT_SEED_DIR = '/opt/workspace-seed'
+const ASSISTANT_RELATIVE_PATH = path.join(
+  '.ai-agent',
+  'agents',
+  'assistant.md',
+)
+const LEGACY_WINDOWS_SHELL_GUIDANCE =
+  '- The shell runs as the user on their real machine, with no sandbox. On Windows, use `PowerShell` for every command — `Bash` needs Git for Windows, which most users do not have. On macOS / Linux, use `Bash`.'
+const CURRENT_WINDOWS_SHELL_GUIDANCE =
+  '- The shell runs as the user on their real machine, with no sandbox. On Windows, prefer `Bash` when that tool is available; if Git Bash is not installed, `Bash` is omitted and you must use `PowerShell`. Never invoke `powershell.exe` or `pwsh` from `Bash`; call the `PowerShell` tool directly. On macOS / Linux, use `Bash`.'
 
 /** Resolved seed dir, or null when seeding is disabled / nothing to copy. */
 export function getWorkspaceSeedDir(): string | null {
@@ -73,12 +83,50 @@ function writeSeedMarker(userWorkspace: string, seedDir: string): void {
 }
 
 /**
+ * Upgrade the exact obsolete Desktop assistant instruction without replacing
+ * the file or touching customized surrounding content.
+ */
+export function applyWorkspaceSeedMigrations(
+  userWorkspace: string,
+  seedDir: string,
+): boolean {
+  const seededAssistant = path.join(seedDir, ASSISTANT_RELATIVE_PATH)
+  const userAssistant = path.join(userWorkspace, ASSISTANT_RELATIVE_PATH)
+  if (!fs.existsSync(seededAssistant) || !fs.existsSync(userAssistant)) {
+    return false
+  }
+
+  const seedText = fs.readFileSync(seededAssistant, 'utf-8')
+  const userText = fs.readFileSync(userAssistant, 'utf-8')
+  if (
+    !seedText.includes(CURRENT_WINDOWS_SHELL_GUIDANCE) ||
+    !userText.includes(LEGACY_WINDOWS_SHELL_GUIDANCE)
+  ) {
+    return false
+  }
+
+  fs.writeFileSync(
+    userAssistant,
+    userText.replace(
+      LEGACY_WINDOWS_SHELL_GUIDANCE,
+      CURRENT_WINDOWS_SHELL_GUIDANCE,
+    ),
+    'utf-8',
+  )
+  console.log(`[workspace] migrated shell guidance in ${userAssistant}`)
+  return true
+}
+
+/**
  * On first use of a workspace, copy the baked seed template.
  * Idempotent — safe to call on every request that discovers the workspace.
  */
 export function seedUserWorkspaceIfNeeded(userWorkspace: string): boolean {
   const markerPath = path.join(userWorkspace, WORKSPACE_SEEDED_MARKER)
-  if (fs.existsSync(markerPath)) return false
+  if (fs.existsSync(markerPath)) {
+    const seedDir = getWorkspaceSeedDir()
+    return seedDir ? applyWorkspaceSeedMigrations(userWorkspace, seedDir) : false
+  }
 
   const raw = process.env.WORKSPACE_SEED_DIR
   if (raw != null && raw.trim() === '') {

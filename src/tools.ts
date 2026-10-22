@@ -1,5 +1,8 @@
 import { defaultRegistry } from './core/tool-registry.js'
-import { isPowerShellToolEnabled } from './core/shell/shell-utils.js'
+import {
+  isBashToolEnabled,
+  isPowerShellToolEnabled,
+} from './core/shell/shell-utils.js'
 import { definition as bash } from './tools/BashTool/BashTool.js'
 import { definition as powershell } from './tools/PowerShellTool/PowerShellTool.js'
 import { definition as readFile } from './tools/FileReadTool/FileReadTool.js'
@@ -19,8 +22,10 @@ import { definition as cronList } from './tools/ScheduleCronTool/CronListTool.js
 import { definition as cronDelete } from './tools/ScheduleCronTool/CronDeleteTool.js'
 import { browserToolDefinitions } from './tools/BrowserTool/BrowserTool.js'
 
-// Default: bash always; powershell additionally on Windows.
-const shellTools = [bash, ...(isPowerShellToolEnabled() ? [powershell] : [])]
+const shellTools = [
+  ...(isBashToolEnabled() ? [bash] : []),
+  ...(isPowerShellToolEnabled() ? [powershell] : []),
+]
 
 ;[
   ...shellTools,

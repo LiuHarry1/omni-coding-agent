@@ -302,8 +302,8 @@ if (process.platform === 'win32') {
     'Windows env must not say Shell: unknown',
   )
   assert(
-    env.includes('Git Bash') || env.includes('bash'),
-    'Windows env names the Bash tool shell',
+    env.includes('Git Bash') || env.includes('PowerShell'),
+    'Windows env names the detected shell',
   )
 }
 

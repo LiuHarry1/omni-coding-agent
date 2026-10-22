@@ -27,11 +27,9 @@ import type {
 } from '../../core/types.js'
 import {
   AGENT_TOOL_NAME,
-  BASH_TOOL_NAME,
   GREP_TOOL_NAME,
-  POWERSHELL_TOOL_NAME,
 } from '../../constants/tool_names.js'
-import { isPowerShellToolEnabled } from '../../core/shell/shell-utils.js'
+import { getAvailableShellToolNames } from '../../core/shell/shell-utils.js'
 import { buildRgExcludeGlobs } from '../../constants/file_filters.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
 
@@ -58,9 +56,9 @@ export type GrepOutput = z.infer<typeof GrepOutputSchema>
 export type GrepFileHit = z.infer<typeof GrepFileHitSchema>
 
 function getDescription(): string {
-  const shellAvoid = isPowerShellToolEnabled()
-    ? `\`${BASH_TOOL_NAME}\` or \`${POWERSHELL_TOOL_NAME}\``
-    : `\`${BASH_TOOL_NAME}\``
+  const shellAvoid = getAvailableShellToolNames()
+    .map(name => `\`${name}\``)
+    .join(' or ')
   return `A powerful search tool built on ripgrep
 
   Usage:

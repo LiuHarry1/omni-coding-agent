@@ -4,7 +4,6 @@ import {
 } from '../tools/AgentTool/built-in/exploreAgent.js'
 import {
   AGENT_TOOL_NAME,
-  BASH_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
   GLOB_TOOL_NAME,
   GREP_TOOL_NAME,
@@ -13,6 +12,7 @@ import {
   TOOL_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
+import { getDefaultShellToolName } from '../core/shell/shell-utils.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/SkillTool.js'
 import { computeSimpleEnvInfo } from '../constants/prompts.js'
 import { setCwd } from '../utils/cwd.js'
@@ -48,6 +48,7 @@ export async function systemPrompt(
   modelId = '',
 ): Promise<string> {
   setCwd(cwd)
+  const shellToolName = getDefaultShellToolName()
   const env =
     (await computeSimpleEnvInfo(modelId)) + workspaceBoundaryPromptSection(cwd)
   const rulesAppend = projectRules ? `\n\n${projectRules}` : ''
@@ -88,13 +89,13 @@ Examples of the kind of risky actions that warrant user confirmation:
 When you encounter an obstacle, do not use destructive actions as a shortcut to simply make it go away. For instance, try to identify root causes and fix underlying issues rather than bypassing safety checks (e.g. --no-verify). If you discover unexpected state like unfamiliar files, branches, and configuration, investigate before deleting or overwriting, as it may represent the user's in-progress work. For example, typically resolve merge conflicts rather than discarding changes; similarly, if a lock file exists, investigate what process holds it rather than deleting it. In short: only take risky actions carefully, and when in doubt, ask before acting.
 
 # Using your tools
- - Do NOT use the ${BASH_TOOL_NAME} to run commands when a relevant dedicated tool is provided. Using dedicated tools allows the user to better understand and review your work. This is CRITICAL to assisting the user:
+ - Do NOT use the ${shellToolName} tool to run commands when a relevant dedicated tool is provided. Using dedicated tools allows the user to better understand and review your work. This is CRITICAL to assisting the user:
   - To read files use ${FILE_READ_TOOL_NAME} instead of cat, head, tail, or sed
   - To edit files use ${EDIT_FILE_TOOL_NAME} instead of sed or awk
   - To create files use ${WRITE_FILE_TOOL_NAME} instead of cat with heredoc or echo redirection
   - To search for files use ${GLOB_TOOL_NAME} instead of find or ls
   - To search the content of files, use ${GREP_TOOL_NAME} instead of grep or rg
-  - Reserve using the ${BASH_TOOL_NAME} exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool and only fallback on using the ${BASH_TOOL_NAME} tool for these if it is absolutely necessary.
+  - Reserve using the ${shellToolName} tool exclusively for system commands and terminal operations that require shell execution. If you are unsure and there is a relevant dedicated tool, default to using the dedicated tool and only fallback on using the ${shellToolName} tool for these if it is absolutely necessary.
  - Break down and manage your work with the ${TODO_WRITE_TOOL_NAME} tool. These tools are helpful for planning your work and helping the user track your progress. Mark each task as completed as soon as you are done with the task. Do not batch up multiple tasks before marking them as completed.
  - You can call multiple tools in a single response. If you intend to call multiple tools and there are no dependencies between them, make all independent tool calls in parallel. Maximize use of parallel tool calls where possible to increase efficiency. However, if some tool calls depend on previous calls to inform dependent values, do NOT call these tools in parallel and instead call them sequentially. For instance, if one operation must complete before another starts, run these operations sequentially instead.
 

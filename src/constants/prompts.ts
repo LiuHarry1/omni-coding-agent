@@ -9,6 +9,10 @@
 import * as os from 'os'
 import { getCwd } from '../utils/cwd.js'
 import { getIsGit } from '../utils/git.js'
+import {
+  isBashToolEnabled,
+  isPowerShellToolEnabled,
+} from '../core/shell/shell-utils.js'
 
 const isWindows = process.platform === 'win32'
 
@@ -26,24 +30,23 @@ export function prependBullets(items: Array<string | string[]>): string[] {
 }
 
 function getShellInfoLine(): string {
-  // POSIX login shells set SHELL. Windows npm/PowerShell sessions usually do
-  // not — the Bash tool still runs Git Bash (see BashTool prompt).
+  if (isWindows) {
+    if (isBashToolEnabled()) {
+      return `Shell: Git Bash (preferred; use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths). PowerShell is available only through its dedicated tool; never invoke powershell.exe or pwsh from Bash.`
+    }
+    if (isPowerShellToolEnabled()) {
+      return `Shell: PowerShell (Git Bash is not installed; use PowerShell syntax, not Unix shell syntax)`
+    }
+  }
+
   const shell = process.env.SHELL?.trim()
-  let shellName: string
-  if (shell) {
-    shellName = shell.includes('zsh')
+  const shellName = shell
+    ? shell.includes('zsh')
       ? 'zsh'
       : shell.includes('bash')
         ? 'bash'
         : shell
-  } else if (isWindows) {
-    shellName = 'Git Bash'
-  } else {
-    shellName = 'unknown'
-  }
-  if (isWindows) {
-    return `Shell: ${shellName} (use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths)`
-  }
+    : 'unknown'
   return `Shell: ${shellName}`
 }
 

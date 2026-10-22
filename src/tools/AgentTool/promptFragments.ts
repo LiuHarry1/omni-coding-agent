@@ -1,5 +1,6 @@
 import {
-  DEFAULT_SHELL_TOOL_NAME,
+  getDefaultShellToolName,
+  isBashToolEnabled,
   isPowerShellToolEnabled,
 } from '../../core/shell/shell-utils.js'
 import {
@@ -12,12 +13,20 @@ import {
   WEB_SEARCH_TOOL_NAME,
 } from '../../constants/tool_names.js'
 
-export const SHELL_TOOL_NAME = DEFAULT_SHELL_TOOL_NAME
+export const SHELL_TOOL_NAME = getDefaultShellToolName()
 
-const SHELL_READ_ONLY_LINE = isPowerShellToolEnabled()
-  ? `- ${BASH_TOOL_NAME}: read-only commands only (ls, cat, head, tail, find, git status/log/diff). NEVER redirects (\`>\`, \`>>\`), mkdir / touch / rm / mv / cp, git add/commit, or package installs.
-- ${POWERSHELL_TOOL_NAME}: read-only cmdlets only (Get-ChildItem, Get-Content, Select-String, git status/log/diff). NEVER Set-Content / Out-File / Add-Content / redirects, mkdir / New-Item / Remove-Item / Move-Item / Copy-Item, git add/commit, or package installs.`
-  : `- ${BASH_TOOL_NAME}: read-only commands only (ls, cat, head, tail, find, git status/log/diff). NEVER redirects (\`>\`, \`>>\`), mkdir / touch / rm / cp, git add/commit, or package installs.`
+const SHELL_READ_ONLY_LINE = [
+  ...(isBashToolEnabled()
+    ? [
+        `- ${BASH_TOOL_NAME}: read-only commands only (ls, cat, head, tail, find, git status/log/diff). NEVER redirects (\`>\`, \`>>\`), mkdir / touch / rm / mv / cp, git add/commit, or package installs.`,
+      ]
+    : []),
+  ...(isPowerShellToolEnabled()
+    ? [
+        `- ${POWERSHELL_TOOL_NAME}: read-only cmdlets only (Get-ChildItem, Get-Content, Select-String, git status/log/diff). NEVER Set-Content / Out-File / Add-Content / redirects, mkdir / New-Item / Remove-Item / Move-Item / Copy-Item, git add/commit, or package installs.`,
+      ]
+    : []),
+].join('\n')
 
 export const READ_ONLY_MODE = `=== READ-ONLY MODE — STRICTLY ENFORCED ===
 You MUST NOT:
