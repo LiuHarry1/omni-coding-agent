@@ -11,7 +11,7 @@ import { toolActionLabel, toolErrorDetails } from '../lib/tool-action-labels.js'
 /**
  * Shell tool card (`ui-shell-tool-call`):
  *   action: Running | Ran | Run(error) | Shell(backgrounded)
- *   details: description ?? "Running/Ran command" (not raw command by default)
+ *   details: description ?? "command" (not raw command by default)
  * Done body prefers TUR stdout/stderr; model `text` may include wrappers.
  */
 
@@ -148,10 +148,9 @@ export default function BashCard({ part, onStopTool }) {
   const command = typeof args?.command === 'string' ? args.command.trim() : ''
   const description =
     typeof args?.description === 'string' ? args.description.trim() : ''
-  // Prefer description; else generic phrase (not raw command in details)
-  const rawDetails =
-    description ||
-    (!isDone ? 'Running command' : failed ? 'Run command' : 'Ran command')
+  // Prefer description; else a bare noun — the label supplies the verb
+  // (not raw command in details)
+  const rawDetails = description || 'command'
   // Keep a real description when there is one; only sharpen the generic
   // "attempted" fallback into the specific reason.
   const baseDetails = toolErrorDetails(rawDetails, failed)
@@ -273,7 +272,6 @@ export default function BashCard({ part, onStopTool }) {
       onToggle={isBackgrounded ? undefined : toggleExpanded}
       hasBody={!isBackgrounded}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       bodyOpen={showLive || showFinal}
       label={action}
       title={details}

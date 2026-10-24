@@ -1,6 +1,5 @@
 import CopyButton from './CopyButton.jsx'
 import ToolChrome from './ToolChrome.jsx'
-import { liveToolSubtitle } from '../lib/tool-density.js'
 import { useToolDensityExpand } from '../lib/use-tool-density-expand.js'
 
 /**
@@ -20,7 +19,7 @@ export default function ListDirCard({ part, nested = false }) {
   const isError =
     isDone && typeof result === 'string' && result.startsWith('Error:')
 
-  const dirPath = args.dir_path || args.path || '.'
+  const dirPath = args.dir_path || args.path || (isDone ? '.' : null)
   const depth = args.depth
   const ignore =
     Array.isArray(args.ignore) && args.ignore.length > 0 ? args.ignore : null
@@ -31,8 +30,7 @@ export default function ListDirCard({ part, nested = false }) {
   if (ignore) meta.push(`ignore ${ignore.length}`)
   if (fileCount != null) meta.push(`${fileCount} files`)
 
-  const liveSub = !isDone ? liveToolSubtitle(part) : null
-  const subtitle = liveSub || (meta.length > 0 ? meta.join(' \u00B7 ') : null)
+  const subtitle = meta.length > 0 ? meta.join(' \u00B7 ') : null
   const hasBody = isDone && typeof result === 'string'
 
   const [expanded, toggleExpanded, chevron] = useToolDensityExpand(
@@ -50,7 +48,6 @@ export default function ListDirCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label='LS'
       title={dirPath}
       titleTooltip={dirPath}

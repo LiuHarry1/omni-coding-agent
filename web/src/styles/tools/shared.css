@@ -81,74 +81,66 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  /* ui-tool-call-line: tight vertical padding, ~20px row */
-  padding: 1px 4px;
+  /* ui-tool-call-line: flush with the prose column, ~18px row */
+  padding: 1px 0;
   width: 100%;
+  min-width: 0;
   background: transparent;
   border: 0;
   outline: none;
   text-align: left;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-tier-2);
+  white-space: nowrap;
+  overflow: hidden;
   cursor: pointer;
+  user-select: none;
   border-radius: 4px;
 }
+.tool-row-header[aria-disabled='true'] { cursor: default; }
 .tool-row-header:focus-visible {
   outline: 1px solid var(--border);
   outline-offset: 1px;
 }
-.tool-row-header:hover { background: transparent; color: var(--text-primary); }
 
+/* Trailing disclosure chevron: hidden until hover / focus / open. */
 .tool-row-chevron {
-  display: inline-block;
-  font-size: 7px;
-  width: 10px;
-  text-align: center;
-  transition: transform 120ms ease;
   flex-shrink: 0;
-  opacity: 0.55;
-  color: var(--text-muted);
+  margin-left: 2px;
+  color: var(--text-tier-3);
+  opacity: 0;
+  transition: transform 100ms ease-in-out, opacity 100ms ease-in-out;
 }
+.tool-row-header:hover .tool-row-chevron,
+.tool-row-header:focus-visible .tool-row-chevron,
+.tool-row-chevron.open { opacity: 1; }
 .tool-row-chevron.open { transform: rotate(90deg); }
-.tool-row-chevron--slot {
-  visibility: hidden;
-  pointer-events: none;
-}
 
 .tool-row-icon { font-size: 12px; opacity: 0.85; flex-shrink: 0; }
 .tool-row-label {
-  /* Bold action verb */
-  color: var(--text-primary);
-  font-weight: 600;
+  color: var(--text-tier-2);
+  font-weight: 400;
   flex-shrink: 0;
+  transition: color 100ms ease-in-out;
 }
+.tool-row-label.shimmer-text { --shimmer-highlight: var(--text-primary); }
 .tool-row-title {
-  /* Quieter details after the verb */
-  color: var(--text-muted);
+  color: var(--text-tier-3);
   font-weight: 400;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
   flex: 0 1 auto;
-  max-width: 56%;
   font-variant-numeric: tabular-nums;
+  transition: color 100ms ease-in-out;
 }
-.tool-row-header:hover .tool-row-title:not(.tool-row-title--plain) {
-  color: var(--text-secondary);
-  text-decoration: underline;
-  text-decoration-color: var(--border-light);
-  text-underline-offset: 2px;
-}
-.tool-row-title--plain {
-  color: var(--text-muted);
-  font-weight: 400;
-}
+.tool-row-header[role='button']:hover .tool-row-label { color: var(--text-primary); }
+.tool-row-header[role='button']:hover .tool-row-title { color: var(--text-tier-2); }
 .tool-row-subtitle {
-  color: var(--text-muted);
-  font-size: 12px;
+  color: var(--text-tier-4);
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -164,11 +156,11 @@
 }
 .tool-row-spacer { flex: 1; }
 .tool-row-duration {
-  color: var(--text-muted);
-  font-size: 10.5px;
-  font-family: var(--font-mono);
+  color: var(--text-tier-4);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
   /* Reserve a stable slot so the trailing status icon doesn't shift
-     horizontally as the row transitions spinner → ✓ → ✗. */
+     horizontally as the row transitions ✓ → ✗. */
   min-width: 38px;
   text-align: right;
 }
@@ -179,7 +171,7 @@
   display: inline-flex;
   justify-content: center;
 }
-.tool-row-status--empty { color: var(--text-muted); }
+.tool-row-status--empty { color: var(--text-tier-4); }
 .tool-row-actions { display: inline-flex; align-items: center; }
 
 .tool-row-meta-badge {
@@ -192,18 +184,8 @@
   flex-shrink: 0;
 }
 
-/* Nested rows inside Explored / subagent — same type scale as the flat list. */
-.tool-row--nested .tool-row-header {
-  padding: 1px 4px;
-  font-size: 12.5px;
-}
-.tool-row--nested .tool-row-label {
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
+/* Nested rows inside Explored / subagent share the flat-list type scale. */
 .tool-row--nested .tool-row-subtitle {
-  font-size: 12px;
   max-width: 40%;
 }
 .tool-row--nested .tool-row-body {
@@ -221,9 +203,8 @@
   gap: 6px;
 }
 
-/* Shared body styles for the compact row family. Indented to align under
-   the icon (not the chevron) so the body visually "belongs" to its
-   parent row. */
+/* Shared body styles for the compact row family. Indented so the body
+   visually "belongs" to its parent row. */
 .tool-row-body {
   margin: 4px 0 0 18px;
   padding: 10px 14px;
@@ -255,19 +236,4 @@
   font-size: 11.5px;
   color: var(--text-muted);
   font-style: italic;
-}
-
-/* Light theme */
-
-
-[data-theme="light"] .tool-row-header:hover { background: transparent; }
-[data-theme="light"] .tool-row-label { color: var(--text-primary); }
-[data-theme="light"] .tool-row-title,
-[data-theme="light"] .tool-row-title--plain {
-  color: var(--text-muted);
-}
-[data-theme="light"] .explored-group .tool-row-label,
-[data-theme="light"] .explored-group .tool-row-title,
-[data-theme="light"] .work-group-body .read-file-card .tool-row-label {
-  color: var(--text-muted);
 }

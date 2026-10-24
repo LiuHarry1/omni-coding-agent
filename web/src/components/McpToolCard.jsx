@@ -59,7 +59,6 @@ export default function McpToolCard({ part, nested = false }) {
       onToggle={bodyReady ? toggleExpanded : undefined}
       hasBody={bodyReady}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label='MCP'
       title={title || '\u2026'}
       titleTooltip={name}

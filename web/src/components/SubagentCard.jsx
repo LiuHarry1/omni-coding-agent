@@ -68,7 +68,7 @@ export default function SubagentCard({ part, onStopTool }) {
     args.description ||
     args.task ||
     (typeof args.prompt === 'string' ? args.prompt.slice(0, 120) : '') ||
-    '…'
+    null
   const fullPrompt = args.prompt || args.task || ''
   const isDone = part.status === 'done'
   const isError =
@@ -103,7 +103,6 @@ export default function SubagentCard({ part, onStopTool }) {
         expanded={expanded}
         onToggle={hasBody ? toggleExpanded : undefined}
         showChevron={chevron.showChevron}
-        chevronSlot={chevron.chevronSlot}
         label={badge}
         title={headline}
         titleTooltip={fullPrompt || headline}

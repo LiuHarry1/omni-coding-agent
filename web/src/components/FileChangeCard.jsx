@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import DiffViewer from './DiffViewer.jsx'
 import FilePreview from './FilePreview.jsx'
 import CopyButton from './CopyButton.jsx'
+import ToolChrome from './ToolChrome.jsx'
 import {
   fileName,
   formatDuration,
@@ -146,47 +147,20 @@ function collapsedTeaserText({
   return previewSource
 }
 
-function FileChangeStub({
-  name,
-  isDone,
-  isError,
-  result,
-  duration,
-  liveInputBytes,
-  nested,
-  verb,
-}) {
-  let status
-  if (!isDone) {
-    const sizeLabel =
-      liveInputBytes != null && liveInputBytes > 0
-        ? formatBytes(liveInputBytes)
-        : 'preparing…'
-    status = (
-      <>
-        <span className='file-change-stub-meta'>{sizeLabel}</span>
-        <span className='spinner spinner-sm' />
-      </>
-    )
-  } else {
-    status = duration ? (
-      <span className='file-change-stub-meta'>{duration}</span>
-    ) : null
-  }
+/** Finished call that never produced a valid file_path. */
+function FileChangeStub({ name, result, duration, nested, verb }) {
   return (
     <div
-      className={`file-change-stub ${isError ? 'has-error' : ''} ${nested ? 'file-change-stub--nested' : ''}`}
+      className={`file-change-stub ${nested ? 'file-change-stub--nested' : ''}`}
     >
       <div className='file-change-stub-row'>
         <span className='file-change-stub-verb'>{verb}</span>
         <span className='file-change-stub-name'>{name || 'tool_call'}</span>
-        <span className='file-change-stub-label'>
-          {isDone ? 'missing file_path' : 'preparing arguments'}
-        </span>
+        <span className='file-change-stub-label'>missing file_path</span>
         <span className='file-change-stub-spacer' />
-        {status}
+        {duration && <span className='file-change-stub-meta'>{duration}</span>}
       </div>
-      {isDone && isError && typeof result === 'string' && (
+      {typeof result === 'string' && (
         <div className='file-change-stub-error'>{result}</div>
       )}
     </div>
@@ -269,14 +243,22 @@ export default function FileChangeCard({ part, nested = false }) {
   }, [shouldAutoExpand, userToggled])
 
   if (!filePath && !hasAnythingToShow) {
+    if (!isDone) {
+      return (
+        <ToolChrome
+          variant='file-change-pending'
+          nested={nested}
+          isDone={false}
+          hasBody={false}
+          label={verb}
+        />
+      )
+    }
     return (
       <FileChangeStub
         name={name}
-        isDone={isDone}
-        isError={isError || isDone}
         result={result}
         duration={duration}
-        liveInputBytes={part.liveInputBytes}
         nested={nested}
         verb={verb}
       />
@@ -287,7 +269,7 @@ export default function FileChangeCard({ part, nested = false }) {
     (filePath && shortDisplayPath(filePath)) ||
     fileName(filePath) ||
     filePath ||
-    (isDone ? '(missing file_path)' : 'writing…')
+    (isDone ? '(missing file_path)' : null)
 
   let body = null
   let copyText = null

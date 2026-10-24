@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { formatWorkedDuration } from '../lib/timeline.js'
+import ChevronIcon from './ChevronIcon.jsx'
 
 /**
  * Default-chat `workGroup` disclosure (completed turn only).
@@ -39,16 +40,11 @@ export default function WorkGroup({
         className='work-group-header'
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
+        aria-busy={isRunning || undefined}
       >
-        <span
-          className={`work-group-chevron ${open ? 'open' : ''}`}
-          aria-hidden='true'
-        >
-          {'\u25B6'}
-        </span>
         <span className='work-group-label'>
           {isRunning ? (
-            <span className='work-group-action'>
+            <span className='work-group-action shimmer-text'>
               {runningTaskCount} working
             </span>
           ) : (
@@ -58,9 +54,7 @@ export default function WorkGroup({
             </>
           )}
         </span>
-        {isRunning && (
-          <span className='spinner spinner-sm' aria-hidden='true' />
-        )}
+        <ChevronIcon open={open} className='work-group-chevron' />
       </button>
 
       <div className='work-group-body' hidden={!open} aria-hidden={!open}>

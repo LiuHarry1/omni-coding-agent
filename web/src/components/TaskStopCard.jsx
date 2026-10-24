@@ -38,7 +38,7 @@ export default function TaskStopCard({ part }) {
     loading: !isDone,
     hasError: isError,
   })
-  const title = isError ? toolErrorDetails(taskId || '…', true) : taskId || '…'
+  const title = isError ? toolErrorDetails(taskId || '…', true) : taskId || null
 
   return (
     <ToolChrome
@@ -49,7 +49,6 @@ export default function TaskStopCard({ part }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titlePlain

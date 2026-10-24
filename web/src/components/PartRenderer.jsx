@@ -6,7 +6,7 @@ import AskUserQuestionCard from './AskUserQuestionCard.jsx'
 import CanUseToolCard from './CanUseToolCard.jsx'
 import PlanApprovalCard from './PlanApprovalCard.jsx'
 import ReasoningBlock from './ReasoningBlock.jsx'
-import ThinkingDots from './ThinkingDots.jsx'
+import PlanningStatus from './PlanningStatus.jsx'
 import CompactionRow from './CompactionRow.jsx'
 import TodoListCard from './TodoListCard.jsx'
 
@@ -46,7 +46,7 @@ export default function PartRenderer({
         return null
       return <ReasoningBlock part={part} />
     case 'thinking':
-      return <ThinkingDots />
+      return <PlanningStatus />
     case 'ask_user_question':
       return <AskUserQuestionCard part={part} />
     case 'can_use_tool':

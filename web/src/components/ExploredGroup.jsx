@@ -3,8 +3,6 @@ import ToolCallLine from './ToolCallLine.jsx'
 import { pickCard } from './pickToolCard.js'
 import { useToolDensityExpand } from '../lib/use-tool-density-expand.js'
 import {
-  liveToolSubtitle,
-  pickLiveMember,
   summarizeExploredDetails,
   detectToolError,
 } from '../lib/tool-density.js'
@@ -16,37 +14,39 @@ const NESTED_RENDER_CAP = 40
 
 /**
  * Explore / browser density:
- *   collapsed → muted "Explored N files" / "Ran N browser actions"
+ *   collapsed → muted "Exploring 1 file, 1 search, 3 browser actions"
+ *               ("Explored …" / "Ran N browser actions" once settled)
  *   expanded  → nested tool rows (bodies still collapsed)
  *
- * @param {{ items: object[], kind?: 'explore' | 'browser' }} props
+ * `live`: trailing group of a streaming turn — keeps the "Exploring" wording
+ * between steps, because the next step may still join it. Only a running
+ * member makes the label shimmer (the tail status covers the gaps).
+ *
+ * @param {{ items: object[], kind?: 'explore' | 'browser', live?: boolean }} props
  */
-export default function ExploredGroup({ items, kind = 'explore' }) {
+export default function ExploredGroup({
+  items,
+  kind = 'explore',
+  live = false,
+}) {
   const n = items.length
   const anyRunning = items.some(p => p.status !== 'done')
   const anyError = items.some(detectToolError)
-  const allDone = !anyRunning
-  const hasBody = true
   const densityKind = kind === 'browser' ? 'browser-group' : 'explore-group'
 
   const [expanded, toggle, chevron] = useToolDensityExpand(densityKind, {
-    isDone: allDone,
+    isDone: !anyRunning,
     isError: anyError,
     isRunning: anyRunning,
-    hasBody,
+    hasBody: true,
   })
 
-  const live = useMemo(() => pickLiveMember(items), [items])
   const details = useMemo(() => summarizeExploredDetails(items), [items])
 
   const action = toolActionLabel(kind === 'browser' ? 'browser' : 'explore', {
-    loading: anyRunning,
+    loading: live || anyRunning,
     hasError: anyError,
   })
-
-  const title = anyRunning
-    ? liveToolSubtitle(live) || '…'
-    : details || `${n} tool${n === 1 ? '' : 's'}`
 
   const nestedItems = useMemo(() => {
     if (items.length <= NESTED_RENDER_CAP) return items
@@ -62,11 +62,10 @@ export default function ExploredGroup({ items, kind = 'explore' }) {
         expanded={expanded}
         onToggle={toggle}
         showChevron={chevron.showChevron}
-        chevronSlot={chevron.chevronSlot}
         label={action}
-        title={title}
+        title={details || `${n} tool${n === 1 ? '' : 's'}`}
         titlePlain
-        isDone={allDone}
+        isDone={!anyRunning}
         isError={anyError}
         showSuccess={false}
       />

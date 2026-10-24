@@ -124,7 +124,7 @@ export default function SkillCard({ part, nested = false }) {
   })
   const title = isError
     ? toolErrorDetails(skillName || '\u2026', true)
-    : skillName || '\u2026'
+    : skillName || null
 
   return (
     <ToolChrome
@@ -136,8 +136,6 @@ export default function SkillCard({ part, nested = false }) {
       onToggle={handleHeaderToggle}
       hasBody={showChevron}
       showChevron={showChevron}
-      chevronSlot={chevron.chevronSlot}
-      icon={'\u2699'}
       label={action}
       title={title}
       titleTooltip={[skillName, hint].filter(Boolean).join('\n') || undefined}

@@ -149,7 +149,7 @@ export default function ToolCallCard({ part, nested = false }) {
   })
 
   const action = name || 'Tool'
-  const title = fName || argsPreview || '…'
+  const title = fName || argsPreview || null
 
   return (
     <ToolChrome
@@ -161,7 +161,6 @@ export default function ToolCallCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titleTooltip={filePath || argsPreview || name}

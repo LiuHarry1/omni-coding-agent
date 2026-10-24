@@ -6,7 +6,12 @@ import ExploredGroup from '../ExploredGroup.jsx'
 /**
  * Explore / browser rollup — rebuilds items only when member tool refs change.
  */
-function ToolGroupRow({ memberIds, groupKind = 'explore', embedded = false }) {
+function ToolGroupRow({
+  memberIds,
+  groupKind = 'explore',
+  live = false,
+  embedded = false,
+}) {
   const memberKey = useChatStore(s => {
     const parts = []
     for (const id of memberIds) {
@@ -37,7 +42,7 @@ function ToolGroupRow({ memberIds, groupKind = 'explore', embedded = false }) {
 
   const body = (
     <div className='tool-group'>
-      <ExploredGroup items={items} kind={groupKind} />
+      <ExploredGroup items={items} kind={groupKind} live={live} />
     </div>
   )
 
@@ -54,6 +59,7 @@ function memberIdsEqual(a, b) {
 export default memo(ToolGroupRow, (prev, next) => {
   return (
     prev.groupKind === next.groupKind &&
+    prev.live === next.live &&
     prev.embedded === next.embedded &&
     memberIdsEqual(prev.memberIds, next.memberIds)
   )

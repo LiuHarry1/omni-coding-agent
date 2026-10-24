@@ -39,33 +39,6 @@ import {
  * applies when auth is on.
  */
 
-const ICONS = {
-  [BROWSER_NAVIGATE]: '\u{1F310}',
-  [BROWSER_SNAPSHOT]: '\u{1F50D}',
-  [BROWSER_GET_TEXT]: '\u{1F4C4}',
-  [BROWSER_CLICK]: '\u{1F5B1}',
-  [BROWSER_HOVER]: '\u{1F5B1}',
-  [BROWSER_TYPE]: '\u{2328}',
-  [BROWSER_FILL_FORM]: '\u{1F4DD}',
-  [BROWSER_FILE_UPLOAD]: '\u{1F4C2}',
-  [BROWSER_HANDLE_DIALOG]: '\u{1F4AC}',
-  [BROWSER_PRESS_KEY]: '\u{2328}',
-  [BROWSER_WAIT_FOR]: '\u{23F3}',
-  [BROWSER_SELECT_OPTION]: '\u{2328}',
-  [BROWSER_SCROLL]: '\u{2195}',
-  [BROWSER_SCREENSHOT]: '\u{1F4F8}',
-  [BROWSER_CONSOLE]: '\u{1F41E}',
-  [BROWSER_NETWORK]: '\u{1F4E1}',
-  [BROWSER_TABS]: '\u{1F5C2}',
-  [BROWSER_LOCK]: '\u{1F512}',
-  [BROWSER_DRAG]: '\u{2194}',
-  [BROWSER_RESIZE]: '\u{2922}',
-  [BROWSER_WAIT_FOR_DOWNLOAD]: '\u{1F4E5}',
-  [BROWSER_HIGHLIGHT]: '\u{2728}',
-  [BROWSER_GET_BOUNDING_BOX]: '\u{25A3}',
-  [BROWSER_CDP]: '\u{2699}',
-}
-
 const RUNNING_LABELS = {
   [BROWSER_NAVIGATE]: 'Opening page',
   [BROWSER_SNAPSHOT]: 'Reading page',
@@ -168,6 +141,15 @@ function compactBrowserTitle(raw) {
   return text
 }
 
+/** Result messages often open with the label's verb ("Clicked a …"). */
+function dropRepeatedVerb(title, label) {
+  const verb = label.split(' ')[0]
+  if (!title || !verb) return title
+  return title.toLowerCase().startsWith(`${verb.toLowerCase()} `)
+    ? title.slice(verb.length + 1)
+    : title
+}
+
 /** Expanded error body — strip embedded snapshot text, keep the message. */
 function browserErrorBody(raw) {
   if (raw == null || raw === '') return ''
@@ -235,11 +217,14 @@ function BrowserToolCard({ part, nested = false }) {
     ? doneLabel || 'Browser'
     : RUNNING_LABELS[toolName] || 'Browser'
 
-  const title = isError
-    ? compactBrowserTitle(part.result?.replace(/^Error:\s*/, ''))
-    : compactBrowserTitle(
-        tur?.message || args.url || args.ref || args.expression || '',
-      )
+  const title = dropRepeatedVerb(
+    isError
+      ? compactBrowserTitle(part.result?.replace(/^Error:\s*/, ''))
+      : compactBrowserTitle(
+          tur?.message || args.url || args.ref || args.expression || '',
+        ),
+    label,
+  )
 
   const errorDetail =
     isError && typeof part.result === 'string'
@@ -259,8 +244,6 @@ function BrowserToolCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
-      icon={ICONS[toolName] || '\u{1F310}'}
       label={label}
       title={title}
       titleTooltip={tur?.url || args.url || ''}

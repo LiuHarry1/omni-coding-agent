@@ -85,7 +85,7 @@ export function toolActionLabel(toolCase, opts = {}) {
 export function toolErrorDetails(details, hasError) {
   if (!hasError) return details || ''
   const d = typeof details === 'string' ? details.trim() : ''
-  if (!d || /^(running|ran|run) command$/i.test(d)) return 'attempted'
+  if (!d || /^((running|ran|run) )?command$/i.test(d)) return 'attempted'
   return d
 }
 

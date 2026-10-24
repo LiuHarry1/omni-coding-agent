@@ -5,9 +5,10 @@
  * instead of inventing per-file showChevron / expandOnceWhen ternaries.
  *
  * Kinds:
- *   explore-group — Explored N files (always chevron; open while running)
- *   browser-group — browser_* rollup (chevron; stay collapsed while running —
- *                   only the live subtitle updates; avoids DOM storms)
+ *   explore-group — Exploring / Explored 1 file, 1 search, 3 browser actions
+ *   browser-group — Running / Ran N browser actions
+ *                   (both: chevron; stay one line while running — only the
+ *                   header summary updates; expand on error / user)
  *   subagent      — Explorer / Plan / Task (chevron if hasBody; open while running)
  *   explore-line  — Grep / Glob / ListDir / Web* under explore density
  *                   (collapsed by default; expand on error or user; chevron if hasBody)
@@ -47,12 +48,7 @@ export function resolveExpandArgs(kind, ctx = {}) {
 
   switch (kind) {
     case 'explore-group':
-      return {
-        isRunning: isRunning && hasBody,
-        expandOnceWhen: isError,
-      }
     case 'browser-group':
-      // Keep one-line rollup during automation; expand only on error / user.
       return {
         isRunning: false,
         expandOnceWhen: isError,
@@ -90,10 +86,9 @@ export function resolveExpandArgs(kind, ctx = {}) {
 /**
  * @param {DensityKind} kind
  * @param {DensityContext} ctx
- * @returns {{ showChevron: boolean, chevronSlot: boolean }}
+ * @returns {{ showChevron: boolean }}
  */
 export function resolveChevron(kind, ctx = {}) {
-  const nested = Boolean(ctx.nested)
   const hasBody = Boolean(ctx.hasBody)
   const headerOnly = Boolean(ctx.headerOnly)
   const isBackgrounded = Boolean(ctx.isBackgrounded)
@@ -101,33 +96,16 @@ export function resolveChevron(kind, ctx = {}) {
   switch (kind) {
     case 'explore-group':
     case 'browser-group':
-      return { showChevron: true, chevronSlot: false }
-    case 'subagent':
-      return { showChevron: hasBody, chevronSlot: false }
+      return { showChevron: true }
     case 'read':
-      if (headerOnly) {
-        return { showChevron: false, chevronSlot: nested }
-      }
-      return {
-        showChevron: hasBody,
-        chevronSlot: nested && !hasBody,
-      }
-    case 'explore-line':
-      return {
-        showChevron: hasBody,
-        chevronSlot: nested,
-      }
+      return { showChevron: !headerOnly && hasBody }
     case 'shell':
-      return {
-        showChevron: !isBackgrounded && hasBody,
-        chevronSlot: false,
-      }
+      return { showChevron: !isBackgrounded && hasBody }
+    case 'subagent':
+    case 'explore-line':
     case 'default':
     default:
-      return {
-        showChevron: hasBody,
-        chevronSlot: nested,
-      }
+      return { showChevron: hasBody }
   }
 }
 

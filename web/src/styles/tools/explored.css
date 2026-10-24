@@ -1,58 +1,41 @@
 /* Explored density group */
 /* ── Explored N tools (density group) ──────────────────────────── */
 .explored-group-body {
-  /* Indent under the Explored label (past the group chevron) */
+  /* Indent child rows under the group line */
   margin: 1px 0 2px 14px;
   display: flex;
   flex-direction: column;
   gap: 0;
 }
 .explored-group-earlier {
-  color: var(--text-muted);
+  color: var(--text-tier-4);
   font-size: 12px;
   padding: 2px 0 4px;
-  opacity: 0.8;
 }
 .explored-group-step > .tool-row,
 .explored-group-step > .tool-card {
   margin: 0;
 }
-/* The whole "Explored 9 files" line is muted secondary text */
-.explored-group .tool-row-label,
-.explored-group .tool-row-title {
-  color: var(--text-muted);
-  font-weight: 400;
+/* Group line is the muted tone: action tier-3, details tier-4. Child rows
+   keep the regular tone. */
+.explored-group > .tool-row-header .tool-row-label {
+  color: var(--text-tier-3);
 }
-.explored-group .tool-row-header {
-  background: transparent !important;
-  padding: 1px 0;
+.explored-group > .tool-row-header .tool-row-title {
+  color: var(--text-tier-4);
 }
-/* Explored / Explorer / Plan disclosure — same visibility as Worked */
-.work-group-body .explored-group > .tool-row-header .tool-row-chevron,
-.explored-group > .tool-row-header .tool-row-chevron,
-.work-group-body .subagent-timeline-row > .tool-row-header .tool-row-chevron,
-.subagent-timeline-row > .tool-row-header .tool-row-chevron {
-  opacity: 0.55;
+.explored-group > .tool-row-header[role='button']:hover .tool-row-label {
+  color: var(--text-tier-2);
 }
-/* Nested Grep/Read under Explored: same type row, aligned chevron column */
-.explored-group-body .tool-row-header {
-  padding: 1px 0;
+.explored-group > .tool-row-header[role='button']:hover .tool-row-title {
+  color: var(--text-tier-3);
 }
 .explored-group-body .grep-count-label,
 .explored-group-body .tool-row-meta-badge,
 .explored-group-body .tool-row-subtitle {
   display: none;
 }
-.explored-group-body .tool-row-chevron {
-  opacity: 0.45;
-}
-.explored-group-body .tool-row-label,
-.explored-group-body .tool-row-title {
-  color: var(--text-muted);
-  font-weight: 400;
-  font-size: 12.5px;
-}
-/* Grep hit list under Explored — same muted mono as sibling tool lines */
+/* Grep hit list under Explored */
 .explored-group-body .grep-results {
   margin: 1px 0 2px 14px;
   max-height: 200px;
@@ -72,4 +55,3 @@
   font-size: 12px;
   max-height: 160px;
 }
-

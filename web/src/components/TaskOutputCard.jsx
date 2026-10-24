@@ -95,7 +95,6 @@ export default function TaskOutputCard({ part }) {
       onToggle={toggleExpanded}
       hasBody
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={details || '…'}
       titlePlain

@@ -51,7 +51,6 @@ export default function ToolSearchCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titleTooltip={query || undefined}

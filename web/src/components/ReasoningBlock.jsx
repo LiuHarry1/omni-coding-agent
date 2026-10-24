@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
 import { getMdComponents } from '../lib/markdown-components.jsx'
+import ChevronIcon from './ChevronIcon.jsx'
 
 /**
  * Thinking row: one-line label while streaming; body only when
@@ -13,10 +14,6 @@ export default function ReasoningBlock({ part }) {
   const [open, setOpen] = useState(false)
   const isStreaming = part.status === 'streaming'
   const mdComponents = getMdComponents({ streaming: isStreaming })
-
-  const label = isStreaming
-    ? 'Thinking...'
-    : `Thought for ${part.duration ?? 0}s`
 
   // Strip agent-facing reminder wrappers if the model echoed them into reasoning.
   const displayContent = (part.content || '')
@@ -34,23 +31,15 @@ export default function ReasoningBlock({ part }) {
         onClick={() => setOpen(v => !v)}
         aria-expanded={open}
       >
-        <svg
-          className={`reasoning-arrow ${open ? 'open' : ''}`}
-          width='12'
-          height='12'
-          viewBox='0 0 24 24'
-          fill='none'
-          stroke='currentColor'
-          strokeWidth='2.5'
-          strokeLinecap='round'
-          strokeLinejoin='round'
+        <span
+          className={`reasoning-action ${isStreaming ? 'shimmer-text' : ''}`}
         >
-          <polyline points='9 6 15 12 9 18' />
-        </svg>
-        <span className='reasoning-label'>
-          {isStreaming && <span className='reasoning-pulse' />}
-          {label}
+          {isStreaming ? 'Thinking' : 'Thought'}
         </span>
+        {!isStreaming && (
+          <span className='reasoning-details'>for {part.duration ?? 0}s</span>
+        )}
+        <ChevronIcon open={open} className='reasoning-chevron' />
       </button>
       {showBody && (
         <div className='reasoning-content'>

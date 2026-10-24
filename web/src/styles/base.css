@@ -64,6 +64,15 @@
   --diff-add-text: #116329;
 }
 
+/* ── Text tiers (alpha ramp over --text-primary) ──
+   Redeclared on every [data-theme] scope: the attribute lives on .app, and
+   color-mix() must resolve against that scope's --text-primary. */
+:root, [data-theme] {
+  --text-tier-2: color-mix(in srgb, var(--text-primary) 74%, transparent);
+  --text-tier-3: color-mix(in srgb, var(--text-primary) 60%, transparent);
+  --text-tier-4: color-mix(in srgb, var(--text-primary) 36%, transparent);
+}
+
 /* ── Global ───────────────────────────────── */
 html, body {
   height: 100%;
@@ -174,6 +183,40 @@ html, body {
   width: 10px;
   height: 10px;
   border-width: 1.5px;
+}
+
+/* In-progress text: a highlight sweeps across the glyphs.
+   `--shimmer-highlight` sets the sweep colour (defaults to the text colour). */
+.shimmer-text {
+  --shimmer-base: color-mix(in srgb, currentColor 60%, transparent);
+  background-image: linear-gradient(
+    90deg,
+    var(--shimmer-base) 0%,
+    var(--shimmer-base) 25%,
+    var(--shimmer-highlight, currentColor) 60%,
+    var(--shimmer-base) 75%,
+    var(--shimmer-base) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer-sweep 2s linear infinite;
+}
+
+@keyframes shimmer-sweep {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shimmer-text {
+    background-image: none;
+    -webkit-background-clip: border-box;
+    background-clip: border-box;
+    -webkit-text-fill-color: currentColor;
+    animation: none;
+  }
 }
 
 .hljs {

@@ -105,6 +105,19 @@ function hasRealWork(ids, byId) {
 }
 
 /**
+ * A streaming turn's trailing tool group can still grow, so it stays "live"
+ * (Exploring…) between steps; only the thinking placeholder may follow it.
+ */
+function markLiveTailGroup(viewRows, byId) {
+  for (let k = viewRows.length - 1; k >= 0; k--) {
+    const el = viewRows[k]
+    if (el.type === 'bubble' && byId[el.bubbleId]?.kind === 'thinking') continue
+    if (el.type === 'tool_group') el.live = true
+    return
+  }
+}
+
+/**
  * Unwrap a workGroup that only contains one row, unless that
  * row is an explore/browser group with multiple members.
  */
@@ -237,7 +250,9 @@ export function buildFlatElements(
       // prefix was only thinking — emit nothing from thinking
     }
 
-    result.push(...expandFoldableSegment(suffixIds, byId))
+    const suffixView = expandFoldableSegment(suffixIds, byId)
+    if (liveTurn) markLiveTailGroup(suffixView, byId)
+    result.push(...suffixView)
   }
 
   if (unfoldLatestTurn) {

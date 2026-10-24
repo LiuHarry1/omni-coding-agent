@@ -6,7 +6,7 @@ import { resolveExpandArgs, resolveChevron } from './tool-density-policy.js'
  *
  * @param {import('./tool-density-policy.js').DensityKind} kind
  * @param {import('./tool-density-policy.js').DensityContext} ctx
- * @returns {[boolean, () => void, { showChevron: boolean, chevronSlot: boolean }]}
+ * @returns {[boolean, () => void, { showChevron: boolean }]}
  */
 export function useToolDensityExpand(kind, ctx = {}) {
   const { isRunning, expandOnceWhen } = resolveExpandArgs(kind, ctx)

@@ -200,22 +200,16 @@
   margin-left: 14px;
 }
 
-/* Compact fallback shown when a write_file/edit_file call is missing
-   file_path — either mid-stream (preparing) or because the call ended
-   without a valid path. Replaces the giant "(unknown) 0 chars" card that
-   used to render in those degenerate states. */
+/* Compact fallback shown when a write_file/edit_file call ended without a
+   valid file_path. Replaces the giant "(unknown) 0 chars" card that used to
+   render in that degenerate state. */
 .file-change-stub {
   display: flex;
   flex-direction: column;
   margin: 4px 0;
-  border: 1px dashed var(--border);
+  border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-secondary);
-  opacity: 0.85;
-}
-.file-change-stub.has-error {
-  border-style: solid;
-  opacity: 1;
 }
 .file-change-stub-row {
   display: flex;
@@ -229,7 +223,7 @@
 .file-change-stub--nested {
   margin: 1px 0;
   border: none;
-  border-left: 2px dashed var(--border);
+  border-left: 2px solid var(--border);
   border-radius: 0;
   background: transparent;
 }

@@ -26,6 +26,7 @@ function TranscriptRow({ element, streamingTail = false }) {
       <ToolGroupRow
         memberIds={element.memberIds}
         groupKind={element.groupKind}
+        live={element.live === true}
       />
     )
   }
@@ -48,7 +49,11 @@ export default memo(TranscriptRow, (prev, next) => {
     )
   }
   if (a.type === 'tool_group') {
-    return a.groupKind === b.groupKind && a.memberIds === b.memberIds
+    return (
+      a.groupKind === b.groupKind &&
+      a.memberIds === b.memberIds &&
+      a.live === b.live
+    )
   }
   return a.bubbleId === b.bubbleId
 })

@@ -22,15 +22,23 @@ import { sanitizeToolUpdatePayload } from './sanitize-tool-ui.js'
 import { formatWorkedDuration } from './timeline.js'
 
 describe('resolveExpandArgs', () => {
-  it('explore-group opens while running, collapses when done', () => {
+  it('explore-group stays one line while running and when done', () => {
     assert.deepEqual(
       resolveExpandArgs('explore-group', { isRunning: true, hasBody: true }),
-      { isRunning: true, expandOnceWhen: false },
+      { isRunning: false, expandOnceWhen: false },
     )
     assert.deepEqual(resolveExpandArgs('explore-group', { isDone: true }), {
       isRunning: false,
       expandOnceWhen: false,
     })
+  })
+
+  it('explore-group expands once on error', () => {
+    assert.equal(
+      resolveExpandArgs('explore-group', { isDone: true, isError: true })
+        .expandOnceWhen,
+      true,
+    )
   })
 
   it('explore-line never auto-opens on success', () => {
@@ -73,14 +81,13 @@ describe('resolveChevron', () => {
   it('explore-group always shows chevron', () => {
     assert.deepEqual(resolveChevron('explore-group', {}), {
       showChevron: true,
-      chevronSlot: false,
     })
   })
 
-  it('read header-only reserves chevron slot when nested', () => {
+  it('read header-only never shows a chevron', () => {
     assert.deepEqual(
-      resolveChevron('read', { nested: true, headerOnly: true }),
-      { showChevron: false, chevronSlot: true },
+      resolveChevron('read', { nested: true, headerOnly: true, hasBody: true }),
+      { showChevron: false },
     )
   })
 
@@ -125,6 +132,19 @@ describe('summarizeExploredDetails', () => {
       '2 files',
     )
   })
+
+  it('counts browser actions in a mixed explore run', () => {
+    assert.equal(
+      summarizeExploredDetails([
+        { name: READ },
+        { name: GREP },
+        { name: BROWSER_NAVIGATE },
+        { name: 'browser_snapshot' },
+        { name: 'browser_click' },
+      ]),
+      '1 file, 1 search, 3 browser actions',
+    )
+  })
 })
 
 describe('coalesceToolRuns', () => {
@@ -153,6 +173,41 @@ describe('coalesceToolRuns', () => {
       part('browser_click'),
     ])
     assert.equal(runs[0].type, 'browser_run')
+  })
+
+  it('keeps a lone browser_* as a single row', () => {
+    const runs = coalesceToolRuns([part('browser_navigate')])
+    assert.deepEqual(
+      runs.map(r => r.type),
+      ['tool'],
+    )
+  })
+
+  it('folds explore + browser steps into one explored_run', () => {
+    const runs = coalesceToolRuns([
+      part(READ),
+      part(GREP),
+      part('browser_navigate'),
+      part('browser_snapshot'),
+      part('browser_click'),
+    ])
+    assert.equal(runs.length, 1)
+    assert.equal(runs[0].type, 'explored_run')
+    assert.equal(runs[0].items.length, 5)
+  })
+
+  it('breaks the run at a non-groupable tool', () => {
+    const runs = coalesceToolRuns([
+      part('browser_navigate'),
+      part(GREP),
+      part('Bash'),
+      part('browser_click'),
+      part('browser_snapshot'),
+    ])
+    assert.deepEqual(
+      runs.map(r => r.type),
+      ['explored_run', 'tool', 'browser_run'],
+    )
   })
 })
 

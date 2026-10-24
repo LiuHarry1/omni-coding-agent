@@ -1,4 +1,5 @@
 import { formatDuration } from '../lib/utils.js'
+import ChevronIcon from './ChevronIcon.jsx'
 
 /**
  * Shared single-row tool header (implementation of ToolCallLine).
@@ -8,7 +9,10 @@ import { formatDuration } from '../lib/utils.js'
  *
  * Slot layout (left → right):
  *
- *   [chevron?] [icon?] [label] [title] [subtitle] · · · [meta] [duration] [actions] [status]
+ *   [icon?] [label] [title] [subtitle] [chevron?] · · · [meta] [duration] [actions] [status]
+ *
+ * The chevron trails the text and only shows on hover / focus / open, so
+ * rows stay flush with the prose column. While `!isDone` the label shimmers.
  *
  * Slots beyond `title` are all optional. `actions` is rendered inside a
  * stopPropagation wrapper so a copy button there won't toggle the row.
@@ -17,8 +21,6 @@ export default function ToolRowHeader({
   expanded,
   onToggle,
   showChevron = true,
-  /** Reserve chevron column width even when no arrow (align sibling rows). */
-  chevronSlot = false,
   icon,
   label,
   title,
@@ -43,7 +45,7 @@ export default function ToolRowHeader({
     }
   }
   const dur = typeof duration === 'string' ? duration : formatDuration(duration)
-  const showSlot = showChevron || chevronSlot
+  const loading = !isDone
 
   return (
     <div
@@ -54,24 +56,21 @@ export default function ToolRowHeader({
       onKeyDown={onKeyDown}
       aria-expanded={onToggle ? expanded : undefined}
       aria-disabled={!onToggle || undefined}
+      aria-busy={loading || undefined}
     >
-      {showSlot && (
-        <span
-          className={`tool-row-chevron ${expanded && showChevron ? 'open' : ''} ${showChevron ? '' : 'tool-row-chevron--slot'}`}
-          aria-hidden='true'
-        >
-          {showChevron ? '\u25B6' : ''}
-        </span>
-      )}
       {icon != null && (
         <span className='tool-row-icon' aria-hidden='true'>
           {icon}
         </span>
       )}
-      {label && <span className='tool-row-label'>{label}</span>}
+      {label && (
+        <span className={`tool-row-label ${loading ? 'shimmer-text' : ''}`}>
+          {label}
+        </span>
+      )}
       {title != null && (
         <span
-          className={`tool-row-title ${titlePlain ? 'tool-row-title--plain' : ''}`}
+          className={`tool-row-title ${titlePlain ? 'tool-row-title--plain' : ''} ${loading && !label ? 'shimmer-text' : ''}`}
           title={
             titleTooltip ?? (typeof title === 'string' ? title : undefined)
           }
@@ -90,6 +89,9 @@ export default function ToolRowHeader({
           {subtitle}
         </span>
       )}
+      {showChevron && (
+        <ChevronIcon open={expanded} className='tool-row-chevron' />
+      )}
       <span className='tool-row-spacer' />
       {meta}
       {dur && isDone && <span className='tool-row-duration'>{dur}</span>}
@@ -98,7 +100,6 @@ export default function ToolRowHeader({
           {actions}
         </span>
       )}
-      {!isDone && <span className='spinner spinner-sm' />}
       {isDone && !isError && emptyHint && (
         <span
           className='tool-row-status tool-row-status--empty'

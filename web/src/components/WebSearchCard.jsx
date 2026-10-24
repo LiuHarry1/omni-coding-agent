@@ -134,7 +134,7 @@ export default function WebSearchCard({ part, nested = false }) {
     ? toolErrorDetails(query ? `\u201C${query}\u201D` : 'search\u2026', true)
     : query
       ? `\u201C${query}\u201D`
-      : 'search\u2026'
+      : null
 
   return (
     <ToolChrome
@@ -146,7 +146,6 @@ export default function WebSearchCard({ part, nested = false }) {
       onToggle={hasScannableBody ? toggleExpanded : undefined}
       hasBody={hasScannableBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={titleText}
       titleTooltip={query}

@@ -20,7 +20,6 @@ import ToolCallLine from './ToolCallLine.jsx'
  * @param {boolean} [props.hasBody=true] - whether a body/chevron is available
  * @param {boolean} [props.bodyOpen] - override when to render children (default: expanded && hasBody)
  * @param {boolean} [props.showChevron] - default: hasBody
- * @param {boolean} [props.chevronSlot] - reserve chevron column when showChevron is false
  * @param {import('react').ReactNode} [props.children] - body (only when bodyOpen)
  * @param {import('react').ReactNode} [props.icon]
  * @param {string} [props.label]
@@ -46,7 +45,6 @@ export default function ToolChrome({
   hasBody = true,
   bodyOpen,
   showChevron,
-  chevronSlot = false,
   children,
   icon,
   label,
@@ -81,7 +79,6 @@ export default function ToolChrome({
         expanded={open}
         onToggle={canToggle ? onToggle : undefined}
         showChevron={chevron}
-        chevronSlot={chevronSlot}
         icon={icon}
         label={label}
         title={title}

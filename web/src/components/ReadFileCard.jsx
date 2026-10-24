@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import ToolChrome from './ToolChrome.jsx'
 import { fileName } from '../lib/utils.js'
-import { liveToolSubtitle } from '../lib/tool-density.js'
 import { toolActionLabel, toolErrorDetails } from '../lib/tool-action-labels.js'
 import { useToolDensityExpand } from '../lib/use-tool-density-expand.js'
 import { useWorkspaceIdeStore } from '../stores/workspace-ide-store.js'
@@ -145,7 +144,7 @@ export default function ReadFileCard({ part, nested = false }) {
     (part.isError === true ||
       (typeof result === 'string' && result.startsWith('Error:')))
   const filePath = args.file_path || args.path || null
-  const fName = fileName(filePath) || filePath || '(unknown)'
+  const fName = fileName(filePath) || filePath || (isDone ? '(unknown)' : null)
 
   const header = useMemo(
     () => fromToolUseResult(part.toolUseResult),
@@ -208,7 +207,6 @@ export default function ReadFileCard({ part, nested = false }) {
       ? imageLoadError || header.label
       : ''
 
-  const liveSub = !isDone ? liveToolSubtitle(part) : null
   const action = toolActionLabel('read', {
     loading: !isDone,
     hasError: isError,
@@ -257,12 +255,11 @@ export default function ReadFileCard({ part, nested = false }) {
       onToggle={onToggle}
       hasBody={headerOnly ? Boolean(filePath) : hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titleTooltip={filePath || ''}
       titlePlain
-      subtitle={liveSub || rangeLabel || null}
+      subtitle={rangeLabel || null}
       duration={undefined}
       showSuccess={false}
     >

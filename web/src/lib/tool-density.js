@@ -1,10 +1,11 @@
 /**
  * Chat density helpers.
  *
- * Explored groups only fold built-in explore tools — never real MCP calls
- * (merged as `${server}_${tool}` in mcp-manager).
- * Consecutive `browser_*` tools fold into a `browser-group`
- * (`Ran N browser actions`, N ≥ 2).
+ * Explored groups only fold built-in explore tools and `browser_*` steps —
+ * never real MCP calls (merged as `${server}_${tool}` in mcp-manager).
+ * A run of only `browser_*` tools folds into a `browser-group`
+ * (`Ran N browser actions`, N ≥ 2); a mixed run reads
+ * `Explored 1 file, 1 search, 3 browser actions`.
  */
 
 import { isPlanFileWrite } from './plan-utils.js'
@@ -120,6 +121,8 @@ export function isMcpTool(part) {
 
 /**
  * Coalesce consecutive explore / browser built-ins into density groups.
+ * Explore and browser steps share one run; it becomes a `browser_run` only
+ * when every member is `browser_*`.
  *
  * Subagents are deliberately NOT coalesced: they always render as their own
  * row (`isSubagent` parts are excluded from the groupable set and force-flush
@@ -130,47 +133,36 @@ export function isMcpTool(part) {
  */
 export function coalesceToolRuns(items) {
   const out = []
-  let exploreBuf = []
-  let browserBuf = []
+  let buf = []
 
-  const flushExplore = () => {
-    if (exploreBuf.length === 0) return
-    const min = isPureFileExplore(exploreBuf)
-      ? PURE_FILE_EXPLORE_MIN
-      : EXPLORE_GROUP_MIN
-    if (exploreBuf.length < min) {
-      for (const part of exploreBuf) out.push({ type: 'tool', part })
+  const flush = () => {
+    if (buf.length === 0) return
+    const allBrowser = buf.every(isBrowserTool)
+    const min = allBrowser
+      ? BROWSER_GROUP_MIN
+      : isPureFileExplore(buf)
+        ? PURE_FILE_EXPLORE_MIN
+        : EXPLORE_GROUP_MIN
+    if (buf.length < min) {
+      for (const part of buf) out.push({ type: 'tool', part })
     } else {
-      out.push({ type: 'explored_run', items: exploreBuf })
+      out.push({
+        type: allBrowser ? 'browser_run' : 'explored_run',
+        items: buf,
+      })
     }
-    exploreBuf = []
-  }
-
-  const flushBrowser = () => {
-    if (browserBuf.length === 0) return
-    if (browserBuf.length < BROWSER_GROUP_MIN) {
-      out.push({ type: 'tool', part: browserBuf[0] })
-    } else {
-      out.push({ type: 'browser_run', items: browserBuf })
-    }
-    browserBuf = []
+    buf = []
   }
 
   for (const part of items) {
-    if (isBrowserTool(part)) {
-      flushExplore()
-      browserBuf.push(part)
-    } else if (isExploreTool(part)) {
-      flushBrowser()
-      exploreBuf.push(part)
+    if (isBrowserTool(part) || isExploreTool(part)) {
+      buf.push(part)
     } else {
-      flushExplore()
-      flushBrowser()
+      flush()
       out.push({ type: 'tool', part })
     }
   }
-  flushExplore()
-  flushBrowser()
+  flush()
   return out
 }
 
@@ -303,7 +295,8 @@ export function summarizeToolSteps(steps) {
 
 /**
  * Collapsed explore line details.
- * Prefer "9 files" / "1 file, 1 search" — never "1 read, 1 search, 1 tool search".
+ * Prefer "9 files" / "1 file, 1 search, 3 browser actions" —
+ * never "1 read, 1 search, 1 tool search".
  */
 export function summarizeExploredDetails(steps) {
   const list = (steps || []).filter(s => s.name !== TOOL_SEARCH)
@@ -312,9 +305,10 @@ export function summarizeExploredDetails(steps) {
     return n > 0 ? `${n} tool${n === 1 ? '' : 's'}` : null
   }
 
-  if (
-    list.every(s => typeof s.name === 'string' && s.name.startsWith('browser_'))
-  ) {
+  const isBrowserStep = s =>
+    typeof s.name === 'string' && s.name.startsWith('browser_')
+
+  if (list.every(isBrowserStep)) {
     const n = list.length
     return `${n} browser action${n === 1 ? '' : 's'}`
   }
@@ -323,6 +317,7 @@ export function summarizeExploredDetails(steps) {
   let searches = 0
   let webSearches = 0
   let fetches = 0
+  let browserActions = 0
   let other = 0
 
   for (const s of list) {
@@ -335,6 +330,8 @@ export function summarizeExploredDetails(steps) {
       webSearches += 1
     } else if (n === WEB_FETCH || n === 'fetch') {
       fetches += 1
+    } else if (isBrowserStep(s)) {
+      browserActions += 1
     } else {
       other += 1
     }
@@ -355,6 +352,10 @@ export function summarizeExploredDetails(steps) {
   if (webSearches > 0)
     phrases.push(`${webSearches} web search${webSearches === 1 ? '' : 'es'}`)
   if (fetches > 0) phrases.push(`${fetches} fetch${fetches === 1 ? '' : 'es'}`)
+  if (browserActions > 0)
+    phrases.push(
+      `${browserActions} browser action${browserActions === 1 ? '' : 's'}`,
+    )
   if (other > 0 && phrases.length === 0) {
     return summarizeToolSteps(list)
   }

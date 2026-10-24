@@ -81,7 +81,7 @@ export default function GlobCard({ part, nested = false }) {
       )
     : displayPattern
       ? `\u201C${displayPattern}\u201D`
-      : 'glob\u2026'
+      : null
 
   const handleOpen = filePath => {
     if (typeof openFile !== 'function') return
@@ -98,7 +98,6 @@ export default function GlobCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titlePlain

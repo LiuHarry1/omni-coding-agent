@@ -256,7 +256,7 @@ export default function GrepCard({ part, nested = false }) {
       ? `\u201C${displayPattern}\u201D in ${shortPath}`
       : displayPattern
         ? `\u201C${displayPattern}\u201D`
-        : 'grep\u2026'
+        : null
 
   const handleOpen = filePath => {
     if (typeof openFile !== 'function') return
@@ -275,7 +275,6 @@ export default function GrepCard({ part, nested = false }) {
       onToggle={hasBody ? toggleExpanded : undefined}
       hasBody={hasBody}
       showChevron={chevron.showChevron}
-      chevronSlot={chevron.chevronSlot}
       label={action}
       title={title}
       titlePlain

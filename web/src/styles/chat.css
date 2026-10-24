@@ -514,25 +514,11 @@
 }
 
 /*
- * Tool rows must stack densely (ui-tool-call-line). Spacing belongs on
- * prose / user turns only — not on every .msg-assistant wrapper.
+ * One rhythm for every assistant item (prose, tool line, group, thinking,
+ * tail status): 12px from the previous slot, so lines land ~34px apart.
  */
-.msg-assistant:has(> .content),
-.msg-assistant:has(> .work-group),
-.msg-assistant:has(> .reasoning-block),
-.msg-assistant:has(> .thinking-indicator),
-.msg-assistant:has(> .streaming-indicator) {
-  margin-top: 8px;
-}
-
-.msg-slot:has(.tool-row) + .msg-slot:has(.msg-assistant > .content),
-.msg-slot:has(.tool-group) + .msg-slot:has(.msg-assistant > .content) {
-  margin-top: 4px;
-}
-
-.msg-slot:has(.msg-assistant > .content) + .msg-slot:has(.tool-row),
-.msg-slot:has(.msg-assistant > .content) + .msg-slot:has(.tool-group) {
-  margin-top: 2px;
+.messages > .msg-slot + .msg-slot:has(> .msg-assistant) {
+  margin-top: 12px;
 }
 
 /* Keep air after the user bubble (tools no longer carry default margin-top) */
@@ -646,93 +632,63 @@
 [data-theme="light"] .msg-assistant .content td { border-color: #d1d9e0; }
 [data-theme="light"] .msg-assistant .content tr:nth-child(even) td { background: #f6f8fa; }
 
-/* ── Thinking Indicator ────────────────────── */
-.thinking-indicator,
-.streaming-indicator {
+/* ── Tail status (agent between steps) ─────── */
+.planning-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 0;
-  color: var(--text-muted);
+  min-width: 0;
+  padding: 1px 0;
   font-size: 13px;
-}
-
-/* Match tool-row density during early turn (one-liner). */
-.thinking-indicator--dense {
-  gap: 6px;
-  padding: 1px 4px;
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  line-height: 1.35;
-  color: var(--text-secondary);
-}
-
-.thinking-indicator .dot,
-.streaming-indicator .dot {
-  width: 5px; height: 5px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  animation: pulse 1.2s ease-in-out infinite;
-}
-
-.thinking-indicator .dot:nth-child(2),
-.streaming-indicator .dot:nth-child(2) { animation-delay: 0.2s; }
-.thinking-indicator .dot:nth-child(3),
-.streaming-indicator .dot:nth-child(3) { animation-delay: 0.4s; }
-
-@keyframes pulse {
-  0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
-  40% { opacity: 1; transform: scale(1); }
+  line-height: 1.4;
+  color: var(--text-tier-2);
 }
 
 /* ── Reasoning Block (collapsible thinking) ── */
 .reasoning-block {
-  margin: 4px 0;
+  margin: 0;
   border-radius: 8px;
 }
 
+/* Muted tone, same as the Explored group line. */
 .reasoning-toggle {
   display: flex;
   align-items: center;
   gap: 4px;
+  max-width: 100%;
   padding: 1px 0;
   background: none;
   border: none;
   cursor: pointer;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-family: var(--font-mono);
-  line-height: 1.5;
-  transition: color 0.15s;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.4;
+  white-space: nowrap;
+  user-select: none;
 }
-.reasoning-toggle:hover { color: var(--text-secondary); }
-
-.reasoning-arrow {
+.reasoning-action {
+  color: var(--text-tier-3);
+  transition: color 100ms ease-in-out;
+}
+.reasoning-details {
+  color: var(--text-tier-4);
+  font-variant-numeric: tabular-nums;
+  transition: color 100ms ease-in-out;
+}
+.reasoning-toggle:hover .reasoning-action { color: var(--text-tier-2); }
+.reasoning-toggle:hover .reasoning-details { color: var(--text-tier-3); }
+.reasoning-block.streaming .reasoning-action { color: var(--text-tier-2); }
+.reasoning-chevron {
   flex-shrink: 0;
-  font-size: 7px;
-  opacity: 0.35;
-  transition: transform 0.2s ease;
+  margin-left: 2px;
+  color: var(--text-tier-3);
+  opacity: 0;
+  transition: transform 100ms ease-in-out, opacity 100ms ease-in-out;
 }
-.reasoning-arrow.open { transform: rotate(90deg); }
-
-.reasoning-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.reasoning-pulse {
-  display: inline-block;
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--accent);
-  animation: reasoningPulse 1.4s ease-in-out infinite;
-}
-
-@keyframes reasoningPulse {
-  0%, 100% { opacity: 0.4; transform: scale(0.85); }
-  50% { opacity: 1; transform: scale(1.1); }
-}
+.reasoning-toggle:hover .reasoning-chevron,
+.reasoning-toggle:focus-visible .reasoning-chevron,
+.reasoning-chevron.open { opacity: 1; }
+.reasoning-chevron.open { transform: rotate(90deg); }
 
 .reasoning-content {
   padding: 8px 14px;
@@ -781,10 +737,6 @@
 /* streaming state: auto-expand with subtle glow */
 .reasoning-block.streaming .reasoning-content {
   max-height: none;
-}
-
-.reasoning-block.streaming .reasoning-toggle {
-  color: var(--text-secondary);
 }
 
 /* ── Compaction Row ─────────────────────────
@@ -978,12 +930,6 @@
 [data-theme="light"] .hint-icon { background: #f0f3f6; }
 [data-theme="light"] .hint-label { color: #1f2328; }
 [data-theme="light"] .hint-section-label { color: #656d76; }
-[data-theme="light"] .thinking-indicator,
-[data-theme="light"] .streaming-indicator { color: var(--text-secondary); }
-[data-theme="light"] .thinking-indicator .dot,
-[data-theme="light"] .streaming-indicator .dot { background: var(--text-secondary); }
-[data-theme="light"] .reasoning-toggle { color: #656d76; }
-[data-theme="light"] .reasoning-toggle:hover { color: #1f2328; }
 [data-theme="light"] .reasoning-content { border-left-color: #d1d9e0; color: #656d76; }
 [data-theme="light"] .reasoning-content pre { background: #f6f8fa; border-color: #d1d9e0; }
 [data-theme="light"] .todo-card { background: #fff; border-color: #e1e4e8; }
