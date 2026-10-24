@@ -2,6 +2,7 @@
   "name": "baize",
   "version": "1.0.0",
   "description": "Baize (白泽) coding agent: HTTP server, ACP agent, stdio CLI and desktop runtime",
+  "author": "harry",
   "license": "MIT",
   "private": true,
   "type": "module",
