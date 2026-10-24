@@ -15,6 +15,8 @@ type Bubble = {
   status?: string
   startTime?: number
   endTime?: number
+  turnStartTime?: number
+  turnEndTime?: number
   content?: string
 }
 
@@ -118,7 +120,67 @@ const tool = (id: string, extra: Partial<Bubble> = {}): Bubble => ({
   assert.equal(out[0].state, 'completed')
   assert.deepEqual(out[0].memberIds, ['a', 'b'])
   assert.equal(out[1].bubbleId, 't1-text')
-  assert.ok(out[0].durationMs > 0)
+}
+
+{
+  // Worked spans the whole turn (send → finish), not just its tool calls.
+  const out = flat(
+    [
+      {
+        id: 'u1',
+        kind: 'user',
+        content: 'go',
+        turnStartTime: 10_000,
+        turnEndTime: 19_400,
+      },
+      tool('a', { startTime: 12_200, endTime: 13_000 }),
+      tool('b', { startTime: 13_000, endTime: 15_400 }),
+      { id: 'txt', kind: 'assistant_text', turnId: 't1', content: 'done' },
+    ],
+    { isStreaming: false },
+  )
+  const group = out.find(r => r.type === 'work_group')
+  assert.equal(group?.durationMs, 9_400)
+}
+
+{
+  // History has no turn timing: no duration rather than a partial one.
+  const out = flat(
+    [
+      { id: 'u1', kind: 'user', content: 'go' },
+      tool('a', { startTime: 12_200, endTime: 13_000 }),
+      tool('b', { startTime: 13_000, endTime: 15_400 }),
+      { id: 'txt', kind: 'assistant_text', turnId: 't1', content: 'done' },
+    ],
+    { isStreaming: false },
+  )
+  const group = out.find(r => r.type === 'work_group')
+  assert.ok(group)
+  assert.equal(group.durationMs, undefined)
+}
+
+{
+  // Each Worked takes the timing of the user message that started its turn.
+  const timedTurn = (turnId: string, start: number, end: number): Bubble[] => [
+    {
+      id: `${turnId}-u`,
+      kind: 'user',
+      content: 'go',
+      turnStartTime: start,
+      turnEndTime: end,
+    },
+    tool(`${turnId}-a`, { turnId }),
+    tool(`${turnId}-b`, { turnId }),
+    { id: `${turnId}-txt`, kind: 'assistant_text', turnId, content: 'ok' },
+  ]
+  const groups = flat([
+    ...timedTurn('t1', 0, 4_000),
+    ...timedTurn('t2', 10_000, 17_000),
+  ]).filter(r => r.type === 'work_group')
+  assert.deepEqual(
+    groups.map(g => g.durationMs),
+    [4_000, 7_000],
+  )
 }
 
 {

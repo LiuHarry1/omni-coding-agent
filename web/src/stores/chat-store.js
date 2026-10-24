@@ -644,6 +644,7 @@ export const useChatStore = create((set, get) => {
           content: text,
           images: previewUrls.length > 0 ? previewUrls : undefined,
           files: fileChips.length > 0 ? fileChips : undefined,
+          turnStartTime: Date.now(),
         })
         return {
           isStreaming: true,
@@ -808,6 +809,7 @@ export const useChatStore = create((set, get) => {
         ...planPatch,
       })
       refreshIdeAfterAgentTurn()
+      void get().refreshSessions()
     },
 
     /** @deprecated Prefer applySseEvent via stream; kept for tests / harness. */

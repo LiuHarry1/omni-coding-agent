@@ -62,6 +62,19 @@ function sealTrailingAssistantText(state, turnId) {
   return state
 }
 
+/** No user bubble can be appended mid-turn, so the newest one owns the turn. */
+function stampTurnEnd(state) {
+  for (let i = state.bubbleOrder.length - 1; i >= 0; i--) {
+    const b = state.bubblesById[state.bubbleOrder[i]]
+    if (b?.kind !== 'user') continue
+    if (typeof b.turnStartTime !== 'number' || b.turnEndTime != null) {
+      return state
+    }
+    return patchBubble(state, b.id, { turnEndTime: Date.now() })
+  }
+  return state
+}
+
 function findParentToolId(bubblesById, bubbleOrder, parentToolCallId) {
   if (parentToolCallId) {
     const id = toolBubbleId(parentToolCallId)
@@ -603,7 +616,7 @@ export function createAssistantMutators(set, get) {
       set(s => {
         const turnId = s.activeTurnId
         if (!turnId) return s
-        let next = removeBubble(s, thinkingBubbleId(turnId))
+        let next = stampTurnEnd(removeBubble(s, thinkingBubbleId(turnId)))
         for (const id of next.bubbleOrder) {
           const b = next.bubblesById[id]
           if (b?.kind !== 'tool' || b.turnId !== turnId) continue
@@ -673,6 +686,7 @@ export function createAssistantMutators(set, get) {
           id: userMsgId,
           kind: 'user',
           content: text,
+          turnStartTime: Date.now(),
         })
         return {
           ...transcriptPatch(next),

@@ -23,15 +23,11 @@ function turnOf(b) {
   return b?.turnId || null
 }
 
-function foldDurationMs(memberIds, byId) {
-  let start = Infinity
-  let end = -Infinity
-  for (const id of memberIds) {
-    const b = byId[id]
-    if (b?.kind !== 'tool') continue
-    if (typeof b.startTime === 'number') start = Math.min(start, b.startTime)
-    if (typeof b.endTime === 'number') end = Math.max(end, b.endTime)
-  }
+/** Send → finish; only turns run in this tab carry the timestamps. */
+function turnDurationMs(userBubble) {
+  const start = userBubble?.turnStartTime
+  const end = userBubble?.turnEndTime
+  if (typeof start !== 'number' || typeof end !== 'number') return undefined
   return end > start ? end - start : undefined
 }
 
@@ -150,6 +146,7 @@ export function buildFlatElements(
   // Partition into turn segments: user | interrupted | compact_boundary reset;
   // assistant-side bubbles share turnId.
   let i = 0
+  let turnUser = null
   while (i < order.length) {
     const id = order[i]
     const b = byId[id]
@@ -163,6 +160,7 @@ export function buildFlatElements(
       b.kind === 'interrupted' ||
       b.kind === 'compact_boundary'
     ) {
+      turnUser = b.kind === 'user' ? b : null
       result.push({ id: b.id, type: 'bubble', bubbleId: b.id })
       i++
       continue
@@ -171,6 +169,8 @@ export function buildFlatElements(
     // Collect a turn's foldable + trailing content until next user boundary
     // or different turn's non-foldable that starts a new reply.
     const turnId = turnOf(b)
+    const userBubble = turnUser
+    turnUser = null
     const segmentIds = []
     while (i < order.length) {
       const cur = byId[order[i]]
@@ -233,7 +233,7 @@ export function buildFlatElements(
     if (prefixIds.length > 0 && hasRealWork(prefixIds, byId)) {
       const prefixView = expandFoldableSegment(prefixIds, byId)
       if (keepWorkGroup(prefixView)) {
-        const durationMs = foldDurationMs(prefixIds, byId)
+        const durationMs = turnDurationMs(userBubble)
         result.push({
           id: `work:${turnId || prefixIds[0]}:done`,
           type: 'work_group',

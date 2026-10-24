@@ -96,6 +96,9 @@ export default function SessionSwitcher() {
         className={`icon-btn session-icon-btn ${open ? 'active' : ''}`}
         onClick={e => {
           e.stopPropagation()
+          // Sessions from other tabs and titles generated after a turn ends
+          // only arrive through a fresh fetch.
+          if (!open) refresh()
           setOpen(v => !v)
         }}
         title={buttonTitle}
