@@ -216,6 +216,9 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
         content,
         ...(images ? { images } : {}),
         ...(msg.files?.length ? { files: msg.files } : {}),
+        ...(msg.turnStartTime != null && msg.turnEndTime != null
+          ? { turnStartTime: msg.turnStartTime, turnEndTime: msg.turnEndTime }
+          : {}),
       })
     } else if (isRoleMessage(msg) && msg.role === 'assistant') {
       currentBoundary = null

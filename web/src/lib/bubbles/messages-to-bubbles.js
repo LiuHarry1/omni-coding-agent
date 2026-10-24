@@ -179,6 +179,8 @@ export function messagesToBubbles(messages) {
         content: msg.content,
         images: msg.images,
         files: msg.files,
+        turnStartTime: msg.turnStartTime,
+        turnEndTime: msg.turnEndTime,
       })
       continue
     }

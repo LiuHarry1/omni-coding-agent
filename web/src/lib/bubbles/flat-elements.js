@@ -19,11 +19,14 @@ const FOLDABLE_KINDS = new Set([
   'compaction_done',
 ])
 
+/** What Worked may hold: the steps plus any narration between them. */
+const PREFIX_KINDS = new Set([...FOLDABLE_KINDS, 'assistant_text'])
+
 function turnOf(b) {
   return b?.turnId || null
 }
 
-/** Send → finish; only turns run in this tab carry the timestamps. */
+/** Send → finish; turns saved before the server kept timing have none. */
 function turnDurationMs(userBubble) {
   const start = userBubble?.turnStartTime
   const end = userBubble?.turnEndTime
@@ -214,7 +217,7 @@ export function buildFlatElements(
       if (lastText > 0) {
         const prefix = segmentIds.slice(0, lastText)
         if (
-          prefix.every(pid => FOLDABLE_KINDS.has(byId[pid]?.kind)) &&
+          prefix.every(pid => PREFIX_KINDS.has(byId[pid]?.kind)) &&
           hasRealWork(
             prefix.filter(pid => byId[pid]?.kind !== 'thinking'),
             byId,

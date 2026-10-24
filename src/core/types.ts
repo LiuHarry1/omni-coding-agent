@@ -284,6 +284,9 @@ export interface UserMessage {
   isMeta?: boolean
   /** Composer file chips persisted for transcript reload. */
   files?: UserFileAttachment[]
+  /** Epoch ms the chat turn this message opened started / finished. */
+  turnStartTime?: number
+  turnEndTime?: number
   /**
    * Full-compact summary injected for the model (isCompactSummary).
    * Hidden from chat view; UI shows a compact_boundary marker instead.

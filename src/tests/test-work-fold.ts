@@ -184,6 +184,51 @@ const tool = (id: string, extra: Partial<Bubble> = {}): Bubble => ({
 }
 
 {
+  // Narration between steps folds with them; only the final reply stays out.
+  const out = flat(
+    [
+      { id: 'n1', kind: 'assistant_text', turnId: 't1', content: 'Reading' },
+      tool('a'),
+      { id: 'n2', kind: 'assistant_text', turnId: 't1', content: 'Checking' },
+      tool('b'),
+      { id: 'txt', kind: 'assistant_text', turnId: 't1', content: 'done' },
+    ],
+    { isStreaming: false },
+  )
+  assert.equal(out.length, 2)
+  assert.equal(out[0].type, 'work_group')
+  assert.deepEqual(out[0].memberIds, ['n1', 'a', 'n2', 'b'])
+  assert.equal(out[1].bubbleId, 'txt')
+}
+
+{
+  // Narration alone is not work: a text-only reply stays unfolded.
+  const out = flat(
+    [
+      { id: 'n1', kind: 'assistant_text', turnId: 't1', content: 'First' },
+      { id: 'txt', kind: 'assistant_text', turnId: 't1', content: 'Second' },
+    ],
+    { isStreaming: false },
+  )
+  assert.ok(out.every(r => r.type !== 'work_group'))
+}
+
+{
+  // A permission prompt keeps the turn unfolded, narration or not.
+  const out = flat(
+    [
+      { id: 'n1', kind: 'assistant_text', turnId: 't1', content: 'Reading' },
+      tool('a'),
+      { id: 'p1', kind: 'perm', turnId: 't1' },
+      tool('b'),
+      { id: 'txt', kind: 'assistant_text', turnId: 't1', content: 'done' },
+    ],
+    { isStreaming: false },
+  )
+  assert.ok(out.every(r => r.type !== 'work_group'))
+}
+
+{
   // Done turn: thinking placeholder stripped from fold body.
   const out = flat(
     [

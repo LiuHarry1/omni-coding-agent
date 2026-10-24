@@ -40,6 +40,7 @@ import { applyModeRestrictions } from '../core/mode-restrictions.js'
 import { filterToolsRecordByDisallowedGlobs } from '../tools/AgentTool/toolGlob.js'
 import { planExists } from '../utils/plans.js'
 import { createMemoryLifecycleHooks } from './memory-lifecycle.js'
+import { stampTurnTiming } from './turn-timing.js'
 import { getInvokedSkillsForAgent } from '../skills/invoked-skills.js'
 import {
   consumeImmediateMemoryPrefetch,
@@ -225,6 +226,7 @@ export async function runChatTurn(
     onClientDisconnect,
     abortSignal: externalAbort,
   } = input
+  const turnStartTime = Date.now()
 
   const settingsCwd = isRemoteWorkspace(session.workspace)
     ? getDefaultWorkspace()
@@ -782,6 +784,11 @@ export async function runChatTurn(
     void flushUsage()
   }
 
+  stampTurnTiming(session.messages.slice(persistFrom), {
+    isMeta: !!isMeta,
+    startTime: turnStartTime,
+    endTime: Date.now(),
+  })
   for (const msg of session.messages.slice(persistFrom)) {
     appendMessage(session.id, msg as Message)
   }
