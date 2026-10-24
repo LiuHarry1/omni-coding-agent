@@ -7,11 +7,12 @@ import { useToolDensityExpand } from '../lib/use-tool-density-expand.js'
 import { useChatActions } from '../lib/chat-actions.jsx'
 import { getTur } from '../lib/tool-result.js'
 import { toolActionLabel, toolErrorDetails } from '../lib/tool-action-labels.js'
+import { shellCommandNames } from '../lib/shell-command-names.js'
 
 /**
  * Shell tool card (`ui-shell-tool-call`):
  *   action: Running | Ran | Run(error) | Shell(backgrounded)
- *   details: description ?? "command" (not raw command by default)
+ *   details: description ?? program names ("cd, git") ?? "command"
  * Done body prefers TUR stdout/stderr; model `text` may include wrappers.
  */
 
@@ -148,16 +149,15 @@ export default function BashCard({ part, onStopTool }) {
   const command = typeof args?.command === 'string' ? args.command.trim() : ''
   const description =
     typeof args?.description === 'string' ? args.description.trim() : ''
-  // Prefer description; else a bare noun — the label supplies the verb
-  // (not raw command in details)
-  const rawDetails = description || 'command'
-  // Keep a real description when there is one; only sharpen the generic
-  // "attempted" fallback into the specific reason.
-  const baseDetails = toolErrorDetails(rawDetails, failed)
-  const details =
-    baseDetails === 'attempted'
-      ? (OUTCOME_DETAILS[display.outcome] ?? baseDetails)
-      : baseDetails
+  // Prefer description; else the program names — never the raw command line
+  // (the label supplies the verb).
+  const rawDetails =
+    description || shellCommandNames(command).join(', ') || 'command'
+  // Without a description, a failure the server can name (timed out,
+  // stopped) says so instead of listing programs.
+  const outcomeDetails =
+    failed && !description ? OUTCOME_DETAILS[display.outcome] : undefined
+  const details = outcomeDetails ?? toolErrorDetails(rawDetails, failed)
 
   const wantsBackground = !!args.run_in_background
   const backgroundTaskId =

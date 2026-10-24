@@ -107,7 +107,7 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
             .string()
             .optional()
             .describe(
-              'Clear, concise description of what this command does in 5-10 words.',
+              'Very short phrase naming what this command does, shown to the user after the word "Ran" (e.g. "project file listing"). Avoid leading with verbs or using trailing periods.',
             ),
           timeout: z
             .number()
