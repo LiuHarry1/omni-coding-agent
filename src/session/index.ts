@@ -8,6 +8,7 @@ export {
   setSessionWorkspace,
   listSessions,
   deleteSession,
+  forgetSession,
   appendMessage,
   appendCompaction,
   appendModeChange,

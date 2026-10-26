@@ -468,7 +468,8 @@
   white-space: nowrap;
 }
 
-.account-signout {
+.account-signout,
+.account-reset {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -483,8 +484,102 @@
   cursor: pointer;
 }
 
-.account-signout:hover {
+.account-signout:hover,
+.account-reset:hover {
   background: rgba(248, 81, 73, 0.08);
+}
+
+.account-reset {
+  border-bottom: 1px solid var(--border);
+}
+
+.factory-reset-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.factory-reset-dialog {
+  width: min(460px, 100%);
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+.factory-reset-dialog h2 {
+  margin: 0 0 10px;
+  color: var(--red);
+  font-size: 18px;
+}
+
+.factory-reset-dialog p,
+.factory-reset-dialog label {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.factory-reset-note {
+  color: var(--text-muted) !important;
+}
+
+.factory-reset-dialog label {
+  display: block;
+  margin: 16px 0 6px;
+}
+
+.factory-reset-dialog input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.factory-reset-dialog input:focus {
+  border-color: var(--red);
+}
+
+.factory-reset-error {
+  margin-top: 10px;
+  color: var(--red);
+  font-size: 12px;
+}
+
+.factory-reset-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 18px;
+}
+
+.factory-reset-actions button {
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.factory-reset-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.factory-reset-actions .factory-reset-confirm {
+  border-color: var(--red);
+  background: var(--red);
+  color: #fff;
 }
 
 /* ── Light theme overrides ──────────────── */
@@ -509,7 +604,8 @@
 [data-theme='light'] .account-dropdown {
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
 }
-[data-theme='light'] .account-signout:hover {
+[data-theme='light'] .account-signout:hover,
+[data-theme='light'] .account-reset:hover {
   background: rgba(207, 34, 46, 0.08);
 }
 [data-theme='light'] .ws-open-btn {

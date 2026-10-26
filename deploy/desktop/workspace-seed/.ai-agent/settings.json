@@ -3,19 +3,16 @@
     "large": {
       "provider": "openai",
       "baseURL": "http://localhost:4141/v1",
-      "apiKey": "sk-xxx",
       "model": "gpt-5.6-luna"
     },
     "medium": {
       "provider": "openai",
       "baseURL": "http://localhost:4141/v1",
-      "apiKey": "sk-xxx",
       "model": "gpt-5.6-luna"
     },
     "small": {
       "provider": "openai-compatible",
       "baseURL": "http://localhost:4141/v1",
-      "apiKey": "sk-xxx",
       "model": "gpt-4"
     }
   },

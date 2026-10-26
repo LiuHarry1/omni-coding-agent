@@ -57,6 +57,10 @@ import { WorkerExecutionBackend } from '../execution/worker-execution-backend.js
 import { initCodePlugins } from '../core/plugins/index.js'
 import { handleChat } from './routes/chat.js'
 import { handleScheduledTasks } from './routes/scheduled-tasks.js'
+import {
+  handleWorkspaceReset,
+  isWorkspaceResetting,
+} from './routes/workspace-reset.js'
 import { handleSessionLive } from './session-live.js'
 import { getRunAgent } from '../agent-lazy.js'
 import { abortTool } from '../core/tool-abort-registry.js'
@@ -150,6 +154,13 @@ export function createRouter({ staticDir }: RouterOptions) {
         sendJSON(res, 500, { error: 'Auth succeeded without user workspace' })
         return
       }
+      if (
+        url !== '/workspace/reset' &&
+        isWorkspaceResetting(authed.userWorkspace)
+      ) {
+        sendJSON(res, 423, { error: 'Workspace reset in progress' })
+        return
+      }
       return runWithRequestScope(
         {
           agentHome: authed.userWorkspace,
@@ -237,6 +248,7 @@ export function createRouter({ staticDir }: RouterOptions) {
         return
       }
 
+      if (await handleWorkspaceReset(req, res)) return
       if (await handleScheduledTasks(req, res)) return
       if (await workspaceRouter(req, res)) return
       if (await marketplaceRouter(req, res)) return

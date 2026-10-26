@@ -74,11 +74,38 @@ export function resolveDefaultDesktopWorkspace({
   return path.join(homeDir, resolveAppDirName(env), 'workspace')
 }
 
+export function resolveDesktopDataRoot(homeDir, env = process.env) {
+  if (!homeDir) return null
+  return path.join(homeDir, resolveAppDirName(env))
+}
+
+/** Return the trusted app-data root, rejecting roots and symlink escapes. */
+export function assertSafeDesktopDataRoot(target, homeDir) {
+  if (!target || !homeDir) throw new Error('Desktop data root is unavailable')
+  const home = path.resolve(homeDir)
+  const root = path.resolve(target)
+  if (root === home || path.dirname(root) !== home) {
+    throw new Error('Refusing to reset a path outside the home directory')
+  }
+  if (fs.existsSync(root)) {
+    const stat = fs.lstatSync(root)
+    if (!stat.isDirectory() || stat.isSymbolicLink()) {
+      throw new Error('Refusing to reset a non-directory or symbolic link')
+    }
+    const realHome = fs.realpathSync(home)
+    const realRoot = fs.realpathSync(root)
+    if (path.dirname(realRoot) !== realHome) {
+      throw new Error('Desktop data root resolves outside the home directory')
+    }
+  }
+  return root
+}
+
 export function buildAgentSpawnEnv(
   appRoot,
   port,
   baseEnv = process.env,
-  { packaged = false, resourcesPath, workspace } = {},
+  { packaged = false, resourcesPath, workspace, appDataDir } = {},
 ) {
   const env = {
     ...baseEnv,
@@ -97,6 +124,9 @@ export function buildAgentSpawnEnv(
   }
   if (workspace && env.WORKSPACE == null) {
     env.WORKSPACE = workspace
+  }
+  if (appDataDir) {
+    env.AI_AGENT_DATA_DIR = appDataDir
   }
   const seedDir = resolveWorkspaceSeedDir(appRoot, { packaged, resourcesPath })
   if (seedDir && env.WORKSPACE_SEED_DIR == null) {

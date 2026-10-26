@@ -18,6 +18,12 @@ const json = body => ({
 export const workspaceApi = {
   getRoot: () => fetchJSON('/workspace'),
 
+  reset: (confirmation = 'RESET') =>
+    fetchJSON('/workspace/reset', {
+      method: 'POST',
+      ...json({ confirmation }),
+    }),
+
   listDir: (dir, showHidden = false) => {
     const params = new URLSearchParams({ dir })
     if (showHidden) params.set('showHidden', '1')

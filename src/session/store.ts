@@ -498,6 +498,19 @@ export function deleteSession(id: string): void {
   }
 }
 
+/**
+ * Drop process-local state for a session without touching its files.
+ * Factory reset uses this after activity has stopped and before atomically
+ * replacing the whole agent home.
+ */
+export function forgetSession(id: string): void {
+  sessions.delete(id)
+  unregisterSessionLocation(id)
+  resetSessionMemoryState(id)
+  resetAutoMemoryState(id)
+  resetMicroCompactState(id)
+}
+
 export function appendMessage(sessionId: string, message: Message): void {
   const timestamp = Date.now()
   if (isAttachmentMessage(message)) {

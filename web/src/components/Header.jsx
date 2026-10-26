@@ -2,7 +2,11 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { useWorkspaceIdeStore } from '../stores/workspace-ide-store.js'
 import { workspaceApi } from '../lib/api/workspace.js'
-import { isDesktop, pickWorkspaceDir } from '../lib/desktop.js'
+import {
+  factoryResetDesktop,
+  isDesktop,
+  pickWorkspaceDir,
+} from '../lib/desktop.js'
 import {
   authEnabled,
   getUser,
@@ -24,6 +28,7 @@ export default function Header() {
   const locked = authEnabled() && !isSuperUser()
   const showRemote = remoteEnabled()
   const user = authEnabled() ? getUser() : null
+  const desktopApp = isDesktop()
 
   const workspace = useChatStore(s => s.workspace)
   const setWorkspace = useChatStore(s => s.setWorkspace)
@@ -42,6 +47,10 @@ export default function Header() {
   const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
   const [marketplaceOpen, setMarketplaceOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
+  const [resetOpen, setResetOpen] = useState(false)
+  const [resetConfirmation, setResetConfirmation] = useState('')
+  const [resetBusy, setResetBusy] = useState(false)
+  const [resetError, setResetError] = useState(null)
   const dropdownRef = useRef(null)
   const accountRef = useRef(null)
 
@@ -112,6 +121,32 @@ export default function Header() {
     if (dir) setWorkspace(dir)
   }
 
+  const handleFactoryReset = async () => {
+    if (resetConfirmation !== 'RESET' || resetBusy) return
+    setResetBusy(true)
+    setResetError(null)
+    try {
+      if (desktopApp) {
+        await factoryResetDesktop(resetConfirmation)
+        return
+      }
+      await workspaceApi.reset(resetConfirmation)
+      for (const key of Object.keys(localStorage)) {
+        if (
+          key.startsWith('coding_agent_') &&
+          key !== 'coding_agent_auth_token' &&
+          key !== 'coding_agent_theme'
+        ) {
+          localStorage.removeItem(key)
+        }
+      }
+      window.location.reload()
+    } catch (err) {
+      setResetError(err?.message || 'Factory reset failed')
+      setResetBusy(false)
+    }
+  }
+
   const selectDir = dir => {
     setWorkspace(dir)
     setDropdownOpen(false)
@@ -137,7 +172,8 @@ export default function Header() {
 
   const pathLabel =
     shortDisplayPath(workspace, 32) || workspace || 'Select workspace'
-  const userLabel = user?.username || user?.email || ''
+  const userLabel =
+    user?.username || user?.email || (desktopApp ? 'Desktop app' : '')
   const userInitial = userLabel.trim().charAt(0).toUpperCase() || 'U'
 
   const dirs = dropdownData?.entries?.filter(e => e.isDir) || []
@@ -453,7 +489,7 @@ export default function Header() {
             </svg>
           )}
         </button>
-        {user && (
+        {(user || desktopApp) && (
           <>
             <span className='header-action-sep' aria-hidden='true' />
             <div className='account-menu' ref={accountRef}>
@@ -464,7 +500,7 @@ export default function Header() {
                   e.stopPropagation()
                   setAccountOpen(v => !v)
                 }}
-                title={user.email}
+                title={user?.email || 'Desktop app'}
                 aria-haspopup='menu'
                 aria-expanded={accountOpen}
               >
@@ -491,7 +527,7 @@ export default function Header() {
                 <div className='account-dropdown' role='menu'>
                   <div className='account-dropdown-identity'>
                     <span className='account-dropdown-name'>{userLabel}</span>
-                    {user.email && user.email !== userLabel && (
+                    {user?.email && user.email !== userLabel && (
                       <span className='account-dropdown-email'>
                         {user.email}
                       </span>
@@ -499,27 +535,42 @@ export default function Header() {
                   </div>
                   <button
                     type='button'
-                    className='account-signout'
-                    onClick={logout}
+                    className='account-reset'
+                    onClick={() => {
+                      setAccountOpen(false)
+                      setResetConfirmation('')
+                      setResetError(null)
+                      setResetOpen(true)
+                    }}
                     role='menuitem'
                   >
-                    <svg
-                      width='14'
-                      height='14'
-                      viewBox='0 0 24 24'
-                      fill='none'
-                      stroke='currentColor'
-                      strokeWidth='2'
-                      strokeLinecap='round'
-                      strokeLinejoin='round'
-                      aria-hidden='true'
-                    >
-                      <path d='M10 17l5-5-5-5' />
-                      <path d='M15 12H3' />
-                      <path d='M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4' />
-                    </svg>
-                    Sign out
+                    Restore initial state
                   </button>
+                  {user && (
+                    <button
+                      type='button'
+                      className='account-signout'
+                      onClick={logout}
+                      role='menuitem'
+                    >
+                      <svg
+                        width='14'
+                        height='14'
+                        viewBox='0 0 24 24'
+                        fill='none'
+                        stroke='currentColor'
+                        strokeWidth='2'
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                        aria-hidden='true'
+                      >
+                        <path d='M10 17l5-5-5-5' />
+                        <path d='M15 12H3' />
+                        <path d='M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4' />
+                      </svg>
+                      Sign out
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -536,6 +587,71 @@ export default function Header() {
         workspace={workspace}
         onClose={() => setMarketplaceOpen(false)}
       />
+      {resetOpen && (
+        <div
+          className='factory-reset-backdrop'
+          role='presentation'
+          onMouseDown={e => {
+            if (e.target === e.currentTarget && !resetBusy) setResetOpen(false)
+          }}
+        >
+          <div
+            className='factory-reset-dialog'
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='factory-reset-title'
+          >
+            <h2 id='factory-reset-title'>Restore initial state</h2>
+            <p>
+              This permanently deletes files, chats, memories, scheduled tasks,
+              browser data, custom agents and skills
+              {desktopApp ? ', and all saved API keys' : ''}.
+            </p>
+            {desktopApp && (
+              <p className='factory-reset-note'>
+                Project folders outside the application data directory will
+                remain unchanged. The app will restart when reset is complete.
+              </p>
+            )}
+            <label htmlFor='factory-reset-confirmation'>
+              Type <strong>RESET</strong> to continue
+            </label>
+            <input
+              id='factory-reset-confirmation'
+              autoFocus
+              value={resetConfirmation}
+              disabled={resetBusy}
+              onChange={e => setResetConfirmation(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter') void handleFactoryReset()
+                if (e.key === 'Escape' && !resetBusy) setResetOpen(false)
+              }}
+            />
+            {resetError && (
+              <div className='factory-reset-error' role='alert'>
+                {resetError}
+              </div>
+            )}
+            <div className='factory-reset-actions'>
+              <button
+                type='button'
+                disabled={resetBusy}
+                onClick={() => setResetOpen(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type='button'
+                className='factory-reset-confirm'
+                disabled={resetConfirmation !== 'RESET' || resetBusy}
+                onClick={() => void handleFactoryReset()}
+              >
+                {resetBusy ? 'Restoring…' : 'Delete data and restore'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   )
 }

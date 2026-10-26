@@ -200,6 +200,25 @@ export function removeTasksForSession(sessionId: string): number {
   return removed
 }
 
+export function removeTasksForSessions(
+  sessionIds: Iterable<string>,
+  workspace?: string,
+): number {
+  const ids = new Set(sessionIds)
+  const root = workspace ? path.resolve(workspace) : null
+  if (ids.size === 0 && !root) return 0
+  const tasks = readCronTasks()
+  const remaining = tasks.filter(task => {
+    if (ids.has(task.sessionId)) return false
+    if (!root) return true
+    const cwd = path.resolve(task.cwd)
+    return cwd !== root && !cwd.startsWith(root + path.sep)
+  })
+  const removed = tasks.length - remaining.length
+  if (removed > 0) writeCronTasks(remaining)
+  return removed
+}
+
 export function updateCronTask(
   id: string,
   patch: Partial<ScheduledTask>,

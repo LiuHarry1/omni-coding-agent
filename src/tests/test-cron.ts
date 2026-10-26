@@ -22,6 +22,7 @@ import {
   CronStoreCorruptError,
   readCronTasks,
   removeCronTasks,
+  removeTasksForSessions,
   writeCronTasks,
 } from '../services/cron/store.js'
 import type { FireResult, ScheduledTask } from '../services/cron/types.js'
@@ -72,6 +73,31 @@ async function main() {
     assert.equal(readCronTasks().length, 1)
     assert.equal(removeCronTasks([task.id]), 1)
     assert.equal(readCronTasks().length, 0)
+    addCronTask(
+      {
+        cron: '*/5 * * * *',
+        prompt: 'reset me',
+        sessionId: 'reset-session',
+        cwd: dir,
+        recurring: true,
+      },
+      from,
+    )
+    addCronTask(
+      {
+        cron: '*/5 * * * *',
+        prompt: 'keep me',
+        sessionId: 'other-session',
+        cwd: path.join(path.dirname(dir), 'other-workspace'),
+        recurring: true,
+      },
+      from,
+    )
+    assert.equal(removeTasksForSessions(['reset-session'], dir), 1)
+    assert.deepEqual(
+      readCronTasks().map(row => row.sessionId),
+      ['other-session'],
+    )
     console.log('[ok] cron store')
   })
 

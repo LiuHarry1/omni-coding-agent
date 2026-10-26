@@ -3,12 +3,16 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import {
+  assertSafeDesktopDataRoot,
   buildAgentSpawnEnv,
   resolveBundledRipgrepPath,
+  resolveDesktopDataRoot,
   resolveDefaultDesktopWorkspace,
 } from '../../desktop/agent-launch.mjs'
 
 const home = path.resolve('/test-user-home')
+const dataRoot = resolveDesktopDataRoot(home, {})
+assert.equal(dataRoot, path.join(home, '.ai-agent'))
 const workspace = resolveDefaultDesktopWorkspace({
   packaged: true,
   homeDir: home,
@@ -27,6 +31,7 @@ const env = buildAgentSpawnEnv(
   {
     packaged: true,
     workspace,
+    appDataDir: dataRoot,
   },
 )
 assert.equal(env.HOME, home, 'Electron agent child must preserve user HOME')
@@ -34,6 +39,11 @@ assert.equal(
   env.WORKSPACE,
   workspace,
   'Electron agent child must use the persistent desktop workspace',
+)
+assert.equal(
+  env.AI_AGENT_DATA_DIR,
+  dataRoot,
+  'desktop cron/process data must share the factory-reset boundary',
 )
 
 const configured = buildAgentSpawnEnv(
@@ -119,6 +129,27 @@ try {
   )
 } finally {
   fs.rmSync(resourcesPath, { recursive: true, force: true })
+}
+
+const safeHome = fs.mkdtempSync(path.join(os.tmpdir(), 'desktop-reset-home-'))
+try {
+  const safeRoot = path.join(safeHome, '.ai-agent')
+  fs.mkdirSync(safeRoot)
+  assert.equal(assertSafeDesktopDataRoot(safeRoot, safeHome), safeRoot)
+  assert.throws(
+    () => assertSafeDesktopDataRoot(safeHome, safeHome),
+    /Refusing to reset/,
+  )
+  assert.throws(
+    () =>
+      assertSafeDesktopDataRoot(
+        path.join(path.dirname(safeHome), '.ai-agent'),
+        safeHome,
+      ),
+    /Refusing to reset/,
+  )
+} finally {
+  fs.rmSync(safeHome, { recursive: true, force: true })
 }
 
 console.log('All memory deployment checks passed.')

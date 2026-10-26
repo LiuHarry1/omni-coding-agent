@@ -7,3 +7,8 @@ export async function pickWorkspaceDir() {
   if (!isDesktop()) return null
   return globalThis.desktop.pickWorkspace()
 }
+
+export async function factoryResetDesktop(confirmation) {
+  if (!isDesktop()) throw new Error('Factory reset requires the desktop app')
+  return globalThis.desktop.factoryReset(confirmation)
+}

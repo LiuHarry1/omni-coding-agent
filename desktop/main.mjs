@@ -3,7 +3,13 @@
  * then opens a BrowserWindow pointed at the same origin the web build uses
  * in production (http://127.0.0.1:<PORT>).
  */
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  session as electronSession,
+} from 'electron'
 import { spawn } from 'node:child_process'
 import * as fs from 'node:fs'
 import * as http from 'node:http'
@@ -14,7 +20,9 @@ import {
   buildAgentSpawnEnv,
   resolveAgentLaunch,
   resolveAgentNodeExecPath,
+  resolveDesktopDataRoot,
   resolveDefaultDesktopWorkspace,
+  assertSafeDesktopDataRoot,
 } from './agent-launch.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -26,6 +34,7 @@ let agentProc = null
 let mainWindow = null
 let agentPort = DEFAULT_PORT
 let agentStopDone = false
+let factoryResetInProgress = false
 
 function getAppRoot() {
   return app.isPackaged ? app.getAppPath() : REPO_ROOT
@@ -71,6 +80,7 @@ function pipeAgentLogs(proc, extraHeader) {
 
 function startAgent() {
   const appRoot = getAppRoot()
+  const appDataDir = resolveDesktopDataRoot(app.getPath('home'), process.env)
   const workspace = resolveDefaultDesktopWorkspace({
     packaged: app.isPackaged,
     homeDir: app.getPath('home'),
@@ -83,6 +93,7 @@ function startAgent() {
     packaged: app.isPackaged,
     resourcesPath: process.resourcesPath,
     workspace,
+    appDataDir,
   })
 
   const launch = resolveAgentLaunch(appRoot, SLUG, {
@@ -137,7 +148,12 @@ function startAgent() {
   pipeAgentLogs(agentProc, launchHeader)
 
   agentProc.on('exit', (code, signal) => {
-    if (!app.isQuitting && code !== 0 && code !== null) {
+    if (
+      !app.isQuitting &&
+      !factoryResetInProgress &&
+      code !== 0 &&
+      code !== null
+    ) {
       const logPath = getAgentLogPath()
       dialog.showErrorBox(
         'Agent stopped',
@@ -227,7 +243,7 @@ function createWindow() {
     minHeight: 560,
     title: APP_NAME,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.mjs'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
@@ -328,3 +344,61 @@ ipcMain.handle('pick-workspace', async () => {
 })
 
 ipcMain.handle('get-agent-url', () => getAgentUrl())
+
+ipcMain.handle('factory-reset', async (_event, confirmation) => {
+  if (confirmation !== 'RESET') {
+    throw new Error('Type RESET to confirm')
+  }
+  if (factoryResetInProgress) {
+    throw new Error('Factory reset already in progress')
+  }
+
+  factoryResetInProgress = true
+  const homeDir = app.getPath('home')
+  const dataRoot = assertSafeDesktopDataRoot(
+    resolveDesktopDataRoot(homeDir, process.env),
+    homeDir,
+  )
+  const tombstone = path.join(
+    homeDir,
+    `.${path.basename(dataRoot)}.reset-${Date.now()}-${process.pid}`,
+  )
+
+  try {
+    mainWindow?.setEnabled?.(false)
+    await stopAgent()
+    await electronSession.defaultSession.clearStorageData()
+    await electronSession.defaultSession.clearCache()
+
+    if (fs.existsSync(dataRoot)) {
+      fs.renameSync(dataRoot, tombstone)
+      try {
+        fs.rmSync(tombstone, {
+          recursive: true,
+          force: true,
+          maxRetries: 5,
+          retryDelay: 200,
+        })
+      } catch (err) {
+        if (!fs.existsSync(dataRoot) && fs.existsSync(tombstone)) {
+          fs.renameSync(tombstone, dataRoot)
+        }
+        throw err
+      }
+    }
+
+    app.relaunch()
+    agentStopDone = true
+    app.isQuitting = true
+    app.exit(0)
+    return { ok: true }
+  } catch (err) {
+    factoryResetInProgress = false
+    mainWindow?.setEnabled?.(true)
+    if (!agentProc) {
+      startAgent()
+      await waitForHealth().catch(() => {})
+    }
+    throw err
+  }
+})

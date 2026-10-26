@@ -6,21 +6,21 @@
 
 ## 目录
 
-| 路径 | 说明 |
-|------|------|
-| `workspace-seed/.ai-agent/settings.json` | `agents.picker` / `agents.default` + browser 默认 + `permissions.defaultMode: bypassPermissions`（文件工具访问工作区外路径不弹确认；`deny` 规则仍生效；无密钥） |
-| `workspace-seed/.ai-agent/agents/browser.md` | Browser Automation primary |
-| `workspace-seed/.ai-agent/agents/assistant.md` | Personal Assistant primary（桌面文件 / 应用 / 系统 / 网页 / 提醒 / 跨会话记忆） |
+| 路径                                           | 说明                                                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace-seed/.ai-agent/settings.json`       | `agents.picker` / `agents.default` + browser 默认 + `permissions.defaultMode: bypassPermissions`（文件工具访问工作区外路径不弹确认；`deny` 规则仍生效；无密钥） |
+| `workspace-seed/.ai-agent/agents/browser.md`   | Browser Automation primary                                                                                                                                      |
+| `workspace-seed/.ai-agent/agents/assistant.md` | Personal Assistant primary（桌面文件 / 应用 / 系统 / 网页 / 提醒 / 跨会话记忆）                                                                                 |
 
 密钥（`apiKey` 等）**不要**放进 seed；装机后写入用户 `~/.ai-agent/settings.json` 或项目 local settings。
 
 ## `agents.picker` / `agents.default`
 
-| 字段 | 语义 |
-|------|------|
-| `picker.modes` | 页面上显示的权限模式 allowlist。省略 = `agent/ask/plan` 全显；`[]` = 不显示模式行 |
-| `picker.primaries` | 页面上显示的 primary allowlist。省略 = 全部 `mode: primary`；`[]` = Specialist 区为空 |
-| `default.mode` / `default.agentType` | 新 session 初始态 |
+| 字段                                 | 语义                                                                                  |
+| ------------------------------------ | ------------------------------------------------------------------------------------- |
+| `picker.modes`                       | 页面上显示的权限模式 allowlist。省略 = `agent/ask/plan` 全显；`[]` = 不显示模式行     |
+| `picker.primaries`                   | 页面上显示的 primary allowlist。省略 = 全部 `mode: primary`；`[]` = Specialist 区为空 |
+| `default.mode` / `default.agentType` | 新 session 初始态                                                                     |
 
 本 seed 默认：
 
@@ -65,6 +65,17 @@
 Packaged Electron 默认 `WORKSPACE=~/.ai-agent/workspace`（启动时 `mkdir`；可用 `AI_AGENT_DIR` 改 basename）。开发态不设 `WORKSPACE`，沿用仓库根。UI 选目录后由请求覆盖。
 
 Electron 在 packaged / 开发态会设置 `WORKSPACE_SEED_DIR`；agent 首次发现该工作区（`loadWorkspaceContributions`）时落盘，与 SSO 共用同一套 seed 逻辑。
+
+## 恢复初始状态
+
+Desktop 的 **Restore initial state** 由 Electron 主进程执行。确认后会先停止
+agent，清空 Electron Web Storage，并删除整个 `~/.ai-agent`（或
+`AI_AGENT_DIR` 对应目录），其中包括 API Key、默认工作区、聊天、记忆、
+计划任务和浏览器 profile；随后应用重启并从本目录的 seed 重新初始化。
+
+用户通过目录选择器打开的外部项目不属于重置边界，项目文件及项目内的
+`.ai-agent` 均会保留。Desktop 会将 `AI_AGENT_DATA_DIR` 固定到上述应用
+数据目录，以确保计划任务可被完整清理。
 
 ```bash
 npm run desktop:pack        # 当前平台
