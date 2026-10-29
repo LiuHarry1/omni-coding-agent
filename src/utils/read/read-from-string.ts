@@ -2,6 +2,11 @@
  * Slice an in-memory text buffer into Read Out (raw lines, dual-channel).
  * Shared by local disk reads and remote/SSH `readText` paths.
  */
+import * as path from 'path'
+import {
+  roughTokenCountEstimation,
+  roughTokenCountEstimationForFileType,
+} from '../../services/tokenEstimation.js'
 import { DEFAULT_MAX_OUTPUT_TOKENS, MAX_LINES_TO_READ } from './limits.js'
 import type { ReadTextOutput } from './types.js'
 import {
@@ -10,7 +15,7 @@ import {
 } from './types.js'
 
 export function roughTokenEstimate(text: string): number {
-  return Math.ceil(text.length / 4)
+  return roughTokenCountEstimation(text)
 }
 
 function boundaryOrRawText(
@@ -56,9 +61,10 @@ function boundaryOrRawText(
   }
 }
 
-function assertOutputTokenBudget(content: string): void {
+function assertOutputTokenBudget(content: string, displayPath: string): void {
   if (!content) return
-  const tokens = roughTokenEstimate(content)
+  const ext = path.extname(displayPath).toLowerCase().slice(1)
+  const tokens = roughTokenCountEstimationForFileType(content, ext)
   if (tokens > DEFAULT_MAX_OUTPUT_TOKENS) {
     throw new MaxFileReadTokenExceededError(tokens, DEFAULT_MAX_OUTPUT_TOKENS)
   }
@@ -117,6 +123,6 @@ export function readTextFromString(
   if (effectiveLimit != null) lines = lines.slice(0, effectiveLimit)
 
   const out = boundaryOrRawText(displayPath, lines, startLine, totalLines)
-  assertOutputTokenBudget(out.file.content)
+  assertOutputTokenBudget(out.file.content, displayPath)
   return out
 }

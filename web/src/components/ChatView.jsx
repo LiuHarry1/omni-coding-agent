@@ -5,14 +5,11 @@ import {
   useState,
   useCallback,
   useMemo,
-  Suspense,
-  lazy,
 } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { buildFlatElements } from '../lib/bubbles/flat-elements.js'
 import WelcomeScreen from './WelcomeScreen.jsx'
-
-const TranscriptRow = lazy(() => import('./transcript/TranscriptRow.jsx'))
+import TranscriptRow from './transcript/TranscriptRow.jsx'
 
 /** Distance from bottom that still counts as "following" the stream. */
 const PIN_THRESHOLD_PX = 80
@@ -379,7 +376,16 @@ export default function ChatView() {
         onPointerCancel={handlePointerUp}
       >
         {sessionLoading ? (
-          <div className='messages' ref={messagesRef} aria-busy='true' />
+          <div
+            className='messages session-loading-state'
+            ref={messagesRef}
+            role='status'
+            aria-live='polite'
+            aria-busy='true'
+          >
+            <span className='session-loading-spinner' aria-hidden='true' />
+            <span>Loading conversation…</span>
+          </div>
         ) : !hasMessages ? (
           <WelcomeScreen />
         ) : (
@@ -394,28 +400,26 @@ export default function ChatView() {
                 {hiddenCount > LOAD_MORE_STEP ? ` (${hiddenCount} hidden)` : ''}
               </button>
             )}
-            <Suspense fallback={null}>
-              {visibleElements.map((el, i) => {
-                const absIndex = startIndex + i
-                const fromEnd = flatElements.length - 1 - absIndex
-                const skipContain = fromEnd < liveTail
-                return (
-                  <div
-                    key={el.id}
-                    className={
-                      skipContain
-                        ? 'msg-slot msg-slot--live'
-                        : 'msg-slot msg-slot--contain'
-                    }
-                  >
-                    <TranscriptRow
-                      element={el}
-                      streamingTail={isStreaming && fromEnd === 0}
-                    />
-                  </div>
-                )
-              })}
-            </Suspense>
+            {visibleElements.map((el, i) => {
+              const absIndex = startIndex + i
+              const fromEnd = flatElements.length - 1 - absIndex
+              const skipContain = fromEnd < liveTail
+              return (
+                <div
+                  key={el.id}
+                  className={
+                    skipContain
+                      ? 'msg-slot msg-slot--live'
+                      : 'msg-slot msg-slot--contain'
+                  }
+                >
+                  <TranscriptRow
+                    element={el}
+                    streamingTail={isStreaming && fromEnd === 0}
+                  />
+                </div>
+              )
+            })}
             {/*
               Bottom inset air: stick-to-bottom lands on this spacer so the live
               edge sits mid-lower, not flush on the input.

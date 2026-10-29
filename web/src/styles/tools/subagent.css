@@ -49,7 +49,9 @@
   cursor: pointer;
   text-decoration: underline;
   text-decoration-color: transparent;
-  transition: color 0.12s, text-decoration-color 0.12s;
+  transition:
+    color 0.12s,
+    text-decoration-color 0.12s;
 }
 .subagent-step-toggle:hover {
   color: var(--accent);
@@ -74,6 +76,11 @@
 .subagent-steps > .tool-card,
 .subagent-steps > .subagent-nested-step {
   margin: 0;
+}
+.subagent-omitted {
+  margin: 0 0 2px 14px;
+  color: var(--text-tier-4);
+  font-size: 11.5px;
 }
 .subagent-nested-step > .tool-row,
 .subagent-nested-step > .tool-card {
@@ -113,19 +120,34 @@
 }
 .subagent-result h1:first-child,
 .subagent-result h2:first-child,
-.subagent-result h3:first-child { margin-top: 0; }
-.subagent-result strong { color: var(--text-primary); font-weight: 600; }
-.subagent-result a { color: var(--accent); }
-.subagent-result li { margin: 2px 0; }
-.subagent-result p { margin: 0 0 8px; }
-.subagent-result p:last-child { margin-bottom: 0; }
+.subagent-result h3:first-child {
+  margin-top: 0;
+}
+.subagent-result strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.subagent-result a {
+  color: var(--accent);
+}
+.subagent-result li {
+  margin: 2px 0;
+}
+.subagent-result p {
+  margin: 0 0 8px;
+}
+.subagent-result p:last-child {
+  margin-bottom: 0;
+}
 .subagent-result ul,
-.subagent-result ol { margin: 4px 0 8px 20px; }
+.subagent-result ol {
+  margin: 4px 0 8px 20px;
+}
 .subagent-result code {
   font-family: var(--font-mono);
   font-size: 12px;
   padding: 1px 5px;
-  background: rgba(255,255,255,0.08);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 3px;
   color: var(--text-primary);
 }
@@ -135,7 +157,9 @@
   border-radius: 4px;
   overflow: auto;
 }
-.subagent-result--error { color: var(--text-secondary); }
+.subagent-result--error {
+  color: var(--text-secondary);
+}
 .subagent-result-error {
   margin: 0;
   font-family: var(--font-mono);
@@ -144,13 +168,15 @@
   white-space: pre-wrap;
 }
 
-[data-theme="light"] .subagent-result code { background: rgba(0,0,0,0.05); }
+[data-theme='light'] .subagent-result code {
+  background: rgba(0, 0, 0, 0.05);
+}
 
-[data-theme="light"] .subagent-stop-btn:hover:not(:disabled) {
+[data-theme='light'] .subagent-stop-btn:hover:not(:disabled) {
   background: rgba(207, 34, 46, 0.08);
   color: var(--red);
 }
 
-[data-theme="light"] .waiting-for-subagent {
+[data-theme='light'] .waiting-for-subagent {
   color: var(--text-secondary);
 }

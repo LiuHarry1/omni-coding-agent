@@ -3,6 +3,9 @@
  * Run: npx tsx src/tests/test-micro-reactive-compact.ts
  */
 import assert from 'node:assert/strict'
+import * as fs from 'node:fs'
+import * as os from 'node:os'
+import * as path from 'node:path'
 import type { LanguageModel } from 'ai'
 import type { AnyTool, IProvider, Message, RunAgentFn } from '../core/types.js'
 import { isRoleMessage } from '../core/types.js'
@@ -19,9 +22,19 @@ import {
   resetMicroCompactState,
 } from '../services/compact/index.js'
 import { BASH_TOOL_NAME } from '../constants/tool_names.js'
-import { createSession, deleteSession } from '../session/index.js'
+import {
+  createSession,
+  deleteSession,
+  setSessionWorkspace,
+} from '../session/index.js'
+import {
+  getCachedSessionLocation,
+  getToolResultFilePath,
+  sessionDataDir,
+} from '../core/session-paths.js'
 import { shouldAttemptReactiveCompaction } from '../core/query/run-step.js'
 import { maxTokensOverrideFromError } from '../core/query/helpers.js'
+import { applyCompactOutcome } from '../core/query/pre-turn.js'
 
 function toolOutput(
   messages: Message[],
@@ -251,9 +264,189 @@ function testMicroProjectionRebasesToPreservedTail(): void {
       sessionId,
     )
     assert.notEqual(toolOutput(rebuilt, 'rebase-call'), 'p'.repeat(3_000))
+
+    const transcript = [...history]
+    const active = applyCompactOutcome(
+      transcript,
+      {
+        messages: [boundary, summary, assistant, tool],
+        appendMessages: [boundary, summary],
+        source: 'session_memory',
+      },
+      [],
+      undefined,
+      sessionId,
+    )
+    assert.ok(active.some(m => m.uuid === 'rebase-tool'))
+    assert.notEqual(
+      toolOutput(active, 'rebase-call'),
+      'p'.repeat(3_000),
+      'compact outcome view must keep micro-clears on the preserved tail',
+    )
   } finally {
     resetMicroCompactState(sessionId)
     deleteSession(sessionId)
+  }
+}
+
+function testMicroProjectionSurvivesRestart(): void {
+  const sessionId = createSession({ cwd: process.cwd() }).id
+  const raw = 'r'.repeat(3_000)
+  const history: Message[] = [
+    { role: 'user', content: 'run', uuid: 'restart-user' },
+    {
+      role: 'assistant',
+      uuid: 'restart-assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'restart-call',
+          toolName: BASH_TOOL_NAME,
+          input: { command: 'large output' },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      uuid: 'restart-tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'restart-call',
+          toolName: BASH_TOOL_NAME,
+          output: { type: 'text', value: raw },
+        },
+      ],
+    },
+  ]
+  try {
+    microCompact(history, 0, sessionId)
+    // Drops only the in-process copy, as a process restart would.
+    resetMicroCompactState(sessionId)
+    const reloaded = getActiveModelMessages(history, sessionId)
+    assert.notEqual(
+      toolOutput(reloaded, 'restart-call'),
+      raw,
+      'micro-clears must be reloaded from disk after a restart',
+    )
+  } finally {
+    resetMicroCompactState(sessionId)
+    deleteSession(sessionId)
+  }
+}
+
+function testCorruptProjectionCanBeRetried(): void {
+  const sessionId = createSession({ cwd: process.cwd() }).id
+  const raw = 'c'.repeat(3_000)
+  const history: Message[] = [
+    { role: 'user', content: 'run', uuid: 'corrupt-user' },
+    {
+      role: 'assistant',
+      uuid: 'corrupt-assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'corrupt-call',
+          toolName: BASH_TOOL_NAME,
+          input: { command: 'large output' },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      uuid: 'corrupt-tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'corrupt-call',
+          toolName: BASH_TOOL_NAME,
+          output: { type: 'text', value: raw },
+        },
+      ],
+    },
+  ]
+  try {
+    microCompact(history, 0, sessionId)
+    const loc = getCachedSessionLocation(sessionId)
+    assert.ok(loc)
+    const statePath = path.join(
+      sessionDataDir(loc, sessionId),
+      'micro-compact.json',
+    )
+    const validState = fs.readFileSync(statePath, 'utf-8')
+    resetMicroCompactState(sessionId)
+    fs.writeFileSync(statePath, '{', 'utf-8')
+    assert.equal(
+      toolOutput(getActiveModelMessages(history, sessionId), 'corrupt-call'),
+      raw,
+    )
+
+    fs.writeFileSync(statePath, validState, 'utf-8')
+    assert.notEqual(
+      toolOutput(getActiveModelMessages(history, sessionId), 'corrupt-call'),
+      raw,
+      'a failed parse must not permanently suppress reloads',
+    )
+  } finally {
+    resetMicroCompactState(sessionId)
+    deleteSession(sessionId)
+  }
+}
+
+function testProjectionFollowsSessionRelocation(): void {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'micro-relocate-'))
+  const oldCwd = path.join(root, 'old')
+  const newCwd = path.join(root, 'new')
+  fs.mkdirSync(oldCwd)
+  fs.mkdirSync(newCwd)
+  const sessionId = createSession({ cwd: oldCwd }).id
+  const raw = 'm'.repeat(3_000)
+  const history: Message[] = [
+    { role: 'user', content: 'run', uuid: 'move-user' },
+    {
+      role: 'assistant',
+      uuid: 'move-assistant',
+      content: [
+        {
+          type: 'tool-call',
+          toolCallId: 'move-call',
+          toolName: BASH_TOOL_NAME,
+          input: { command: 'large output' },
+        },
+      ],
+    },
+    {
+      role: 'tool',
+      uuid: 'move-tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'move-call',
+          toolName: BASH_TOOL_NAME,
+          output: { type: 'text', value: raw },
+        },
+      ],
+    },
+  ]
+  try {
+    microCompact(history, 0, sessionId)
+    const oldPath = getToolResultFilePath(sessionId, 'move-call')
+    setSessionWorkspace(sessionId, { environmentId: 'local', cwd: newCwd })
+    const newPath = getToolResultFilePath(sessionId, 'move-call')
+    assert.notEqual(newPath, oldPath)
+    assert.ok(fs.existsSync(newPath))
+
+    resetMicroCompactState(sessionId)
+    const output = toolOutput(
+      getActiveModelMessages(history, sessionId),
+      'move-call',
+    )
+    assert.ok(output?.includes(newPath))
+    assert.equal(output?.includes(oldPath), false)
+  } finally {
+    resetMicroCompactState(sessionId)
+    deleteSession(sessionId)
+    fs.rmSync(root, { recursive: true, force: true })
   }
 }
 
@@ -279,8 +472,14 @@ function testReactiveRetryLimit(): void {
 await testMicroProjectionLifetime()
 await testReactiveTailPreservesToolPair()
 testMicroProjectionRebasesToPreservedTail()
+testMicroProjectionSurvivesRestart()
+testCorruptProjectionCanBeRetried()
+testProjectionFollowsSessionRelocation()
 testReactiveRetryLimit()
 console.log('[PASS] micro projection persists until compact boundary')
 console.log('[PASS] reactive full compact references a paired recent tail')
 console.log('[PASS] micro projection rebases onto preserved tail')
+console.log('[PASS] micro projection survives a process restart')
+console.log('[PASS] corrupt micro projection can be retried')
+console.log('[PASS] micro projection follows session relocation')
 console.log('[PASS] reactive context retry is limited to once per step')

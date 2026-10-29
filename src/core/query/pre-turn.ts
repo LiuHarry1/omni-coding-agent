@@ -27,12 +27,18 @@ export function applyFullCompaction(
   appendMessages: Message[],
   currentTodos: TodoItem[],
   onFullCompaction?: AgentOptions['onFullCompaction'],
+  sessionId?: string,
 ): Message[] {
   const appendStart = messages.length
   messages.push(...appendMessages)
   attachTodoReminderAfterCompaction(messages, currentTodos)
   onFullCompaction?.(messages.slice(appendStart))
-  return getMessagesAfterCompactBoundary(messages)
+  // The preserved tail is rebuilt from raw history; its micro-clears must be
+  // reapplied or the request carries every payload compaction just dropped.
+  return applyMicroCompactProjection(
+    getMessagesAfterCompactBoundary(messages),
+    sessionId,
+  )
 }
 
 /**
@@ -45,6 +51,7 @@ export function applyCompactOutcome(
   outcome: CompactOutcome,
   currentTodos: TodoItem[],
   onFullCompaction?: AgentOptions['onFullCompaction'],
+  sessionId?: string,
 ): Message[] {
   if (outcome.source === 'none') {
     return outcome.messages
@@ -57,6 +64,7 @@ export function applyCompactOutcome(
     outcome.appendMessages ?? outcome.messages,
     currentTodos,
     onFullCompaction,
+    sessionId,
   )
 }
 
@@ -117,6 +125,7 @@ export async function preTurn(input: {
     outcome,
     input.currentTodos,
     input.onFullCompaction,
+    input.sessionId,
   )
   const compactMs = Date.now() - compactStart
 

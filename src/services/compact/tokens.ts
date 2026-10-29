@@ -13,44 +13,52 @@ import {
   getMessagesAfterCompactBoundary,
   isCompactBoundaryMessage,
 } from '../../core/messages/compact-boundary.js'
+import {
+  bytesPerTokenForToolResult,
+  roughTokenCountEstimation,
+} from '../tokenEstimation.js'
 
 // ── Pure estimation ─────────────────────────────────────
 
-function estStr(s: string): number {
-  return Math.ceil(s.length / 4)
-}
-
+/** Images are resized to SCREENSHOT_TOKEN_BUDGET before they reach the model. */
 const IMAGE_TOKEN_ESTIMATE = 1500
 
 export function estimateMessageTokens(msg: Message): number {
   if (isAttachmentMessage(msg)) {
-    return Math.ceil(JSON.stringify(msg.attachment).length / 4)
+    return roughTokenCountEstimation(JSON.stringify(msg.attachment))
   }
   if (!isRoleMessage(msg)) return 0
   let total = 0
   if (msg.role === 'user') {
-    if (typeof msg.content === 'string') return estStr(msg.content)
+    if (typeof msg.content === 'string') {
+      return roughTokenCountEstimation(msg.content)
+    }
     for (const part of msg.content) {
-      if (part.type === 'text') total += estStr(part.text)
+      if (part.type === 'text') total += roughTokenCountEstimation(part.text)
       else if (part.type === 'image') total += IMAGE_TOKEN_ESTIMATE
     }
     return total
   }
   if (msg.role === 'assistant') {
     for (const part of msg.content) {
-      if (part.type === 'text') total += estStr(part.text)
-      else if (part.type === 'reasoning') total += estStr(part.text ?? '')
-      else if (part.type === 'tool-call') {
-        total +=
-          estStr(part.toolName) + estStr(JSON.stringify(part.input ?? {}))
+      if (part.type === 'text') {
+        total += roughTokenCountEstimation(part.text)
+      } else if (part.type === 'reasoning') {
+        total += roughTokenCountEstimation(part.text ?? '')
+      } else if (part.type === 'tool-call') {
+        total += roughTokenCountEstimation(
+          part.toolName + JSON.stringify(part.input ?? {}),
+        )
       }
     }
     return total
   }
   for (const part of msg.content) {
     total +=
-      estStr(part.toolName) +
-      estStr(toolResultOutputToText(part.output)) +
+      roughTokenCountEstimation(
+        toolResultOutputToText(part.output),
+        bytesPerTokenForToolResult(part.toolName),
+      ) +
       countOutputImages(part.output) * IMAGE_TOKEN_ESTIMATE
   }
   return total

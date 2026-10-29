@@ -33,6 +33,11 @@ export type MaxTokensContextOverflow = {
   inputTokens: number
   maxTokens: number
   contextLimit: number
+  /**
+   * `inputTokens` is only a floor (`contextLimit - maxTokens + 1`), not the
+   * real prompt size, so it cannot size a smaller max_tokens.
+   */
+  inputIsLowerBound?: boolean
 }
 
 /**
@@ -40,6 +45,8 @@ export type MaxTokensContextOverflow = {
  * Anthropic: "input length and `max_tokens` exceed context limit: 188059 + 20000 > 200000"
  * LiteLLM:  "maximum context length is 262144 ... requested 128000 output tokens
  *            ... prompt contains at least 134145 input tokens"
+ * vLLM behind LiteLLM reports "at least" as `limit - max_tokens + 1` whatever
+ * the real prompt size is.
  */
 export function parseMaxTokensContextOverflowError(
   err: unknown,
@@ -64,18 +71,25 @@ export function parseMaxTokensContextOverflowError(
   }
 
   const litellm = msg.match(
-    /maximum context length is (\d+)[\s\S]*?requested (\d+) output tokens[\s\S]*?(?:prompt contains at least|prompt contains)\s+(\d+) input tokens/i,
+    /maximum context length is (\d+)[\s\S]*?requested (\d+) output tokens[\s\S]*?prompt contains (at least )?(\d+) input tokens/i,
   )
-  if (litellm?.[1] && litellm[2] && litellm[3]) {
+  if (litellm?.[1] && litellm[2] && litellm[4]) {
     const contextLimit = parseInt(litellm[1], 10)
     const maxTokens = parseInt(litellm[2], 10)
-    const inputTokens = parseInt(litellm[3], 10)
+    const inputTokens = parseInt(litellm[4], 10)
     if (
       Number.isFinite(inputTokens) &&
       Number.isFinite(maxTokens) &&
       Number.isFinite(contextLimit)
     ) {
-      return { inputTokens, maxTokens, contextLimit }
+      const inputIsLowerBound =
+        !!litellm[3] && inputTokens + maxTokens === contextLimit + 1
+      return {
+        inputTokens,
+        maxTokens,
+        contextLimit,
+        ...(inputIsLowerBound ? { inputIsLowerBound } : {}),
+      }
     }
   }
 

@@ -31,6 +31,7 @@ import {
   registerToolAbort,
 } from '../../core/tool-abort-registry.js'
 import { getAgentMemoryDir, loadAgentMemoryPrompt } from './agentMemory.js'
+import { buildAgentUiProjection } from './uiProjection.js'
 
 const SUBAGENT_STOPPED = 'Error: Subagent stopped by user.'
 
@@ -123,14 +124,35 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
       return t === EXPLORE_AGENT_TYPE || t === 'explore'
     },
     mapToolResultToToolResultBlockParam(output, toolUseID) {
+      const text = (output as { text: string }).text
       return {
         tool_use_id: toolUseID,
         type: 'tool_result',
-        content: (output as { text: string }).text,
+        content: text,
+        ...(text.startsWith('Error:') ? { is_error: true } : {}),
       }
     },
     outputSchema: z.object({
       text: z.string(),
+      ui: z
+        .object({
+          version: z.literal(1),
+          steps: z.array(
+            z.object({
+              type: z.literal('tool_call'),
+              toolCallId: z.string(),
+              name: z.string(),
+              args: z.record(z.string(), z.unknown()),
+              status: z.literal('done'),
+              result: z.string().optional(),
+              toolUseResult: z.unknown().optional(),
+              isError: z.boolean().optional(),
+            }),
+          ),
+          omittedSteps: z.number().int().nonnegative().optional(),
+          detailsTruncated: z.literal(true).optional(),
+        })
+        .optional(),
     }),
     create(cwd: string, context: ToolContext) {
       const {
@@ -314,6 +336,11 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             (sessionId
               ? registerToolAbort(sessionId, resolvedParentId)
               : undefined)
+          const subMessages: import('../../core/types.js').Message[] = []
+          const output = (text: string) => {
+            const ui = buildAgentUiProjection(subMessages)
+            return { data: { text, ...(ui ? { ui } : {}) } }
+          }
 
           try {
             const result = await runAgent(prompt, {
@@ -322,7 +349,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               systemPrompt: subSystemPrompt,
               eventBus,
               wire: subWire,
-              messages: [],
+              messages: subMessages,
               ...(def.maxSteps !== undefined ? { maxSteps: def.maxSteps } : {}),
               model: subModel,
               provider: subProvider,
@@ -336,23 +363,22 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             })
 
             if (abortSignal?.aborted) {
-              return { data: { text: SUBAGENT_STOPPED } }
+              return output(SUBAGENT_STOPPED)
             }
 
             // Never hand the parent an empty tool_result —
             // some models treat that as "nothing to act on" and stop.
             const text = typeof result === 'string' ? result.trim() : ''
-            return {
-              data: { text: text || SUBAGENT_NO_OUTPUT_MARKER },
-            }
+            return output(text || SUBAGENT_NO_OUTPUT_MARKER)
           } catch (err) {
             if (
               abortSignal?.aborted ||
               (err instanceof Error && err.name === 'AbortError')
             ) {
-              return { data: { text: SUBAGENT_STOPPED } }
+              return output(SUBAGENT_STOPPED)
             }
-            throw err
+            const message = err instanceof Error ? err.message : String(err)
+            return output(`Error: ${message}`)
           } finally {
             if (sessionId && !options?.abortSignal) {
               clearToolAbort(sessionId, resolvedParentId)

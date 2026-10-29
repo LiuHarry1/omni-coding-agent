@@ -735,6 +735,7 @@ export async function runChatTurn(
         images: imageRefs,
         attachmentPrelude,
         attachmentFiles,
+        displayUserMessage: message,
         isMeta,
         subagentNames: prepared.subagentNames,
         deferredToolPool: prepared.deferredToolPool,

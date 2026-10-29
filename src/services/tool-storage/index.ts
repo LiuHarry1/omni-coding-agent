@@ -52,6 +52,18 @@ export function isPersistedReference(text: string): boolean {
   return text.includes(PERSISTED_OUTPUT_OPEN)
 }
 
+/** Rewrite a persisted reference after its session data directory moves. */
+export function relocatePersistedReference(
+  text: string,
+  filePath: string,
+): string {
+  if (!isPersistedReference(text)) return text
+  return text.replace(
+    /(<persisted-output\s+path=")[^"]*(")/,
+    (_match, prefix: string, suffix: string) => prefix + filePath + suffix,
+  )
+}
+
 function formatBytes(chars: number): string {
   if (chars >= 1024 * 1024) return `${(chars / (1024 * 1024)).toFixed(1)} MB`
   if (chars >= 1024) return `${(chars / 1024).toFixed(1)} KB`

@@ -9,6 +9,7 @@
  * When Read results are cleared, matching entries are dropped from
  * `readFileState` so file_unchanged dedup cannot stub against cleared content.
  */
+import * as fs from 'fs'
 import * as path from 'path'
 import type {
   AssistantMessage,
@@ -33,14 +34,24 @@ import {
 } from '../../constants/tool_names.js'
 import { estimateMessageTokens } from './tokens.js'
 import {
+  bytesPerTokenForToolResult,
+  roughTokenCountEstimation,
+} from '../tokenEstimation.js'
+import {
   isPersistedReference,
   offloadReferenceForCompact,
+  relocatePersistedReference,
 } from '../tool-storage/index.js'
 import { toolResultOutputToText } from '../../utils/tool-result-content.js'
 import {
   findLastCompactBoundaryIndex,
   getMessagesAfterCompactBoundary,
 } from '../../core/messages/compact-boundary.js'
+import {
+  getCachedSessionLocation,
+  getToolResultFilePath,
+  sessionDataDir,
+} from '../../core/session-paths.js'
 
 const MICRO_COMPACT_MARKER = '[Old tool result content cleared to save context]'
 
@@ -73,12 +84,8 @@ const CLEARABLE_TOOL_INPUTS = new Set<string>([
 
 const CLEARABLE_MIN_CHARS = 2_000
 
-function estStr(s: string): number {
-  return Math.ceil(s.length / 4)
-}
-
 const MARKER_INPUT_JSON = JSON.stringify(MICRO_COMPACT_INPUT_MARKER)
-const MARKER_INPUT_COST = estStr(MARKER_INPUT_JSON)
+const MARKER_INPUT_COST = roughTokenCountEstimation(MARKER_INPUT_JSON)
 
 export interface MicroCompactResult {
   messages: Message[]
@@ -106,6 +113,18 @@ type MicroCompactState = {
 }
 
 const sessionMicroCompactState = new Map<string, MicroCompactState>()
+/** Sessions whose on-disk projection has already been read this process. */
+const loadedFromDisk = new Set<string>()
+
+const STATE_FILE_NAME = 'micro-compact.json'
+const STATE_FILE_VERSION = 1
+
+type PersistedMicroCompactState = {
+  version: number
+  boundaryUuid?: string
+  results: ClearedToolResult[]
+  inputs: ClearedToolInput[]
+}
 
 function currentBoundaryUuid(messages: readonly Message[]): string | undefined {
   const index = findLastCompactBoundaryIndex(messages)
@@ -116,9 +135,110 @@ function stateKey(messageUuid: string, toolCallId: string): string {
   return `${messageUuid}\0${toolCallId}`
 }
 
-/** Drop a session's ephemeral micro-compaction model projection. */
+function stateFilePath(sessionId: string): string | undefined {
+  const loc = getCachedSessionLocation(sessionId)
+  return loc
+    ? path.join(sessionDataDir(loc, sessionId), STATE_FILE_NAME)
+    : undefined
+}
+
+/**
+ * The real-usage token baseline is measured on the projected view, so losing
+ * the projection on restart would send raw payloads while the estimate still
+ * reports the small projected size. Persist it next to the transcript.
+ */
+function persistState(sessionId: string): void {
+  const filePath = stateFilePath(sessionId)
+  if (!filePath) return
+  const state = sessionMicroCompactState.get(sessionId)
+  let tempPath: string | undefined
+  try {
+    if (!state) {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+      return
+    }
+    const data: PersistedMicroCompactState = {
+      version: STATE_FILE_VERSION,
+      boundaryUuid: state.boundaryUuid,
+      results: [...state.results.values()],
+      inputs: [...state.inputs.values()],
+    }
+    fs.mkdirSync(path.dirname(filePath), { recursive: true })
+    tempPath = `${filePath}.${process.pid}.${Date.now()}.tmp`
+    fs.writeFileSync(tempPath, JSON.stringify(data), {
+      encoding: 'utf-8',
+      flag: 'wx',
+    })
+    fs.renameSync(tempPath, filePath)
+    tempPath = undefined
+  } catch (err) {
+    if (tempPath) {
+      try {
+        fs.unlinkSync(tempPath)
+      } catch {
+        // Best-effort cleanup; preserve the original state file.
+      }
+    }
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[compact] micro-compact state persist failed: ${msg}`)
+  }
+}
+
+function loadState(sessionId: string): MicroCompactState | undefined {
+  const cached = sessionMicroCompactState.get(sessionId)
+  if (cached || loadedFromDisk.has(sessionId)) return cached
+  const filePath = stateFilePath(sessionId)
+  if (!filePath) return undefined
+  try {
+    if (!fs.existsSync(filePath)) {
+      loadedFromDisk.add(sessionId)
+      return undefined
+    }
+    const data = JSON.parse(
+      fs.readFileSync(filePath, 'utf-8'),
+    ) as PersistedMicroCompactState
+    if (data.version !== STATE_FILE_VERSION) {
+      loadedFromDisk.add(sessionId)
+      return undefined
+    }
+    const state: MicroCompactState = {
+      boundaryUuid: data.boundaryUuid,
+      results: new Map(
+        (data.results ?? []).map(r => [
+          stateKey(r.messageUuid, r.toolCallId),
+          r,
+        ]),
+      ),
+      inputs: new Map(
+        (data.inputs ?? []).map(r => [
+          stateKey(r.messageUuid, r.toolCallId),
+          r,
+        ]),
+      ),
+    }
+    sessionMicroCompactState.set(sessionId, state)
+    loadedFromDisk.add(sessionId)
+    return state
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[compact] micro-compact state load failed: ${msg}`)
+    return undefined
+  }
+}
+
+function dropState(sessionId: string): void {
+  sessionMicroCompactState.delete(sessionId)
+  persistState(sessionId)
+}
+
+/**
+ * Forget a session's in-process micro-compaction projection. The on-disk
+ * copy is kept so the projection is reloaded on next use.
+ */
 export function resetMicroCompactState(sessionId?: string): void {
-  if (sessionId) sessionMicroCompactState.delete(sessionId)
+  if (!sessionId) return
+  sessionMicroCompactState.delete(sessionId)
+  loadedFromDisk.delete(sessionId)
 }
 
 /**
@@ -131,10 +251,10 @@ export function rebaseMicroCompactState(
   compactedMessages: readonly Message[],
 ): void {
   if (!sessionId) return
-  const state = sessionMicroCompactState.get(sessionId)
+  const state = loadState(sessionId)
   if (!state) return
   if (preservedTail.length === 0) {
-    sessionMicroCompactState.delete(sessionId)
+    dropState(sessionId)
     return
   }
   const kept = new Set(
@@ -148,8 +268,10 @@ export function rebaseMicroCompactState(
   }
   state.boundaryUuid = currentBoundaryUuid(compactedMessages)
   if (state.results.size === 0 && state.inputs.size === 0) {
-    sessionMicroCompactState.delete(sessionId)
+    dropState(sessionId)
+    return
   }
+  persistState(sessionId)
 }
 
 /**
@@ -161,10 +283,10 @@ export function applyMicroCompactProjection(
   sessionId?: string,
 ): Message[] {
   if (!sessionId) return messages
-  const state = sessionMicroCompactState.get(sessionId)
+  const state = loadState(sessionId)
   if (!state) return messages
   if (state.boundaryUuid !== currentBoundaryUuid(messages)) {
-    sessionMicroCompactState.delete(sessionId)
+    dropState(sessionId)
     return messages
   }
 
@@ -179,9 +301,13 @@ export function applyMicroCompactProjection(
         )
         if (!cleared) return part
         touched = true
+        const replacement = relocatePersistedReference(
+          cleared.replacement,
+          getToolResultFilePath(sessionId, part.toolCallId),
+        )
         return {
           ...part,
-          output: { type: 'text' as const, value: cleared.replacement },
+          output: { type: 'text' as const, value: replacement },
         }
       })
       if (touched) {
@@ -365,7 +491,7 @@ function rememberMicroCompactProjection(
   projected: Message[],
 ): void {
   const boundaryUuid = currentBoundaryUuid(original)
-  let state = sessionMicroCompactState.get(sessionId)
+  let state = loadState(sessionId)
   if (!state || state.boundaryUuid !== boundaryUuid) {
     state = {
       boundaryUuid,
@@ -416,6 +542,7 @@ function rememberMicroCompactProjection(
       }
     }
   }
+  persistState(sessionId)
 }
 
 /**
@@ -469,7 +596,14 @@ function clearToolResults(
       text,
       MICRO_COMPACT_MARKER,
     )
-    addFreed(Math.max(0, estStr(text) - estStr(replacement)))
+    const bytesPerToken = bytesPerTokenForToolResult(part.toolName)
+    addFreed(
+      Math.max(
+        0,
+        roughTokenCountEstimation(text, bytesPerToken) -
+          roughTokenCountEstimation(replacement, bytesPerToken),
+      ),
+    )
     bumpCleared()
     touched = true
     return { ...part, output: { type: 'text' as const, value: replacement } }
@@ -490,7 +624,9 @@ function clearToolInputs(
     if (!CLEARABLE_TOOL_INPUTS.has(part.toolName)) return part
     const argsJson = JSON.stringify(part.input ?? {})
     if (argsJson === MARKER_INPUT_JSON) return part
-    addFreed(Math.max(0, estStr(argsJson) - MARKER_INPUT_COST))
+    addFreed(
+      Math.max(0, roughTokenCountEstimation(argsJson) - MARKER_INPUT_COST),
+    )
     bumpCleared()
     touched = true
     return { ...part, input: { ...MICRO_COMPACT_INPUT_MARKER } }

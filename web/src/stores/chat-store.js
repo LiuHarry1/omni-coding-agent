@@ -614,7 +614,7 @@ export const useChatStore = create((set, get) => {
      * @param {Array<string|{kind:string,name:string,size:number,previewUrl:string|null,file:File}>} [attachments]
      */
     sendMessage: async (text, attachments = []) => {
-      if (!text.trim() || get().isStreaming) return
+      if (!text.trim() || get().isStreaming || get().sessionLoading) return
 
       const abortController = new AbortController()
 
@@ -737,19 +737,6 @@ export const useChatStore = create((set, get) => {
           onEvent: handleSse,
           onSessionNotFound: () => {
             get().setSessionId(null)
-            set(s => {
-              // Drop last user bubble for this failed open
-              const order = s.bubbleOrder.slice(0, -1)
-              const byId = { ...s.bubblesById }
-              delete byId[userMsgId]
-              return {
-                bubbleOrder: order,
-                bubblesById: byId,
-                isStreaming: true,
-                abortController,
-                activeTurnId: assistantMsgId,
-              }
-            })
           },
           onHttpError: ({ status, message }) => {
             get()._appendPart({

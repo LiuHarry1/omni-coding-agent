@@ -1,4 +1,4 @@
-import type { Message, ToolResultOutput } from '../core/types.js'
+import type { Message, TodoItem, ToolResultOutput } from '../core/types.js'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
@@ -17,6 +17,7 @@ import {
 } from '../utils/interrupt.js'
 import { toolResultOutputToText } from '../utils/tool-result-content.js'
 import { projectLegacyFatToolUseResult } from '../utils/project-tool-use-result.js'
+import { TODO_WRITE_TOOL_NAME } from '../constants/tool_names.js'
 
 const COMPACT_SUMMARY_PREFIX =
   '[Previous conversation compacted — context continues below]\n\n'
@@ -37,6 +38,26 @@ function userMessageText(msg: Message): string {
         .filter(p => p.type === 'text')
         .map(p => p.text)
         .join('')
+}
+
+/** Recover the composer text for skill turns stored before displayContent. */
+function legacyExpandedSkillDisplayText(content: string): string | undefined {
+  const match = content.match(
+    /^Base directory for this skill:\s*([^\r\n]+)\r?\n/,
+  )
+  if (!match) return undefined
+  const normalized = match[1]!.trim().replace(/\\/g, '/')
+  const segments = normalized.split('/').filter(Boolean)
+  const name = segments.at(-1)
+  if (segments.at(-2) !== 'skills') return undefined
+  if (!name || !/^[a-z0-9][a-z0-9-]*$/.test(name)) return undefined
+  const requestMarker = '\n\n---\n\nUser request: '
+  const requestIndex = content.lastIndexOf(requestMarker)
+  const request =
+    requestIndex >= 0
+      ? content.slice(requestIndex + requestMarker.length).trim()
+      : ''
+  return `/${name}${request ? ` ${request}` : ''}`
 }
 
 /** Short upload URLs for the UI — never revive Buffer / data URLs into React. */
@@ -90,6 +111,7 @@ type UIPart = {
   args?: unknown
   status?: string
   isSubagent?: boolean
+  todos?: TodoItem[]
 }
 
 type UIAssistantMessage = {
@@ -139,6 +161,25 @@ function appendAssistantParts(
       })
     }
   }
+}
+
+function persistedTodos(value: unknown): TodoItem[] | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const todos = (value as { todos?: unknown }).todos
+  if (!Array.isArray(todos)) return undefined
+  const valid = todos.filter((todo): todo is TodoItem => {
+    if (!todo || typeof todo !== 'object') return false
+    const item = todo as Partial<TodoItem>
+    return (
+      typeof item.id === 'string' &&
+      typeof item.content === 'string' &&
+      (item.status === 'pending' ||
+        item.status === 'in_progress' ||
+        item.status === 'completed' ||
+        item.status === 'cancelled')
+    )
+  })
+  return valid.length === todos.length ? valid : undefined
 }
 
 /**
@@ -213,7 +254,10 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
       uiMessages.push({
         type: 'user',
         id: randomUUID(),
-        content,
+        content:
+          msg.displayContent ??
+          legacyExpandedSkillDisplayText(content) ??
+          content,
         ...(images ? { images } : {}),
         ...(msg.files?.length ? { files: msg.files } : {}),
         ...(msg.turnStartTime != null && msg.turnEndTime != null
@@ -258,11 +302,19 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
           )
           if (tc) {
             tc.result = truncateUiResult(toolResultOutputToText(tr.output))
+            let projectedToolUseResult: unknown
             if (tr.toolUseResult !== undefined) {
-              tc.toolUseResult = projectLegacyFatToolUseResult(
+              projectedToolUseResult = projectLegacyFatToolUseResult(
                 tr.toolName ?? tc.name,
                 tr.toolUseResult,
               )
+              tc.toolUseResult = projectedToolUseResult
+            }
+            if (tr.toolName === TODO_WRITE_TOOL_NAME) {
+              const todos = persistedTodos(projectedToolUseResult)
+              if (todos) {
+                currentAssistant.parts.push({ type: 'todo_list', todos })
+              }
             }
             if (tr.isError) tc.isError = true
           }

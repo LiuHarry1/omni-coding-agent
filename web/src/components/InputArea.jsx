@@ -49,6 +49,7 @@ function describeAttachments(list) {
 export default function InputArea() {
   const sendMessage = useChatStore(s => s.sendMessage)
   const isStreaming = useChatStore(s => s.isStreaming)
+  const sessionLoading = useChatStore(s => s.sessionLoading)
   const isAwaitingInteraction = useChatStore(s => s.isAwaitingInteraction)
   const stopStreaming = useChatStore(s => s.stopStreaming)
   const workspace = useChatStore(s => s.workspace)
@@ -410,7 +411,8 @@ export default function InputArea() {
     const el = textareaRef.current
     if (!el) return
     const text = el.value.trim()
-    if ((!text && attachments.length === 0) || isStreaming) return
+    if ((!text && attachments.length === 0) || isStreaming || sessionLoading)
+      return
     el.value = ''
     setInputValue('')
     setCursorPos(0)
@@ -421,7 +423,7 @@ export default function InputArea() {
     setAttachError(null)
     setAtSuggestions([])
     sendMessage(text || describeAttachments(outgoing), outgoing)
-  }, [sendMessage, isStreaming, attachments])
+  }, [sendMessage, isStreaming, sessionLoading, attachments])
 
   const handleKeyDown = useCallback(
     e => {
@@ -864,9 +866,12 @@ export default function InputArea() {
             <button
               className='composer-btn composer-btn--send'
               onClick={handleSend}
-              title='Send (Enter)'
+              title={sessionLoading ? 'Loading conversation…' : 'Send (Enter)'}
               type='button'
-              disabled={!inputValue.trim() && attachments.length === 0}
+              disabled={
+                sessionLoading ||
+                (!inputValue.trim() && attachments.length === 0)
+              }
             >
               <svg
                 width='16'

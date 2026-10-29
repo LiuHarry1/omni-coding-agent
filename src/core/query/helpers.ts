@@ -40,7 +40,7 @@ export {
 
 export const MAX_TRANSIENT_RETRIES = 2
 /** Max retry attempts for overflow max_tokens adjustment */
-export const MAX_OVERFLOW_RETRIES = 10
+export const MAX_OVERFLOW_RETRIES = 2
 /** Lowest max_tokens an output budget is ever shrunk to */
 export const FLOOR_OUTPUT_TOKENS = 3_000
 /** Headroom kept between the input tokens and the output budget */
@@ -53,12 +53,13 @@ export function agentLogTag(logLabel?: string): string {
 
 /**
  * Shrink max_tokens so input + output fits the window.
- * Returns undefined when remaining budget is below FLOOR; we do not raise
- * max_tokens up to the floor.
+ * Returns undefined when remaining budget is below FLOOR (we do not raise
+ * max_tokens up to the floor) or when the input count is only a lower bound.
  */
 export function adjustMaxTokensForContextOverflow(
   overflow: MaxTokensContextOverflow,
 ): number | undefined {
+  if (overflow.inputIsLowerBound) return undefined
   const availableContext = Math.max(
     0,
     overflow.contextLimit - overflow.inputTokens - OUTPUT_SAFETY_BUFFER,
@@ -86,10 +87,12 @@ export function buildUserMessage(
   images?: string[],
   isMeta?: boolean,
   files?: UserFileAttachment[],
+  displayContent?: string,
 ): UserMessage {
   const meta = {
     ...(isMeta ? { isMeta: true as const } : {}),
     ...(files?.length ? { files } : {}),
+    ...(displayContent && displayContent !== text ? { displayContent } : {}),
   }
   if (!images || images.length === 0) {
     return ensureMessageUuid({ role: 'user', content: text, ...meta })

@@ -99,6 +99,7 @@ export function toolBubbleToPart(b) {
     isError: b.isError,
     isSubagent: b.isSubagent,
     subagentParts: b.subagentParts,
+    omittedSubagentSteps: b.omittedSubagentSteps,
     startTime: b.startTime,
     endTime: b.endTime,
     duration: b.duration,
@@ -111,6 +112,24 @@ export function toolBubbleToPart(b) {
     liveInputBytes: b.liveInputBytes,
     liveInputStart: b.liveInputStart,
     stopping: b.stopping,
+  }
+}
+
+export function persistedSubagentProjection(part) {
+  const ui = part?.toolUseResult?.ui
+  if (ui?.version !== 1 || !Array.isArray(ui.steps)) return null
+  const steps = ui.steps.filter(
+    step =>
+      step?.type === 'tool_call' &&
+      typeof step.toolCallId === 'string' &&
+      typeof step.name === 'string',
+  )
+  return {
+    steps,
+    omittedSteps:
+      Number.isInteger(ui.omittedSteps) && ui.omittedSteps > 0
+        ? ui.omittedSteps
+        : undefined,
   }
 }
 
@@ -235,6 +254,10 @@ export function messagesToBubbles(messages) {
           streaming: false,
         })
       } else if (part.type === 'tool_call' && part.toolCallId) {
+        const persisted =
+          part.isSubagent && !Array.isArray(part.subagentParts)
+            ? persistedSubagentProjection(part)
+            : null
         state = appendBubble(state, {
           id: toolBubbleId(part.toolCallId),
           kind: 'tool',
@@ -247,7 +270,10 @@ export function messagesToBubbles(messages) {
           toolUseResult: part.toolUseResult,
           isError: part.isError,
           isSubagent: part.isSubagent,
-          subagentParts: part.subagentParts,
+          subagentParts: Array.isArray(part.subagentParts)
+            ? part.subagentParts
+            : persisted?.steps,
+          omittedSubagentSteps: persisted?.omittedSteps,
           startTime: part.startTime,
           endTime: part.endTime,
           duration: part.duration,

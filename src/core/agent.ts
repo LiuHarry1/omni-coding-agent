@@ -43,6 +43,7 @@ export async function runAgent(
       opts.images,
       opts.isMeta,
       opts.attachmentFiles,
+      opts.displayUserMessage,
     ),
   )
   ensureMessageUuids(messages)

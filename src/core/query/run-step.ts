@@ -145,6 +145,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
 
   let ctxLengthAttempt = 0
   let overflowAttempt = 0
+  let lastOverflowTotal: number | undefined
   let maxTokensOverride: number | undefined
   let transientAttempt = 0
   let reactiveCompacted = false
@@ -372,7 +373,12 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
       // through to reactive compaction instead of failing a recoverable turn.
       const overflow = parseMaxTokensContextOverflowError(err)
       if (overflow) {
-        const adjusted = maxTokensOverrideFromError(err)
+        // A shrink that leaves the reported total unchanged means the input
+        // figure tracks our max_tokens rather than the prompt; stop shrinking.
+        const total = overflow.inputTokens + overflow.maxTokens
+        const stalled = lastOverflowTotal === total
+        lastOverflowTotal = total
+        const adjusted = stalled ? undefined : maxTokensOverrideFromError(err)
         if (adjusted !== undefined && overflowAttempt < MAX_OVERFLOW_RETRIES) {
           overflowAttempt++
           const errMsg = err instanceof Error ? err.message : String(err)
@@ -426,7 +432,11 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           recompacted,
           args.currentTodos,
           args.onFullCompaction,
+          sessionId,
         )
+        maxTokensOverride = undefined
+        overflowAttempt = 0
+        lastOverflowTotal = undefined
         ctxLengthAttempt++
         reactiveCompacted = true
         requestStart = Date.now()

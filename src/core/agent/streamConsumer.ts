@@ -82,6 +82,8 @@ export async function consumeStream(
   const streamingExecutor = options?.streamingExecutor
   let text = ''
   let reasoningStarted = false
+  let streamError: unknown
+  let hasStreamError = false
 
   const previewStates = new Map<string, PreviewState>()
   const startedInputs = new Map<string, string | undefined>()
@@ -233,7 +235,8 @@ export async function consumeStream(
         }
 
         case 'error':
-          wire.error(String(event.error))
+          streamError = event.error
+          hasStreamError = true
           break
       }
       // Drain completed tool results after every stream event so
@@ -258,6 +261,19 @@ export async function consumeStream(
   }
 
   flushReasoning()
+
+  // Without content, the SDK's own rejection is a generic NoOutputGeneratedError
+  // that hides the cause (e.g. context-length overflow), so the caller could
+  // only treat it as transient. Surface the original error for classification.
+  if (hasStreamError) {
+    // An input-start is not usable output: without the completed tool-call,
+    // retry/compaction must still see the provider error.
+    if (!text && toolCalls.length === 0) {
+      throw streamError
+    }
+    wire.error(String(streamError))
+  }
+
   drainStreamingResults(streamingExecutor, toolResults)
 
   for (const [id, toolName] of startedInputs.entries()) {

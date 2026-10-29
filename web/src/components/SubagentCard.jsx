@@ -44,7 +44,7 @@ function visibleSteps(part) {
   )
 }
 
-function rowSubtitle(part, steps) {
+export function subagentRowSubtitle(part, steps, headline) {
   if (part.stopping) return 'Stopping…'
   if (part.status === 'done') {
     return summarizeToolSteps(steps)
@@ -52,7 +52,9 @@ function rowSubtitle(part, steps) {
   const live = pickLiveMember(steps)
   const liveText = live && live.status !== 'done' ? liveToolSubtitle(live) : ''
   if (liveText) return liveText
-  if (part.liveTask) return part.liveTask
+  const liveTask = typeof part.liveTask === 'string' ? part.liveTask.trim() : ''
+  const title = typeof headline === 'string' ? headline.trim() : ''
+  if (liveTask && liveTask !== title) return liveTask
   if (steps.length > 0 && steps.every(s => s.status === 'done')) {
     return 'Writing report…'
   }
@@ -78,7 +80,7 @@ export default function SubagentCard({ part, onStopTool }) {
   const badge = badgeFor(subagentType)
 
   const steps = useMemo(() => visibleSteps(part), [part.subagentParts])
-  const subtitle = rowSubtitle(part, steps)
+  const subtitle = subagentRowSubtitle(part, steps, headline)
   const hasReport =
     isDone && typeof part.result === 'string' && part.result.length > 0
   const hasBody = steps.length > 0 || hasReport
@@ -127,6 +129,12 @@ export default function SubagentCard({ part, onStopTool }) {
 
       {expanded && hasBody && (
         <div className='subagent-timeline-expanded'>
+          {part.omittedSubagentSteps > 0 && (
+            <div className='subagent-omitted'>
+              {part.omittedSubagentSteps} earlier step
+              {part.omittedSubagentSteps === 1 ? '' : 's'} omitted
+            </div>
+          )}
           {steps.length > 0 && (
             <NestedToolRuns
               steps={steps}
