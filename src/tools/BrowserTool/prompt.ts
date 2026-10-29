@@ -11,7 +11,7 @@ export const ELEMENT_HINT_DESCRIPTION =
 
 /** Navigate only; no newTab on this tool — use browser_tabs. */
 export const NAVIGATE_DESCRIPTION =
-  'Navigate to a URL. Reuses the current tab; use browser_tabs with action "new" to open another tab first. Omit url and set action for back / forward / reload.'
+  'Navigate to a URL. Reuses the current tab; use browser_tabs with action "new" to open another tab first.'
 
 /** Snapshot tool one-liner. Defaults/spill/CSS live in params + browser.md. */
 export const SNAPSHOT_DESCRIPTION =

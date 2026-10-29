@@ -162,7 +162,7 @@ function staleRecovery(
 export async function navigate(
   backend: BrowserBackend,
   targetId: string,
-  dest: { url?: string; action?: 'back' | 'forward' | 'reload' },
+  dest: { url: string },
   signal?: AbortSignal,
 ): Promise<void> {
   await ensureScript(backend, targetId)
@@ -183,33 +183,11 @@ export async function navigate(
     signal?.addEventListener('abort', stopLoading, { once: true })
     try {
       try {
-        if (dest.action === 'back') {
-          await page.goBack({
-            waitUntil: 'domcontentloaded',
-            timeout: NAVIGATE_TIMEOUT_MS,
-          })
-        } else if (dest.action === 'forward') {
-          await page.goForward({
-            waitUntil: 'domcontentloaded',
-            timeout: NAVIGATE_TIMEOUT_MS,
-          })
-        } else if (dest.action === 'reload') {
-          await page.reload({
-            waitUntil: 'domcontentloaded',
-            timeout: NAVIGATE_TIMEOUT_MS,
-          })
-        } else {
-          if (!dest.url) {
-            throw new BrowserError(
-              'navigate requires a url, or action back/forward/reload.',
-            )
-          }
-          const href = assertNavigateUrl(dest.url)
-          await page.goto(href, {
-            waitUntil: 'domcontentloaded',
-            timeout: NAVIGATE_TIMEOUT_MS,
-          })
-        }
+        const href = assertNavigateUrl(dest.url)
+        await page.goto(href, {
+          waitUntil: 'domcontentloaded',
+          timeout: NAVIGATE_TIMEOUT_MS,
+        })
       } catch (err) {
         if (signal?.aborted) {
           throw navigationAbortError(signal)

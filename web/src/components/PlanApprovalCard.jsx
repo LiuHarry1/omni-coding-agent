@@ -7,16 +7,26 @@ import { formatPlanDisplayPath } from '../lib/plan-utils.js'
 
 const COLLAPSED_MAX_HEIGHT = 280
 
+export function planApprovalActionLabels(submittingAction) {
+  return {
+    keepPlanning:
+      submittingAction === 'keep-planning' ? 'Keeping…' : 'Keep planning',
+    build: submittingAction === 'build' ? 'Building…' : 'Build',
+  }
+}
+
 export default function PlanApprovalCard({ part, onApprove }) {
   const { approvePlan } = useChatActions()
   const submitPlan = onApprove ?? approvePlan
   const [editing, setEditing] = useState(false)
   const [expanded, setExpanded] = useState(true)
   const [content, setContent] = useState(part.plan ?? '')
-  const [submitting, setSubmitting] = useState(false)
+  const [submittingAction, setSubmittingAction] = useState(null)
 
   const done = part.status === 'answered'
   const pending = part.status === 'pending'
+  const submitting = submittingAction != null
+  const actionLabels = planApprovalActionLabels(submittingAction)
 
   useEffect(() => {
     if (!editing && part.plan != null) {
@@ -33,7 +43,7 @@ export default function PlanApprovalCard({ part, onApprove }) {
 
   const handleApprove = async approved => {
     if (submitting || done || !part.requestId) return
-    setSubmitting(true)
+    setSubmittingAction(approved ? 'build' : 'keep-planning')
     try {
       await submitPlan(part.requestId, {
         approved,
@@ -44,7 +54,7 @@ export default function PlanApprovalCard({ part, onApprove }) {
     } catch (err) {
       console.error('[PlanApproval] failed:', err)
     } finally {
-      setSubmitting(false)
+      setSubmittingAction(null)
     }
   }
 
@@ -127,7 +137,7 @@ export default function PlanApprovalCard({ part, onApprove }) {
           disabled={submitting}
           onClick={() => handleApprove(false)}
         >
-          Keep planning
+          {actionLabels.keepPlanning}
         </button>
         <button
           type='button'
@@ -135,7 +145,7 @@ export default function PlanApprovalCard({ part, onApprove }) {
           disabled={submitting}
           onClick={() => handleApprove(true)}
         >
-          {submitting ? 'Building…' : 'Build'}
+          {actionLabels.build}
         </button>
       </div>
     </div>

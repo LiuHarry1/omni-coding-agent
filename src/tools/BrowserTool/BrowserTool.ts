@@ -477,20 +477,10 @@ export const navigateTool = defineBrowserTool({
   inputSchema: z.object({
     url: z
       .string()
-      .optional()
       .describe('The URL to navigate to (http(s) only)'),
-    action: z
-      .enum(['back', 'forward', 'reload'])
-      .optional()
-      .describe('History action when url is omitted'),
     screenshotAfterwards: screenshotAfterwardsSchema,
   }),
-  async run({ url, action, screenshotAfterwards }, ctx) {
-    if (url && action) {
-      throw new BrowserError(
-        'browser_navigate received both url and action; provide either url or action, not both.',
-      )
-    }
+  async run({ url, screenshotAfterwards }, ctx) {
     let targetId = ctx.targetId
     if (targetId && isTabPoisoned(targetId)) {
       const poisonedTargetId = targetId
@@ -515,7 +505,7 @@ export const navigateTool = defineBrowserTool({
     }
     resetConsoleWatermark(targetId)
     try {
-      await pw.navigate(ctx.backend, targetId, { url, action }, ctx.abortSignal)
+      await pw.navigate(ctx.backend, targetId, { url }, ctx.abortSignal)
     } catch (err) {
       if (!ctx.abortSignal?.aborted && targetId && isTabPoisoned(targetId)) {
         const failedTargetId = targetId
@@ -534,17 +524,12 @@ export const navigateTool = defineBrowserTool({
       }
       throw err
     }
-    const message = action
-      ? action === 'reload'
-        ? 'Reloaded the page'
-        : `Navigated ${action}`
-      : `Navigated to ${url}`
     return observeAfterAction(
       ctx.backend,
       targetId,
       {
         action: 'navigate',
-        message,
+        message: `Navigated to ${url}`,
         mode: 'full',
         skipIfDegraded: false,
         screenshotAfterwards,

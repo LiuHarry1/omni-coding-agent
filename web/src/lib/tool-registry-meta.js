@@ -14,6 +14,7 @@ import {
   WEB_FETCH,
   GLOB,
   GREP,
+  LSP,
   TOOL_SEARCH,
   SKILL,
   TODO_WRITE,
@@ -22,6 +23,9 @@ import {
   EXIT_PLAN_MODE,
   TASK_OUTPUT,
   TASK_STOP,
+  CRON_CREATE,
+  CRON_LIST,
+  CRON_DELETE,
   BROWSER_TOOLS,
 } from './tool-names.js'
 
@@ -97,6 +101,10 @@ export const TOOL_META = {
   powershell: { chrome: 'line', density: 'shell' },
   [TASK_OUTPUT]: { chrome: 'line', density: 'default' },
   [TASK_STOP]: { chrome: 'line', density: 'default' },
+  [LSP]: { chrome: 'line', density: 'default' },
+  [CRON_CREATE]: { chrome: 'line', density: 'default' },
+  [CRON_LIST]: { chrome: 'line', density: 'default' },
+  [CRON_DELETE]: { chrome: 'line', density: 'default' },
 
   [WRITE]: { chrome: 'card' },
   [EDIT]: { chrome: 'card' },

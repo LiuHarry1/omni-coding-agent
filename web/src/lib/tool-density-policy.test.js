@@ -15,9 +15,15 @@ import {
   TOOL_SEARCH,
   READ,
   GREP,
+  LSP,
+  CRON_LIST,
   BROWSER_NAVIGATE,
 } from './tool-names.js'
-import { summarizeExploredDetails, coalesceToolRuns } from './tool-density.js'
+import {
+  summarizeExploredDetails,
+  coalesceToolRuns,
+  isMcpTool,
+} from './tool-density.js'
 import { sanitizeToolUpdatePayload } from './sanitize-tool-ui.js'
 import { formatWorkedDuration } from './timeline.js'
 
@@ -117,6 +123,12 @@ describe('TOOL_META density', () => {
 
   it('does not explore-group ToolSearch', () => {
     assert.equal(EXPLORE_GROUPABLE_NAMES.has(TOOL_SEARCH), false)
+  })
+
+  it('does not classify first-party LSP or Cron tools as MCP', () => {
+    assert.equal(isMcpTool({ name: LSP }), false)
+    assert.equal(isMcpTool({ name: CRON_LIST }), false)
+    assert.equal(isMcpTool({ name: 'github_search' }), true)
   })
 })
 

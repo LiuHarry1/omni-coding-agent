@@ -447,7 +447,10 @@ async function main() {
       assert.notEqual(typeof historyEnd, 'string', String(historyEnd))
       extension.setDropLifecycleEvents(true)
       extension.setFailNavigationStateEvaluation(true)
-      const unverifiable = await runNavigate({ action: 'back' }, faultSessionId)
+      const unverifiable = await runNavigate(
+        { url: `${server.url}?lifecycle=unverifiable` },
+        faultSessionId,
+      )
       assert.equal(
         typeof unverifiable,
         'string',

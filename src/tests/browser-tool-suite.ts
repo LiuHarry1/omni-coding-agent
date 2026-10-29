@@ -3253,54 +3253,6 @@ export async function runBrowserToolSuite(opts: SuiteOptions): Promise<void> {
     assert.match(String(spaAction.snapshot), /spa action complete/)
     ok('SPA history route replaces refs and remains actionable')
 
-    // ── browser history actions ──────────────────────────
-    const historyUrl = `${baseUrl}wait-text?history=${encodeURIComponent(label)}`
-    expectData(await run(navigateTool, { url: historyUrl }, sessionId))
-    expectData(
-      await run(
-        navigateTool,
-        { url: `${baseUrl}other?history=${encodeURIComponent(label)}` },
-        sessionId,
-      ),
-    )
-    const back = expectData(
-      await run(navigateTool, { action: 'back' }, sessionId),
-    )
-    assert.equal(back.url, historyUrl)
-    const forward = expectData(
-      await run(navigateTool, { action: 'forward' }, sessionId),
-    )
-    assert.match(String(forward.url), /\/other\?history=/)
-    const reloaded = expectData(
-      await run(
-        navigateTool,
-        { action: 'reload', screenshotAfterwards: true },
-        sessionId,
-      ),
-    )
-    assert.ok(
-      reloaded.screenshotPath,
-      'reload screenshotAfterwards must capture',
-    )
-    ok('navigate back, forward and reload')
-
-    const ambiguousNavigate = await run(
-      navigateTool,
-      { url: baseUrl, action: 'reload' },
-      sessionId,
-    )
-    assert.equal(
-      typeof ambiguousNavigate,
-      'string',
-      'navigate must reject url and action together instead of silently ignoring url',
-    )
-    assert.match(
-      String(ambiguousNavigate),
-      /provide either url or action/i,
-      'navigate should explain how to resolve mutually exclusive inputs',
-    )
-    ok('navigate rejects url and action together')
-
     const closed = expectData(
       await run(
         tabsTool,

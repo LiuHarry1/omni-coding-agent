@@ -21,6 +21,7 @@ import {
   WEB_FETCH,
   GLOB,
   GREP,
+  LSP,
   ASK_USER_QUESTION,
   TOOL_SEARCH,
   SKILL,
@@ -29,6 +30,9 @@ import {
   EXIT_PLAN_MODE,
   TASK_OUTPUT,
   TASK_STOP,
+  CRON_CREATE,
+  CRON_LIST,
+  CRON_DELETE,
   SUPPRESSED_TOOL_CARDS,
 } from './tool-names.js'
 import { EXPLORE_GROUPABLE_NAMES } from './tool-registry-meta.js'
@@ -46,6 +50,7 @@ export const BUILT_IN_TOOLS = new Set([
   WEB_FETCH,
   GLOB,
   GREP,
+  LSP,
   ASK_USER_QUESTION,
   TOOL_SEARCH,
   SKILL,
@@ -54,6 +59,9 @@ export const BUILT_IN_TOOLS = new Set([
   EXIT_PLAN_MODE,
   TASK_OUTPUT,
   TASK_STOP,
+  CRON_CREATE,
+  CRON_LIST,
+  CRON_DELETE,
   // legacy / alt spellings seen in older transcripts
   'bash',
   'powershell',

@@ -1041,20 +1041,6 @@ async function main() {
     assert.equal(typeof staleSpaClick, 'string')
     assert.match(String(staleSpaClick), /stale|not found|snapshot/i)
 
-    const historyStart = `${fixture.url}wait-text?history=e2e`
-    expectData(await run(navigateTool, { url: historyStart }))
-    expectData(
-      await run(navigateTool, { url: `${fixture.url}other?history=e2e` }),
-    )
-    assert.equal(
-      expectData(await run(navigateTool, { action: 'back' })).url,
-      historyStart,
-    )
-    assert.match(
-      String(expectData(await run(navigateTool, { action: 'forward' })).url),
-      /\/other\?history=e2e$/,
-    )
-    expectData(await run(navigateTool, { action: 'reload' }))
     const sameOriginRedirect = expectData(
       await run(navigateTool, { url: `${fixture.url}redirect/start` }),
     )
