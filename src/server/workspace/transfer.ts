@@ -36,7 +36,7 @@ const ZipArchive = (
  * back to unsandboxed `resolvePath` (local single-user only).
  */
 
-const MAX_UPLOAD_BYTES = 100 * 1024 * 1024 // 100 MB per file
+const MAX_UPLOAD_BYTES = 500 * 1024 * 1024 // 500 MB per file
 
 const MIME_BY_EXT: Record<string, string> = {
   '.png': 'image/png',
