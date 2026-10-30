@@ -17,6 +17,7 @@ const poisonedTabs = new Set<string>()
 const lastSnapshot = new Map<string, string>()
 const lastSnapshotAt = new Map<string, number>()
 const refMetaByTarget = new Map<string, Map<string, RefMeta>>()
+const unsettledRequests = new Map<string, string[]>()
 const controlBySession = new Map<string, boolean>()
 let globalControl = false
 const lockListeners = new Set<(userHasControl: boolean) => void>()
@@ -94,6 +95,21 @@ export function clearTabMemory(targetId: string): void {
   lastSnapshot.delete(targetId)
   lastSnapshotAt.delete(targetId)
   refMetaByTarget.delete(targetId)
+  unsettledRequests.delete(targetId)
+}
+
+/** URLs the last action's drain gave up on; empty clears the record. */
+export function setUnsettledRequests(targetId: string, urls: string[]): void {
+  if (!targetId) return
+  if (urls.length > 0) unsettledRequests.set(targetId, urls)
+  else unsettledRequests.delete(targetId)
+}
+
+/** Read once by the post-action result, so the hint never repeats. */
+export function takeUnsettledRequests(targetId: string): string[] {
+  const urls = unsettledRequests.get(targetId) ?? []
+  unsettledRequests.delete(targetId)
+  return urls
 }
 
 export function setUserHasControl(value: boolean, sessionId?: string): void {

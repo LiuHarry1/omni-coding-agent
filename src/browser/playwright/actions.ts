@@ -39,7 +39,12 @@ import {
 } from './overlays.js'
 import { settleIfUrlChanged, withActionWait } from './settle.js'
 import { getPageForTarget } from './connect.js'
-import { clearTabMemory, setTabPoisoned } from '../session-flags.js'
+import {
+  clearTabMemory,
+  isSnapshotStale,
+  setTabPoisoned,
+} from '../session-flags.js'
+import { noteClick, recordPhase, timed } from '../click-timing.js'
 import { assertNavigateUrl } from '../navigate-policy.js'
 import {
   clearViewportScreenshot,
@@ -268,8 +273,9 @@ async function afterNavigationLikeAction(
   page: Page,
   targetId: string,
   urlBefore: string,
+  opts?: { quick?: boolean },
 ): Promise<void> {
-  await settleIfUrlChanged(page, urlBefore, targetId)
+  await settleIfUrlChanged(page, urlBefore, targetId, opts)
 }
 
 export async function click(
@@ -291,8 +297,12 @@ export async function click(
     signal?: AbortSignal
   },
 ): Promise<ResolvedElement> {
+  const focusStart = performance.now()
   return withInputFocus(backend, targetId, async () => {
-    const page = await getPageForTarget(backend, targetId)
+    recordPhase('inputFocus', focusStart)
+    const page = await timed('getPage', () =>
+      getPageForTarget(backend, targetId),
+    )
     const modifiers = opts.modifiers as
       Array<'Alt' | 'Control' | 'Meta' | 'Shift'> | undefined
     const robust: RobustClickOpts = {
@@ -312,22 +322,38 @@ export async function click(
       if (!opts.ref) {
         throw new BrowserError('Provide ref from the latest snapshot.')
       }
-      await ensureSnapshotFresh(backend, targetId)
-      const { loc, ref, described } = await resolveClickTarget(
-        page,
-        targetId,
-        opts.ref,
-        opts.element,
-        staleRecovery(backend, targetId, opts.retryOnStaleRef),
+      noteClick('snapshotStale', isSnapshotStale(targetId))
+      await timed('preSnapshotRefresh', () =>
+        ensureSnapshotFresh(backend, targetId),
+      )
+      const requestedRef = opts.ref
+      const { loc, ref, described } = await timed('resolveTarget', () =>
+        resolveClickTarget(
+          page,
+          targetId,
+          requestedRef,
+          opts.element,
+          staleRecovery(backend, targetId, opts.retryOnStaleRef),
+        ),
       )
       const urlBefore = page.url()
       throwIfActionAborted(opts.signal)
-      await withActionWait(page, async () => {
-        await clickLocatorRobust(page, loc, robust)
-      })
+      await timed('actionWait', () =>
+        withActionWait(page, targetId, async () => {
+          await timed('robustClick', () =>
+            clickLocatorRobust(page, loc, robust),
+          )
+        }),
+      )
       throwIfActionAborted(opts.signal)
       throwIfUnarmedDestructiveDialog(page)
-      await afterNavigationLikeAction(page, targetId, urlBefore)
+      await timed('urlChangeSettle', () =>
+        afterNavigationLikeAction(page, targetId, urlBefore, {
+          quick:
+            !robust.doubleClick &&
+            (robust.button === undefined || robust.button === 'left'),
+        }),
+      )
       return { ...described, ref }
     } catch (err) {
       mapPlaywrightError(err, opts.ref)
@@ -454,7 +480,7 @@ export async function mouseClickXY(
 
     const urlBefore = page.url()
     throwIfUnarmedDestructiveDialog(page)
-    await withActionWait(page, () =>
+    await withActionWait(page, targetId, () =>
       page.mouse.click(x, y, {
         button: opts.button,
         clickCount: opts.doubleClick ? 2 : 1,
@@ -531,7 +557,7 @@ export async function drag(
         })
         .catch(() => false)
       const urlBefore = page.url()
-      await withActionWait(page, async () => {
+      await withActionWait(page, targetId, async () => {
         if (targetIsUnclipped) {
           await start.dragTo(end, { timeout: ACTION_TIMEOUT_MS })
           return
@@ -597,7 +623,7 @@ export async function hover(
         opts.element,
         staleRecovery(backend, targetId),
       )
-      await withActionWait(page, async () => {
+      await withActionWait(page, targetId, async () => {
         await ensureInView(loc, page)
         await loc.hover({ timeout: ACTION_TIMEOUT_MS })
       })
@@ -641,7 +667,7 @@ export async function typeText(
       }
 
       const writeLoc = editableLocator(loc, described.field)
-      const value = await withActionWait(page, async () => {
+      const value = await withActionWait(page, targetId, async () => {
         const timeout = ACTION_TIMEOUT_MS
         if (opts.slowly) {
           throwIfActionAborted(opts.signal)
@@ -695,7 +721,9 @@ export async function selectOption(
         element,
         staleRecovery(backend, targetId),
       )
-      const selected = await withActionWait(page, () => pickValue(loc, values))
+      const selected = await withActionWait(page, targetId, () =>
+        pickValue(loc, values),
+      )
       throwIfUnarmedDestructiveDialog(page)
       return selected
     } catch (err) {
@@ -760,7 +788,7 @@ export async function pressKey(
     const page = await getPageForTarget(backend, targetId)
     const combo = [...(modifiers ?? []), key].join('+')
     try {
-      await withActionWait(page, async () => {
+      await withActionWait(page, targetId, async () => {
         await page.keyboard.press(combo)
       })
       throwIfUnarmedDestructiveDialog(page)

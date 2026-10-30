@@ -29,9 +29,22 @@ export const SNAPSHOT_TIMEOUT_MS = 8_000
  */
 export const SCREENSHOT_TIMEOUT_MS = 20_000
 
-/** Wait after an action so late XHR/DOM can land. */
+/**
+ * Wait after an action so late XHR/DOM can land. Timer-mounted dialogs
+ * (no request to wait on) land around 350ms, so this is the only cover.
+ */
 export const ACTION_SETTLE_MS = 500
 export const NETWORK_DRAIN_MS = 3_000
+/**
+ * A tracked request with no response after this long stops holding the drain.
+ * Long polls, batched log uploads and streamed bodies look like this; a slower
+ * data request is reported to the model instead of waited on.
+ */
+export const STALLED_REQUEST_MS = 2_000
+/** Extra window for a SPA route pushed by an XHR handler after the drain. */
+export const LATE_URL_CHANGE_MS = 300
+/** Cap on waiting for a click-started document (main frame or iframe) to load. */
+export const NAVIGATION_LOAD_WAIT_MS = 5_000
 
 export const WAIT_FOR_TIMEOUT_MS = 20_000
 export const WAIT_FOR_TIME_CAP_S = 30

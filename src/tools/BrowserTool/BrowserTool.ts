@@ -26,6 +26,7 @@ import {
   POST_ACTION_MAX_NODES,
   POST_ACTION_SNAPSHOT_MS,
 } from '../../browser/limits.js'
+import { timed, traceClick } from '../../browser/click-timing.js'
 import { SNAPSHOT_STALL_NEXT } from '../../browser/heavy-media.js'
 import {
   clearCurrentTab,
@@ -51,6 +52,7 @@ import {
   isTabPoisoned,
   setSnapshotDegraded,
   setUserHasControl,
+  takeUnsettledRequests,
 } from '../../browser/session-flags.js'
 import {
   assertBrowserAgentMayAct,
@@ -113,12 +115,23 @@ interface RunContext {
   abortSignal?: AbortSignal
 }
 
+function unsettledRequestsNote(urls: string[]): string {
+  if (urls.length === 0) return ''
+  const count = urls.length === 1 ? '1 request' : `${urls.length} requests`
+  return (
+    ` (${count} started by this action had no response when the wait ended, e.g. ${urls[0]}; ` +
+    `the page may still be loading. If expected content is missing, use browser_wait_for ` +
+    `with text or selector before relying on this snapshot)`
+  )
+}
+
 async function observeAfterAction(
   backend: BrowserBackend,
   targetId: string,
   opts: Parameters<typeof observe>[2] & { screenshotAfterwards?: boolean },
   ctx?: Pick<RunContext, 'sessionId' | 'toolCallId'>,
 ): Promise<BrowserToolOutput> {
+  const unsettledNote = unsettledRequestsNote(takeUnsettledRequests(targetId))
   // Sticky degrade after PDF/iframe stall used to skip every post-action
   // snapshot, so the model never got new refs and looped on screenshot.
   // Form mutations clear the flag and re-attempt with a short budget.
@@ -132,21 +145,26 @@ async function observeAfterAction(
         ? 5_000
         : POST_ACTION_SNAPSHOT_MS
   try {
-    const out = await withTimeout(
-      observe(backend, targetId, {
-        ...opts,
-        skipIfDegraded,
-        // Post-action is a full tree (spill to disk if huge), not an 8k clip.
-        mode: opts.mode ?? 'full',
-        sessionId: ctx?.sessionId ?? opts.sessionId,
-        toolCallId: ctx?.toolCallId ?? opts.toolCallId,
-      }),
-      'snapshot',
-      snapshotMs,
+    const out = await timed('postSnapshot', () =>
+      withTimeout(
+        observe(backend, targetId, {
+          ...opts,
+          skipIfDegraded,
+          // Post-action is a full tree (spill to disk if huge), not an 8k clip.
+          mode: opts.mode ?? 'full',
+          sessionId: ctx?.sessionId ?? opts.sessionId,
+          toolCallId: ctx?.toolCallId ?? opts.toolCallId,
+        }),
+        'snapshot',
+        snapshotMs,
+      ),
     )
+    if (unsettledNote) out.message = `${out.message}${unsettledNote}`
     if (opts.screenshotAfterwards && ctx) {
       try {
-        const shot = await pw.screenshot(backend, targetId, { format: 'jpeg' })
+        const shot = await timed('postScreenshot', () =>
+          pw.screenshot(backend, targetId, { format: 'jpeg' }),
+        )
         await attachScreenshot(out, shot, ctx.sessionId, ctx.toolCallId)
       } catch (err) {
         const reason = err instanceof Error ? err.message : String(err)
@@ -475,9 +493,7 @@ export const navigateTool = defineBrowserTool({
   description: prompt.NAVIGATE_DESCRIPTION,
   requireTab: false,
   inputSchema: z.object({
-    url: z
-      .string()
-      .describe('The URL to navigate to (http(s) only)'),
+    url: z.string().describe('The URL to navigate to (http(s) only)'),
     screenshotAfterwards: screenshotAfterwardsSchema,
   }),
   async run({ url, screenshotAfterwards }, ctx) {
@@ -706,32 +722,41 @@ export const clickTool = defineBrowserTool({
     force: z.boolean().optional().describe('Skip actionability checks'),
   }),
   async run(args, ctx) {
-    const el = await pw.click(ctx.backend, ctx.targetId, {
-      ref: args.ref,
-      element: args.element,
-      doubleClick: args.doubleClick,
-      button: args.button,
-      modifiers: args.modifiers,
-      force: args.force,
-      signal: ctx.abortSignal,
-      offsetX: args.offsetX,
-      offsetY: args.offsetY,
-    })
-    const label = args.element ? ` (${args.element})` : ''
-    const recovered =
-      args.ref && el.ref && el.ref !== args.ref
-        ? ` (ref recovered: ${args.ref} → ${el.ref})`
-        : ''
-    return observeAfterAction(
-      ctx.backend,
-      ctx.targetId,
-      {
-        action: 'click',
-        message: `${args.doubleClick ? 'Double-clicked' : 'Clicked'} ${el.role} "${el.name}"${label}${recovered}`,
-        compact: true,
-        screenshotAfterwards: args.screenshotAfterwards,
+    return traceClick(
+      { ref: args.ref, element: args.element, backend: ctx.backend.kind },
+      async () => {
+        const el = await timed('pw.click', () =>
+          pw.click(ctx.backend, ctx.targetId, {
+            ref: args.ref,
+            element: args.element,
+            doubleClick: args.doubleClick,
+            button: args.button,
+            modifiers: args.modifiers,
+            force: args.force,
+            signal: ctx.abortSignal,
+            offsetX: args.offsetX,
+            offsetY: args.offsetY,
+          }),
+        )
+        const label = args.element ? ` (${args.element})` : ''
+        const recovered =
+          args.ref && el.ref && el.ref !== args.ref
+            ? ` (ref recovered: ${args.ref} → ${el.ref})`
+            : ''
+        return timed('observeAfterAction', () =>
+          observeAfterAction(
+            ctx.backend,
+            ctx.targetId,
+            {
+              action: 'click',
+              message: `${args.doubleClick ? 'Double-clicked' : 'Clicked'} ${el.role} "${el.name}"${label}${recovered}`,
+              compact: true,
+              screenshotAfterwards: args.screenshotAfterwards,
+            },
+            ctx,
+          ),
+        )
       },
-      ctx,
     )
   },
 })

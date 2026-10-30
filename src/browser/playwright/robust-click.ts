@@ -3,7 +3,7 @@
  * offset retry, and intercept diagnosis when a layer still blocks the target.
  */
 
-import type { Locator, Page } from 'playwright-core'
+import type { ElementHandle, Locator, Page } from 'playwright-core'
 import {
   parseExpectedDescription,
   parseRefMeta,
@@ -11,6 +11,7 @@ import {
 } from '../snapshot-index.js'
 import { getLastSnapshot, getRefMeta } from '../session-flags.js'
 import { BrowserError, StaleRefError } from '../types.js'
+import { noteClick, recordPhase, timed } from '../click-timing.js'
 import {
   assertElementHint,
   describeElement,
@@ -98,6 +99,97 @@ export function visibleClickPosition(
   }
 }
 
+const TARGET_EVAL_TIMEOUT_MS = 2_000
+
+type TargetFn<Arg, R> = (el: Element, arg: Arg) => R
+
+/**
+ * Every locator call re-runs waitForSelector through the iframe chain before
+ * touching the element, about 100ms per call over the extension relay. Click
+ * preflight reads go through one resolved handle instead, and fall back to the
+ * locator for good once that node stops having a box (re-rendered or hidden)
+ * or is found detached.
+ */
+interface ClickTarget {
+  evaluate<Arg, R>(fn: TargetFn<Arg, R>, arg: Arg): Promise<R>
+  boundingBox(): Promise<RectLike | null>
+  scrollIntoViewIfNeeded(): Promise<void>
+  isEnabled(): Promise<boolean>
+  /** The resolved handle while it still points at the rendered node. */
+  liveHandle(): ElementHandle | undefined
+  /**
+   * Switches to the locator if the handle's node was replaced. A detached node
+   * still evaluates, with an empty rect, so a failed hit test is the cue.
+   */
+  dropDetachedHandle(): Promise<boolean>
+}
+
+function capped<T>(work: Promise<T>, ms = TARGET_EVAL_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
+        () => reject(new Error(`element call timed out after ${ms}ms`)),
+        ms,
+      )
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+function locatorTarget(loc: Locator): ClickTarget {
+  return {
+    evaluate: <Arg, R>(fn: TargetFn<Arg, R>, arg: Arg) =>
+      loc.evaluate(fn as never, arg as never, {
+        timeout: TARGET_EVAL_TIMEOUT_MS,
+      }) as Promise<R>,
+    boundingBox: () => loc.boundingBox({ timeout: TARGET_EVAL_TIMEOUT_MS }),
+    scrollIntoViewIfNeeded: () =>
+      loc.scrollIntoViewIfNeeded({ timeout: TARGET_EVAL_TIMEOUT_MS }),
+    isEnabled: () => loc.isEnabled({ timeout: 1_000 }),
+    liveHandle: () => undefined,
+    dropDetachedHandle: async () => false,
+  }
+}
+
+function handleTarget(loc: Locator, handle: ElementHandle): ClickTarget {
+  const fallback = locatorTarget(loc)
+  let useLocator = false
+  return {
+    evaluate: <Arg, R>(fn: TargetFn<Arg, R>, arg: Arg) =>
+      useLocator
+        ? fallback.evaluate(fn, arg)
+        : capped(handle.evaluate(fn as never, arg as never) as Promise<R>),
+    boundingBox: async () => {
+      if (!useLocator) {
+        const box = await capped(handle.boundingBox()).catch(() => null)
+        if (box) return box
+        useLocator = true
+      }
+      return fallback.boundingBox()
+    },
+    scrollIntoViewIfNeeded: () =>
+      useLocator
+        ? fallback.scrollIntoViewIfNeeded()
+        : capped(
+            handle.scrollIntoViewIfNeeded({ timeout: TARGET_EVAL_TIMEOUT_MS }),
+            TARGET_EVAL_TIMEOUT_MS + 500,
+          ),
+    isEnabled: () =>
+      useLocator ? fallback.isEnabled() : capped(handle.isEnabled(), 1_000),
+    liveHandle: () => (useLocator ? undefined : handle),
+    dropDetachedHandle: async () => {
+      if (useLocator) return false
+      const connected = await capped(
+        handle.evaluate(el => el.isConnected),
+      ).catch(() => false)
+      if (connected) return false
+      useLocator = true
+      return true
+    },
+  }
+}
+
 async function pageViewport(page: Page): Promise<ViewportLike> {
   const configured = page.viewportSize()
   if (configured) return configured
@@ -107,7 +199,7 @@ async function pageViewport(page: Page): Promise<ViewportLike> {
   }))
 }
 
-async function elementVisibility(loc: Locator): Promise<{
+async function elementVisibility(target: ClickTarget): Promise<{
   connected: boolean
   hasClientRect: boolean
   display: string
@@ -115,7 +207,7 @@ async function elementVisibility(loc: Locator): Promise<{
   opacity: number
   pointerEvents: string
 } | null> {
-  return loc
+  return target
     .evaluate(el => {
       const node = el as HTMLElement
       const style = window.getComputedStyle(node)
@@ -127,7 +219,7 @@ async function elementVisibility(loc: Locator): Promise<{
         opacity: Number.parseFloat(style.opacity || '1'),
         pointerEvents: style.pointerEvents,
       }
-    })
+    }, undefined)
     .catch(() => null)
 }
 
@@ -167,44 +259,106 @@ export function recoverRefByHint(
   })
 }
 
+/**
+ * Same rule as the snapshot's parked-element pass: the target or an ancestor
+ * is an absolute/fixed box far past the document's scrollable origin, the way
+ * ExtJS parks a picker or panel at -10000. Scrolling never reaches it. A row
+ * scrolled out of a list is not parked: neither it nor its scroller is moved
+ * off the document. RTL documents scroll into negative x, so their origin is
+ * the far left of the scrollable width.
+ */
+const PARKED_OFFSCREEN_PX = 500
+
+async function isParkedOffscreen(target: ClickTarget): Promise<boolean> {
+  return target
+    .evaluate((el, far) => {
+      const doc = el.ownerDocument
+      const win = doc.defaultView ?? window
+      const root = doc.scrollingElement ?? doc.documentElement
+      const rtl = win.getComputedStyle(doc.documentElement).direction === 'rtl'
+      const minX = rtl ? root.clientWidth - root.scrollWidth : 0
+      for (let node: Element | null = el; node; node = node.parentElement) {
+        const position = win.getComputedStyle(node).position
+        if (position !== 'absolute' && position !== 'fixed') continue
+        const rect = node.getBoundingClientRect()
+        if (
+          rect.right + win.scrollX <= minX - far ||
+          rect.bottom + win.scrollY <= -far
+        ) {
+          return true
+        }
+      }
+      return false
+    }, PARKED_OFFSCREEN_PX)
+    .catch(() => false)
+}
+
+/**
+ * Reads the box before scrolling, so a target already on screen costs no
+ * scroll at all. Playwright's scrollIntoViewIfNeeded first waits for the
+ * element to stay put across animation frames, which an occluded Chrome
+ * window barely produces; it stays only as the fallback for nested scrollers
+ * that a native centered scrollIntoView leaves clipped.
+ */
 export async function ensureInView(
   loc: Locator,
   page: Page,
   maxAttempts = DEFAULT_MAX_SCROLL_ATTEMPTS,
-): Promise<void> {
+): Promise<{ box: RectLike; viewport: ViewportLike }> {
+  return ensureTargetInView(locatorTarget(loc), page, maxAttempts)
+}
+
+async function ensureTargetInView(
+  target: ClickTarget,
+  page: Page,
+  maxAttempts: number,
+): Promise<{ box: RectLike; viewport: ViewportLike }> {
   let lastBox: RectLike | null = null
   let lastViewport: ViewportLike | null = null
+  let parked = false
   for (let i = 0; i < maxAttempts; i++) {
     try {
-      await loc.scrollIntoViewIfNeeded({ timeout: 2_000 })
-      const box = await loc.boundingBox()
+      const box = await target.boundingBox()
       const viewport = await pageViewport(page)
       lastBox = box
       lastViewport = viewport
       if (box && isBoxInViewport(box, viewport)) {
-        const failure = visibilityFailure(await elementVisibility(loc))
+        const failure = visibilityFailure(await elementVisibility(target))
         if (failure) throw new BrowserError(failure)
-        return
+        return { box, viewport }
       }
-      // Playwright normally scrolls nested containers itself. Centering is a
-      // safe fallback for legacy widgets that keep the target at a clipped
-      // edge while reporting scrollIntoViewIfNeeded as complete.
-      await loc
-        .evaluate(el =>
-          (el as HTMLElement).scrollIntoView({
-            block: 'center',
-            inline: 'center',
-            behavior: 'instant',
-          }),
+      if (box && i === 0 && (await isParkedOffscreen(target))) {
+        parked = true
+        break
+      }
+      if (i % 2 === 0) {
+        await target.evaluate(
+          el =>
+            (el as HTMLElement).scrollIntoView({
+              block: 'center',
+              inline: 'center',
+              behavior: 'instant',
+            }),
+          undefined,
         )
-        .catch(() => {})
+      } else {
+        await target.scrollIntoViewIfNeeded()
+      }
     } catch {
       /* scroll and retry */
     }
     await page.waitForTimeout(100)
   }
 
-  const state = await elementVisibility(loc)
+  if (parked && lastBox) {
+    throw new BrowserError(
+      `Element is parked offscreen (box x=${Math.round(lastBox.x)}, y=${Math.round(lastBox.y)}), ` +
+        `the way ExtJS hides inactive pickers and panels; it cannot be scrolled into view. ` +
+        `Capture a new snapshot and use the visible control; do not force-click this ref.`,
+    )
+  }
+
+  const state = await elementVisibility(target)
   const failure = visibilityFailure(state)
   if (failure) {
     if (!state?.connected) throw new StaleRefError(failure)
@@ -243,14 +397,14 @@ export interface DropdownDismissal {
 const DROPDOWN_ATTR = 'data-baix-covering-dropdown'
 const DROPDOWN_SETTLE_MS = 100
 
-export async function dismissBlockingDropdown(
-  loc: Locator,
+async function dismissBlockingDropdown(
+  owner: ClickTarget,
   offset: { x: number; y: number },
 ): Promise<DropdownDismissal> {
   const none: DropdownDismissal = { detected: false, closed: false }
   // No named inner functions in page code: the bundler rewrites them into
   // `__name` calls that do not exist in the page.
-  const label = await loc
+  const label = await owner
     .evaluate(
       (target, args) => {
         const doc = target.ownerDocument
@@ -319,7 +473,7 @@ export async function dismissBlockingDropdown(
   if (label === null) return none
 
   const gone = () =>
-    loc
+    owner
       .evaluate((target, attr) => {
         const doc = target.ownerDocument
         const win = doc.defaultView ?? window
@@ -345,14 +499,14 @@ export async function dismissBlockingDropdown(
       }, DROPDOWN_ATTR)
       .catch(() => false)
 
-  const settle = () => loc.page().waitForTimeout(DROPDOWN_SETTLE_MS)
+  const settle = () => new Promise<void>(r => setTimeout(r, DROPDOWN_SETTLE_MS))
   let result: DropdownDismissal = {
     detected: true,
     closed: false,
     dropdown: label,
   }
   try {
-    await loc.evaluate(target => {
+    await owner.evaluate(target => {
       const doc = target.ownerDocument
       const win = doc.defaultView ?? window
       for (const type of ['mousedown', 'mouseup', 'click']) {
@@ -366,7 +520,7 @@ export async function dismissBlockingDropdown(
           }),
         )
       }
-    })
+    }, undefined)
     await settle()
     if (await gone()) {
       result = { ...result, closed: true, method: 'click-body' }
@@ -374,7 +528,7 @@ export async function dismissBlockingDropdown(
     }
     // Non-bubbling: the owning field's key handler sees it, a document-level
     // "cancel form" handler does not.
-    const sent = await loc.evaluate((target, attr) => {
+    const sent = await owner.evaluate((target, attr) => {
       const doc = target.ownerDocument
       const win = doc.defaultView ?? window
       const field = doc.activeElement
@@ -404,7 +558,7 @@ export async function dismissBlockingDropdown(
   } catch {
     return result
   } finally {
-    await loc
+    await owner
       .evaluate((target, attr) => {
         target.ownerDocument.querySelector(`[${attr}]`)?.removeAttribute(attr)
       }, DROPDOWN_ATTR)
@@ -412,11 +566,11 @@ export async function dismissBlockingDropdown(
   }
 }
 
-async function pointHitsLocator(
-  loc: Locator,
+async function pointHitsTarget(
+  target: ClickTarget,
   offset: { x: number; y: number },
 ): Promise<boolean> {
-  return loc
+  return target
     .evaluate((el, position) => {
       const rect = el.getBoundingClientRect()
       const x = rect.left + position.x
@@ -442,9 +596,9 @@ async function pointHitsLocator(
 }
 
 async function visibleFragmentCenter(
-  loc: Locator,
+  target: ClickTarget,
 ): Promise<{ x: number; y: number } | undefined> {
-  return loc
+  return target
     .evaluate(el => {
       const bounds = el.getBoundingClientRect()
       const clientRects = Array.from(el.getClientRects())
@@ -473,16 +627,49 @@ async function visibleFragmentCenter(
         x: best.left + best.width / 2 - bounds.left,
         y: best.top + best.height / 2 - bounds.top,
       }
-    })
+    }, undefined)
     .catch(() => undefined)
 }
 
 type ClickProbeState = 'seen' | 'pending' | 'missing'
 
-async function armClickProbe(loc: Locator): Promise<string | undefined> {
+/**
+ * The probe is read through the handle captured when arming, so an option or
+ * picker removed by its own click answers at once instead of a locator
+ * waiting for it to reappear. The cap only guards a stalled relay.
+ */
+const CLICK_PROBE_EVAL_TIMEOUT_MS = 1_000
+
+interface ClickProbe {
+  handle: ElementHandle
+  key: string
+  ownsHandle: boolean
+}
+
+function withProbeTimeout<T>(work: Promise<T>, fallback: T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work.catch(() => fallback),
+    new Promise<T>(resolve => {
+      timer = setTimeout(() => resolve(fallback), CLICK_PROBE_EVAL_TIMEOUT_MS)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
+async function armClickProbe(
+  loc: Locator,
+  shared?: ElementHandle,
+): Promise<ClickProbe | undefined> {
+  const handle =
+    shared ??
+    (await loc
+      .elementHandle({ timeout: CLICK_PROBE_EVAL_TIMEOUT_MS })
+      .catch(() => null))
+  if (!handle) return undefined
+  const ownsHandle = !shared
   const key = `__aiAgentClickProbe_${Math.random().toString(36).slice(2)}`
-  const armed = await loc
-    .evaluate((el, probeKey) => {
+  const armed = await withProbeTimeout(
+    handle.evaluate((el, probeKey) => {
       const target = el as unknown as Element & Record<string, unknown>
       const probe = {
         seen: false,
@@ -509,47 +696,56 @@ async function armClickProbe(loc: Locator): Promise<string | undefined> {
       }, 10_000)
       target[probeKey] = probe
       return true
-    }, key)
-    .catch(() => false)
-  return armed ? key : undefined
+    }, key),
+    false,
+  )
+  if (armed) return { handle, key, ownsHandle }
+  if (ownsHandle) void handle.dispose().catch(() => {})
+  return undefined
 }
 
+/**
+ * Removes the listeners unless the click is still pending, so a pending probe
+ * stays armed for the Enter retry. `force` always removes them.
+ */
 async function readClickProbe(
-  loc: Locator,
-  key: string,
-  cleanup: boolean,
+  probe: ClickProbe,
+  force: boolean,
 ): Promise<ClickProbeState> {
-  return (
-    loc
-      .evaluate(
-        (el, args) => {
-          const target = el as unknown as Element & Record<string, unknown>
-          const probe = target[args.key] as
-            | {
-                seen: boolean
-                listeners: Array<{
-                  type: 'pointerdown' | 'click'
-                  listener: EventListener
-                }>
-                timer: number
-              }
-            | undefined
-          if (!probe) return 'missing'
-          const state = probe.seen ? 'seen' : 'pending'
-          if (args.cleanup) {
-            for (const { type, listener } of probe.listeners) {
-              window.removeEventListener(type, listener, { capture: true })
+  return withProbeTimeout<ClickProbeState>(
+    probe.handle.evaluate(
+      (el, args) => {
+        const target = el as unknown as Element & Record<string, unknown>
+        const state = target[args.key] as
+          | {
+              seen: boolean
+              listeners: Array<{
+                type: 'pointerdown' | 'click'
+                listener: EventListener
+              }>
+              timer: number
             }
-            clearTimeout(probe.timer)
-            delete target[args.key]
+          | undefined
+        if (!state) return 'missing'
+        const result: ClickProbeState = state.seen
+          ? 'seen'
+          : el.isConnected
+            ? 'pending'
+            : 'missing'
+        if (args.force || result !== 'pending') {
+          for (const { type, listener } of state.listeners) {
+            window.removeEventListener(type, listener, { capture: true })
           }
-          return state
-        },
-        { key, cleanup },
-      )
-      // Navigation, removal, or replacement after the action is itself evidence
-      // that the click was delivered; only a still-pending probe is a failure.
-      .catch(() => 'missing')
+          clearTimeout(state.timer)
+          delete target[args.key]
+        }
+        return result
+      },
+      { key: probe.key, force },
+    ),
+    // Navigation, removal, or replacement after the action is itself evidence
+    // that the click was delivered; only a still-pending probe is a failure.
+    'missing',
   )
 }
 
@@ -582,28 +778,32 @@ async function canActivateWithEnter(loc: Locator): Promise<boolean> {
 async function performVerifiedClick(
   loc: Locator,
   click: () => Promise<void>,
+  shared?: ElementHandle,
 ): Promise<void> {
-  const probeKey = await armClickProbe(loc)
+  const probe = await timed('armProbe', () => armClickProbe(loc, shared))
   try {
-    await click()
-  } catch (err) {
-    if (probeKey) await readClickProbe(loc, probeKey, true)
-    throw err
-  }
-  if (!probeKey) return
+    try {
+      await timed('playwrightClick', click)
+    } catch (err) {
+      if (probe) await readClickProbe(probe, true)
+      throw err
+    }
+    if (!probe) return
 
-  const first = await readClickProbe(loc, probeKey, false)
-  if (first !== 'pending') {
-    if (first === 'seen') await readClickProbe(loc, probeKey, true)
-    return
-  }
-  if (await canActivateWithEnter(loc)) {
-    await loc.focus({ timeout: 8_000 })
-    await loc.press('Enter', { timeout: 8_000 })
-    const retried = await readClickProbe(loc, probeKey, true)
-    if (retried !== 'pending') return
-  } else {
-    await readClickProbe(loc, probeKey, true)
+    const first = await timed('readProbe', () => readClickProbe(probe, false))
+    noteClick('probe', first)
+    if (first !== 'pending') return
+    noteClick('enterRetry', true)
+    if (await canActivateWithEnter(loc)) {
+      await loc.focus({ timeout: 8_000 })
+      await loc.press('Enter', { timeout: 8_000 })
+      const retried = await readClickProbe(probe, true)
+      if (retried !== 'pending') return
+    } else {
+      await readClickProbe(probe, true)
+    }
+  } finally {
+    if (probe?.ownsHandle) void probe.handle.dispose().catch(() => {})
   }
   throw new BrowserError(
     'The browser acknowledged the mouse input, but no click reached the target. ' +
@@ -841,38 +1041,42 @@ export async function clickLocatorRobust(
   loc: Locator,
   opts: RobustClickOpts,
 ): Promise<void> {
+  const handle = await timed('resolveHandle', () =>
+    loc.elementHandle({ timeout: TARGET_EVAL_TIMEOUT_MS }).catch(() => null),
+  )
+  const target = handle ? handleTarget(loc, handle) : locatorTarget(loc)
+  try {
+    await clickTargetRobust(page, loc, target, opts)
+  } finally {
+    if (handle) void handle.dispose().catch(() => {})
+  }
+}
+
+async function clickTargetRobust(
+  page: Page,
+  loc: Locator,
+  target: ClickTarget,
+  opts: RobustClickOpts,
+): Promise<void> {
   const maxScroll = opts.maxScrollAttempts ?? DEFAULT_MAX_SCROLL_ATTEMPTS
   const attempted: string[] = [
     `scrolled into view (up to ${maxScroll} attempts)`,
   ]
-  await ensureInView(loc, page, maxScroll)
+  const { box, viewport } = await timed('ensureInView', () =>
+    ensureTargetInView(target, page, maxScroll),
+  )
 
-  const box = await loc.boundingBox()
-  if (!box) {
-    throw new StaleRefError(
-      'Element has no bounding box. Capture a new snapshot and retry.',
-    )
-  }
-  const viewport = await pageViewport(page)
-  if (!isBoxInViewport(box, viewport)) {
-    throw new BrowserError(
-      `Element is outside the visible viewport ` +
-        `(box x=${Math.round(box.x)}, y=${Math.round(box.y)}, ` +
-        `width=${Math.round(box.width)}, height=${Math.round(box.height)}; ` +
-        `viewport ${viewport.width}x${viewport.height}). Capture a new snapshot; ` +
-        `do not force-click this ref.`,
-    )
-  }
-
+  const geometryStart = performance.now()
   const fragmentCenter =
     opts.offsetX === undefined && opts.offsetY === undefined
-      ? await visibleFragmentCenter(loc)
+      ? await visibleFragmentCenter(target)
       : undefined
   const preferredPosition = {
     x: opts.offsetX ?? fragmentCenter?.x ?? box.width / 2,
     y: opts.offsetY ?? fragmentCenter?.y ?? box.height / 2,
   }
   const position = visibleClickPosition(box, viewport, preferredPosition)
+  recordPhase('geometry', geometryStart)
   const clickArgs = {
     timeout: 8_000,
     button: opts.button,
@@ -881,17 +1085,17 @@ export async function clickLocatorRobust(
     position,
   }
 
-  const performClick = async () => {
+  const performClick = async (args: typeof clickArgs = clickArgs) => {
     if (
       opts.doubleClick ||
       opts.button === 'right' ||
       opts.button === 'middle'
     ) {
-      if (opts.doubleClick) await loc.dblclick(clickArgs)
-      else await loc.click(clickArgs)
+      if (opts.doubleClick) await loc.dblclick(args)
+      else await loc.click(args)
       return
     }
-    await performVerifiedClick(loc, () => loc.click(clickArgs))
+    await performVerifiedClick(loc, () => loc.click(args), target.liveHandle())
   }
 
   if (opts.force) {
@@ -899,28 +1103,54 @@ export async function clickLocatorRobust(
     return
   }
 
-  if (await pointHitsLocator(loc, position)) {
-    await performClick()
+  // Once our own hit test passed, Playwright's stable check only adds a
+  // requestAnimationFrame wait, which takes ~1.5s when Chrome is occluded.
+  // `force` drops every actionability check though, its own hit-target check
+  // included, so a layer that slides over the target between our hit test and
+  // the click takes the click; the click probe then reports it as undelivered.
+  // Disabled targets keep the normal path so Playwright waits for enabled.
+  const performCheckedClick = async (
+    pos: { x: number; y: number } = position,
+  ) => {
+    const enabled = await timed('enabledCheck', () =>
+      target.isEnabled().catch(() => false),
+    )
+    noteClick('skipStableWait', enabled)
+    await performClick({ ...clickArgs, position: pos, force: enabled })
+  }
+
+  let hits = await timed('hitTest', () => pointHitsTarget(target, position))
+  if (!hits && (await target.dropDetachedHandle())) {
+    noteClick('handleDetached', true)
+    hits = await pointHitsTarget(target, position)
+  }
+  noteClick('hitTest', hits)
+  if (hits) {
+    await performCheckedClick()
     return
   }
 
   if (opts.autoCloseDropdowns !== false) {
-    const dismissal = await dismissBlockingDropdown(loc, position)
+    const dismissal = await timed('dismissDropdown', () =>
+      dismissBlockingDropdown(target, position),
+    )
     if (dismissal.detected) {
+      noteClick('dropdownDismissal', dismissal)
       const which = dismissal.dropdown ? ` (${dismissal.dropdown})` : ''
       attempted.push(
         dismissal.closed
           ? `closed the covering dropdown${which} via ${dismissal.method}`
           : `the covering dropdown${which} did not close`,
       )
-      if (dismissal.closed && (await pointHitsLocator(loc, position))) {
-        await performClick()
+      if (dismissal.closed && (await pointHitsTarget(target, position))) {
+        await performCheckedClick()
         return
       }
     }
   }
 
   if (opts.retryWithOffset !== false) {
+    noteClick('offsetRetry', true)
     attempted.push('offset click retries')
     const offsets = [
       { x: box.width * 0.25, y: box.height * 0.5 },
@@ -929,7 +1159,7 @@ export async function clickLocatorRobust(
       { x: box.width * 0.5, y: box.height * 0.75 },
     ]
     for (const off of offsets) {
-      if (!(await pointHitsLocator(loc, off))) continue
+      if (!(await pointHitsTarget(target, off))) continue
       const retryArgs = { ...clickArgs, position: off }
       if (opts.doubleClick) await loc.dblclick(retryArgs)
       else await loc.click(retryArgs)

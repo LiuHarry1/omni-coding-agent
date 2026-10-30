@@ -42,7 +42,7 @@ export async function fillForm(
   return withInputFocus(backend, targetId, async () => {
     const page = await getPageForTarget(backend, targetId)
     const results: FilledField[] = []
-    await withActionWait(page, async () => {
+    await withActionWait(page, targetId, async () => {
       for (const field of fields) {
         throwIfFormAborted(signal)
         results.push(await fillOneField(page, field))

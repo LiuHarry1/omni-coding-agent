@@ -8,6 +8,8 @@
  *
  *   npx tsx src/tests/test-browser-unit.ts
  */
+import { EventEmitter } from 'events'
+import type { Page } from 'playwright-core'
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
@@ -80,6 +82,11 @@ import {
   SNAPSHOT_STALL_NEXT,
 } from '../browser/heavy-media.js'
 import { assertNavigateUrl } from '../browser/navigate-policy.js'
+import {
+  isBackgroundRequestUrl,
+  settleIfUrlChanged,
+  withActionWait,
+} from '../browser/playwright/settle.js'
 import { denyCdpMethod } from '../browser/cdp-policy.js'
 import { sendCdpCommand } from '../browser/cdp-command.js'
 import { getBrowserLogsSessionDir } from '../core/session-paths.js'
@@ -89,6 +96,9 @@ import {
   DEFAULT_SNAPSHOT_DEPTH,
   SCREENSHOT_TIMEOUT_MS,
   SNAPSHOT_INLINE_MAX_BYTES,
+  ACTION_SETTLE_MS,
+  NETWORK_DRAIN_MS,
+  STALLED_REQUEST_MS,
 } from '../browser/limits.js'
 import {
   planAnnotations,
@@ -123,6 +133,7 @@ import {
   resetSessionFlags,
   setSnapshotDegraded,
   setUserHasControl,
+  takeUnsettledRequests,
 } from '../browser/session-flags.js'
 
 function assert(cond: unknown, msg: string): asserts cond {
@@ -1961,6 +1972,86 @@ function makeFakeRelay(opts: {
     'Concur GUID url ok',
   )
   ok('navigate policy allows http(s) and localhost, blocks file/js/credentials')
+}
+
+{
+  for (const url of [
+    'https://consent.trustarc.com/analytics?action=0&domain=concursolutions.com',
+    'https://cdn.walkme.com/applications/accounts/workstation/settings.json',
+    'https://www.google-analytics.com/g/collect?v=2',
+  ]) {
+    assert(isBackgroundRequestUrl(url), `background: ${url}`)
+  }
+  for (const url of [
+    'https://us2.concursolutions.com/nui/expense/nui-shell/api/logs',
+    'https://us2.concursolutions.com/nui/expense/api/reports/845B82A0',
+    'https://example.com/api/catalog?q=logs',
+    'https://example.com/blog/analytics-guide',
+    'https://ci.example.com/api/jobs/42/logs',
+    'https://grafana.example.com/api/logs/query',
+    'https://app.example.com/admin/analytics/report',
+    'https://shop.example.com/api/analytics',
+    'https://app.example.com/api/audit-logs',
+    'not a url',
+  ]) {
+    assert(!isBackgroundRequestUrl(url), `tracked: ${url}`)
+  }
+  ok('action drain skips third-party hosts only, never first-party paths')
+}
+
+{
+  const page = new EventEmitter()
+  const request = (url: string) => ({
+    url: () => url,
+    resourceType: () => 'fetch',
+    isNavigationRequest: () => false,
+  })
+  const answered = request('https://app.example.com/api/items')
+  const stalled = request('https://app.example.com/api/poll?token=secret')
+  const beacon = request('https://www.google-analytics.com/g/collect')
+  const adFrame = {
+    ...request('https://tpc.googlesyndication.com/sodar/frame.html'),
+    resourceType: () => 'document',
+    isNavigationRequest: () => true,
+    response: () => new Promise(() => {}),
+  }
+  const pageUrl = 'https://app.example.com/expenses'
+  Object.assign(page, { url: () => pageUrl })
+  const started = performance.now()
+  await withActionWait(page as unknown as Page, 'tab-drain', async () => {
+    for (const req of [answered, stalled, beacon, adFrame]) {
+      page.emit('request', req)
+    }
+    setTimeout(() => page.emit('response', { request: () => answered }), 100)
+  })
+  const elapsed = performance.now() - started
+  assert(
+    elapsed >= STALLED_REQUEST_MS - 100 &&
+      elapsed < ACTION_SETTLE_MS + NETWORK_DRAIN_MS - 500,
+    `stalled request stops holding the drain (took ${Math.round(elapsed)}ms)`,
+  )
+  const unsettled = takeUnsettledRequests('tab-drain')
+  assert(
+    JSON.stringify(unsettled) === '["app.example.com/api/poll"]',
+    `only the stalled request is reported, without its query: ${JSON.stringify(unsettled)}`,
+  )
+  assert(
+    takeUnsettledRequests('tab-drain').length === 0,
+    'the unsettled note is read once',
+  )
+  assert(page.listenerCount('request') === 0, 'drain removes its listeners')
+  const settleStarted = performance.now()
+  await settleIfUrlChanged(page as unknown as Page, pageUrl, 'tab-drain', {
+    quick: true,
+  })
+  const settleMs = performance.now() - settleStarted
+  assert(
+    settleMs < 1_500,
+    `an ad iframe load is not waited on as a navigation (took ${Math.round(settleMs)}ms)`,
+  )
+  ok(
+    'action drain counts headers as answered, drops stalled, reports them once',
+  )
 }
 
 {

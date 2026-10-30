@@ -259,6 +259,13 @@ async function markParkedOffscreen(page: Page): Promise<Frame[]> {
         HIDE_EVAL_MS,
         frame.evaluate(attr => {
           const FAR = 500
+          // RTL documents scroll into negative x down to this origin.
+          const root = document.scrollingElement ?? document.documentElement
+          const minX =
+            window.getComputedStyle(document.documentElement).direction ===
+            'rtl'
+              ? root.clientWidth - root.scrollWidth
+              : 0
           const all = document.body?.querySelectorAll('*') ?? []
           const parked: HTMLElement[] = []
           for (let i = 0; i < all.length; i++) {
@@ -273,7 +280,7 @@ async function markParkedOffscreen(page: Page): Promise<Frame[]> {
             if (rect.width <= 1 || rect.height <= 1) continue
             const right = rect.right + window.scrollX
             const bottom = rect.bottom + window.scrollY
-            if (right > -FAR && bottom > -FAR) continue
+            if (right > minX - FAR && bottom > -FAR) continue
             parked.push(el)
           }
           for (const el of parked) {
