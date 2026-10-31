@@ -68,6 +68,7 @@ export const definition: ToolDefinition = {
       tool_use_id: toolUseID,
       type: 'tool_result',
       content: o.text,
+      ...(o.task_status === 'unknown' ? { is_error: true } : {}),
     }
   },
   create(_cwd: string, context: ToolContext) {

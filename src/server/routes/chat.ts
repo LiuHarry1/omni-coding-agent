@@ -1,13 +1,5 @@
-import { randomUUID } from 'crypto'
 import type { IncomingMessage, ServerResponse } from 'http'
-import {
-  createSession,
-  getSession,
-  canAccessSession,
-  tryBeginTurn,
-  endTurn,
-} from '../session.js'
-import { createSSETransport } from '../sse-transport.js'
+import { createSession, getSession, canAccessSession } from '../session.js'
 import { readBody, sendJSON, wantsStreamingResponse } from '../http.js'
 import { sessionToUIMessages } from '../session-ui.js'
 import { resolveRequestCwd } from '../request-cwd.js'
@@ -31,7 +23,7 @@ import {
 } from '../../core/permission-mode.js'
 import { appendModeChange, appendAgentChange } from '../session.js'
 import type { Message, RunAgentFn } from '../../core/types.js'
-import { createNoopTransport, runChatTurn } from '../../turn/run-chat-turn.js'
+import { runChatTurn } from '../../turn/run-chat-turn.js'
 import { loadWorkspaceContributions } from '../../core/workspace-load.js'
 import { findPrimaryAgent } from '../../tools/AgentTool/mergeAgents.js'
 import {
@@ -46,6 +38,41 @@ import {
   type ChatAttachmentRef,
 } from '../../utils/attachments/from-chat-upload.js'
 import { CHAT_ATTACHMENT_MAX_COUNT } from '../../constants/attachment-types.js'
+import {
+  attachDurableRunStream,
+  createDurableRun,
+  RunAlreadyActiveError,
+  startDurableRun,
+} from '../../services/runs/run-manager.js'
+import { getRequestScope, resolveAgentHome } from '../../utils/request-scope.js'
+
+export function resolveChatWorkspaceBinding(
+  req: IncomingMessage,
+  requestedWorkspace: string | undefined,
+  requestedEnvironmentId: string | undefined,
+  resolvedCwd: string,
+): { environmentId: string; cwd: string } {
+  // The auth gate is the authority for tenant workspace/environment. A client
+  // path or environment selector must never override that server-side binding.
+  if ((req as AuthedRequest).userWorkspace) {
+    return {
+      environmentId: 'local',
+      cwd: normalizeWorkspacePath(resolvedCwd),
+    }
+  }
+  return {
+    environmentId:
+      typeof requestedEnvironmentId === 'string' &&
+      requestedEnvironmentId.length > 0
+        ? requestedEnvironmentId
+        : 'local',
+    cwd: normalizeWorkspacePath(
+      typeof requestedWorkspace === 'string' && requestedWorkspace.length > 0
+        ? requestedWorkspace
+        : resolvedCwd,
+    ),
+  }
+}
 
 export async function handleChat(
   req: IncomingMessage,
@@ -116,7 +143,9 @@ export async function handleChat(
 
   // Resolve cwd from Session.workspace handle when present; else legacy path.
   let cwd: string
-  if (session?.workspace) {
+  if ((req as AuthedRequest).userWorkspace) {
+    cwd = normalizeWorkspacePath((req as AuthedRequest).userWorkspace!)
+  } else if (session?.workspace) {
     cwd = normalizeWorkspacePath(session.workspace.cwd)
   } else {
     cwd = resolveRequestCwd(req, workspace)
@@ -126,14 +155,17 @@ export async function handleChat(
     session = createSession(requesterEmail)
   }
 
-  // Bind WorkspaceHandle when missing.
-  if (!session.workspace) {
-    const envId =
-      typeof environmentId === 'string' && environmentId.length > 0
-        ? environmentId
-        : 'local'
-    const bindCwd =
-      typeof workspace === 'string' && workspace.length > 0 ? workspace : cwd
+  // Bind when missing, or repair a legacy authenticated Session that was
+  // previously allowed to persist a client-selected workspace/environment.
+  if (!session.workspace || (req as AuthedRequest).userWorkspace) {
+    const binding = resolveChatWorkspaceBinding(
+      req,
+      workspace,
+      environmentId,
+      cwd,
+    )
+    const envId = binding.environmentId
+    const bindCwd = binding.cwd
     if (envId !== 'local') {
       // Remote: require an absolute-looking remote path from the picker.
       if (
@@ -148,49 +180,39 @@ export async function handleChat(
         return
       }
     }
-    const { setSessionWorkspace } = await import('../session.js')
-    setSessionWorkspace(session.id, {
-      environmentId: envId,
-      cwd: normalizeWorkspacePath(bindCwd),
-    })
-    cwd = normalizeWorkspacePath(bindCwd)
+    const normalizedCwd = normalizeWorkspacePath(bindCwd)
+    if (
+      !session.workspace ||
+      session.workspace.environmentId !== envId ||
+      normalizeWorkspacePath(session.workspace.cwd) !== normalizedCwd
+    ) {
+      const { setSessionWorkspace } = await import('../session.js')
+      setSessionWorkspace(session.id, {
+        environmentId: envId,
+        cwd: normalizedCwd,
+      })
+    }
+    cwd = normalizedCwd
   } else {
     cwd = normalizeWorkspacePath(session.workspace.cwd)
   }
 
-  // One turn per session. A duplicate send while a slow step (e.g. full
-  // compaction) is running must not spawn a concurrent run over the same
-  // message history — that's how repeated compact boundaries pile up.
-  if (!tryBeginTurn(session.id)) {
-    sendJSON(res, 409, {
-      error:
-        'A previous message is still being processed for this session ' +
-        '(possibly compacting context). Please wait for it to finish.',
-      session_id: session.id,
-    })
-    return
-  }
-
-  try {
-    await handleChatLocked(req, res, runAgent, session, {
-      message,
-      images,
-      attachments: Array.isArray(attachments)
-        ? attachments.filter(isChatAttachmentRef)
-        : undefined,
-      mode,
-      agentType: agentType === undefined ? undefined : agentType,
-      wantsStream,
-      cwd,
-      requesterEmail,
-    })
-  } finally {
-    endTurn(session.id)
-  }
+  await handleChatRequest(req, res, runAgent, session, {
+    message,
+    images,
+    attachments: Array.isArray(attachments)
+      ? attachments.filter(isChatAttachmentRef)
+      : undefined,
+    mode,
+    agentType: agentType === undefined ? undefined : agentType,
+    wantsStream,
+    cwd,
+    requesterEmail,
+  })
 }
 
-/** The per-session turn mutex is held for the duration of this function. */
-async function handleChatLocked(
+/** Validate a request, create a durable Run, and attach this HTTP client. */
+async function handleChatRequest(
   req: IncomingMessage,
   res: ServerResponse,
   runAgent: RunAgentFn,
@@ -350,20 +372,8 @@ async function handleChatLocked(
   }
   const requesterRole = (req as AuthedRequest).user?.role
   const quotaUser = session.ownerEmail ?? requesterEmail
-  const quotaEventId = `${session.id}:chat:${randomUUID()}`
   const turnUsage = { tokens: 0 }
   const unsubTurnTokens = trackTurnTokens(eventBus, turnUsage)
-
-  const finishQuota = async (): Promise<void> => {
-    unsubTurnTokens()
-    if (shouldEnforceQuota(quotaUser, requesterRole)) {
-      try {
-        await commitQuota(quotaUser!, turnUsage.tokens, quotaEventId)
-      } catch (err) {
-        console.warn(`[quota] commit failed: ${(err as Error).message}`)
-      }
-    }
-  }
 
   if (shouldEnforceQuota(quotaUser, requesterRole)) {
     try {
@@ -381,6 +391,53 @@ async function handleChatLocked(
     }
   }
 
+  const scope = getRequestScope()
+  let durableRun
+  try {
+    durableRun = createDurableRun({
+      sessionId: session.id,
+      ownerEmail: session.ownerEmail,
+      ownerRole: requesterRole,
+      agentHome: scope?.agentHome ?? resolveAgentHome(),
+      cwd,
+      mode: session.permissionMode.mode,
+      agentType: session.agentType,
+      requestPayload: {
+        message,
+        images,
+        attachments,
+      },
+    })
+  } catch (error) {
+    unsubTurnTokens()
+    if (error instanceof RunAlreadyActiveError) {
+      sendJSON(res, 409, {
+        error:
+          'A previous message is still being processed for this session. ' +
+          'Please wait for it to finish.',
+        session_id: session.id,
+        ...(error.runId ? { run_id: error.runId } : {}),
+      })
+      return
+    }
+    throw error
+  }
+
+  const quotaEventId = `${session.id}:run:${durableRun.runId}:attempt:${durableRun.attempt + 1}`
+  let quotaFinished = false
+  const finishQuota = async (): Promise<void> => {
+    if (quotaFinished) return
+    quotaFinished = true
+    unsubTurnTokens()
+    if (shouldEnforceQuota(quotaUser, requesterRole)) {
+      try {
+        await commitQuota(quotaUser!, turnUsage.tokens, quotaEventId)
+      } catch (err) {
+        console.warn(`[quota] commit failed: ${(err as Error).message}`)
+      }
+    }
+  }
+
   reportUserQuestion(telemetryCtx, session.messages.length, message)
   const unsubTelemetry = attachUsageTelemetry(eventBus, telemetryCtx)
 
@@ -390,62 +447,63 @@ async function handleChatLocked(
     'X-Agent-Type': session.agentType ?? '',
   }
 
-  const transport = wantsStream
-    ? createSSETransport(res, sseHeaders)
-    : createNoopTransport()
-
   const messagesBefore = session.messages.length
-
-  try {
-    const result = await runChatTurn({
-      message,
-      session,
-      cwd,
-      runAgent,
-      transport,
-      images,
-      attachments,
-      mode,
-      eventBus,
-      http: { res, wantsStream, sseHeaders },
-      onClientDisconnect: cleanup => {
-        res.on('close', () => {
-          // Normal end also fires close; only abort when the client dropped
-          // the stream before we finished writing.
-          if (!res.writableEnded) {
-            console.log('[server] client disconnected')
-            cleanup()
-          }
-        })
-      },
-    })
-
-    await finishQuota()
-    void flushUsage()
-
-    if (wantsStream || result.reason === 'skill_fork') {
-      return
-    }
-
-    if (result.error) {
-      sendJSON(res, 500, {
-        session_id: session.id,
-        mode: session.permissionMode.mode,
-        error: result.error.message,
-      })
-      return
-    }
-
-    sendJSON(res, 200, {
-      session_id: session.id,
-      mode: session.permissionMode.mode,
-      text: result.finalText,
-      reason: result.reason,
-      messages: sessionToUIMessages(
-        session.messages.slice(messagesBefore) as Message[],
-      ),
-    })
-  } finally {
-    unsubTelemetry()
+  if (wantsStream) {
+    attachDurableRunStream(durableRun.runId, res, 0, sseHeaders)
   }
+
+  const runPromise = startDurableRun(
+    durableRun.runId,
+    async (transport, _state, abortSignal) => {
+      try {
+        return await runChatTurn({
+          message,
+          session,
+          cwd,
+          runAgent,
+          transport,
+          images,
+          attachments,
+          mode: effectiveMode,
+          eventBus,
+          durableRunId: durableRun.runId,
+          abortSignal,
+        })
+      } finally {
+        await finishQuota()
+        unsubTelemetry()
+        void flushUsage()
+      }
+    },
+  )
+
+  if (wantsStream) {
+    // The durable run owns its lifecycle. This request now owns only one
+    // subscriber and may return even while the response remains open.
+    void runPromise
+    return
+  }
+
+  const result = await runPromise
+  if (res.destroyed || res.writableEnded) return
+  if (result.error) {
+    sendJSON(res, 500, {
+      session_id: session.id,
+      run_id: durableRun.runId,
+      mode: session.permissionMode.mode,
+      error: result.error.message,
+    })
+    return
+  }
+
+  sendJSON(res, 200, {
+    session_id: session.id,
+    run_id: durableRun.runId,
+    mode: session.permissionMode.mode,
+    text: result.finalText,
+    reason: result.reason,
+    messages: sessionToUIMessages(
+      session.messages.slice(messagesBefore) as Message[],
+    ),
+  })
 }

@@ -4,7 +4,7 @@
 export type TaskNotificationPayload = {
   taskId: string
   outputFile: string
-  status: 'completed' | 'failed' | 'killed'
+  status: 'completed' | 'failed' | 'killed' | 'unknown'
   summary: string
   toolUseId?: string
   rawXml: string

@@ -161,6 +161,30 @@ export const agentApi = {
       withAuth({ signal }),
     ),
 
+  getRun: runId => fetchJSON(`/runs/${encodeURIComponent(runId)}`),
+
+  streamRun: (runId, afterSeq, signal) => {
+    const qs =
+      Number.isFinite(afterSeq) && afterSeq > 0
+        ? `?after_seq=${encodeURIComponent(String(afterSeq))}`
+        : ''
+    return fetch(
+      apiUrl(`/runs/${encodeURIComponent(runId)}/stream${qs}`),
+      withAuth({
+        headers:
+          Number.isFinite(afterSeq) && afterSeq > 0
+            ? { 'Last-Event-ID': String(afterSeq) }
+            : undefined,
+        signal,
+      }),
+    )
+  },
+
+  cancelRun: runId =>
+    fetchJSON(`/runs/${encodeURIComponent(runId)}/cancel`, {
+      method: 'POST',
+    }),
+
   /**
    * Upload composer attachments before /chat (OpenClaw claim-check).
    * Creates a session when sessionId is null. Returns durable /sessions/.../uploads URLs.

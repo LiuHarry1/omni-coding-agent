@@ -583,6 +583,23 @@ export interface AgentOptions {
    */
   onFullCompaction?: (messages: readonly Message[]) => void
   /**
+   * Durable boundary after attachments and the opening user message have
+   * entered history, before the first model request begins.
+   */
+  onMessagesSeeded?: (messages: readonly Message[]) => void | Promise<void>
+  /**
+   * Durable boundary after one complete model/tool step, including any
+   * post-step attachments. Unlike onAfterStep, the loop awaits this hook.
+   */
+  onStepCommitted?: (messages: readonly Message[]) => void | Promise<void>
+  /**
+   * Observe the structured query outcome before runAgent returns its legacy
+   * text result (or applies throwOnError). The loop awaits this hook.
+   */
+  onQueryResult?: (
+    result: import('./query/types.js').QueryResult,
+  ) => void | Promise<void>
+  /**
    * After each completed step (stream + tools). Host may fire session-memory
    * extract; the loop never awaits this.
    */

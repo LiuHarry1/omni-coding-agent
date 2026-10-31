@@ -6,6 +6,7 @@ import { createSkillsApi } from './skills-api.js'
 import { createExecutionRouter } from './routes/execution.js'
 import { createMarketplaceRouter } from './marketplace/router.js'
 import { getDefaultWorkspace } from '../core/workspace.js'
+import { getCachedSessionLocation } from '../core/session-paths.js'
 import { defaultRegistry } from '../tools.js'
 import { registerBuiltinSubagents } from '../tools/AgentTool/index.js'
 import { listSlashCommands } from '../commands/dispatcher.js'
@@ -64,7 +65,13 @@ import {
 import { handleSessionLive } from './session-live.js'
 import { getRunAgent } from '../agent-lazy.js'
 import { abortTool } from '../core/tool-abort-registry.js'
-import { abortTurn } from '../core/turn-abort-registry.js'
+import {
+  attachDurableRunStream,
+  cancelActiveRunForSession,
+  cancelDurableRun,
+  getActiveRunForSession,
+  getDurableRunState,
+} from '../services/runs/run-manager.js'
 import {
   getSafeSettings,
   parseWritableScope,
@@ -321,6 +328,21 @@ export function createRouter({ staticDir }: RouterOptions) {
           sendJSON(res, 403, { error: "Cannot delete another user's session" })
           return
         }
+        const activeRun = session
+          ? getActiveRunForSession(
+              session.id,
+              getCachedSessionLocation(session.id)?.agentHome ??
+                authed.userWorkspace,
+            )
+          : null
+        if (activeRun) {
+          sendJSON(res, 409, {
+            error: 'Cancel the active Run before deleting this Session',
+            run_id: activeRun.runId,
+            status: activeRun.status,
+          })
+          return
+        }
         deleteSession(id)
         sendJSON(res, 200, { deleted: id })
         return
@@ -336,7 +358,21 @@ export function createRouter({ staticDir }: RouterOptions) {
           sendJSON(res, 404, { error: 'Session not found' })
           return
         }
-        sendJSON(res, 200, { messages: sessionJsonlToUIMessages(id) })
+        const activeRun = getActiveRunForSession(
+          id,
+          getCachedSessionLocation(id)?.agentHome ?? authed.userWorkspace,
+        )
+        sendJSON(res, 200, {
+          messages: sessionJsonlToUIMessages(id),
+          active_run: activeRun
+            ? {
+                run_id: activeRun.runId,
+                status: activeRun.status,
+                last_seq: activeRun.lastSeq,
+                checkpoint_seq: activeRun.checkpointSeq,
+              }
+            : null,
+        })
         return
       }
 
@@ -928,6 +964,69 @@ export function createRouter({ staticDir }: RouterOptions) {
         return
       }
 
+      const runPath = (url ?? '').split('?')[0]
+      const runMatch = runPath.match(/^\/runs\/([^/]+)(?:\/(stream|cancel))?$/)
+      if (runMatch) {
+        const runId = decodeURIComponent(runMatch[1]!)
+        const action = runMatch[2]
+        const state = getDurableRunState(runId)
+        const session = state
+          ? getSession(state.sessionId, { agentHome: state.agentHome })
+          : null
+        if (
+          !state ||
+          !session ||
+          !canAccessSession(session, authed.user?.email, authed.user?.role)
+        ) {
+          sendJSON(res, 404, { error: 'Run not found' })
+          return
+        }
+
+        if (method === 'GET' && action === 'stream') {
+          const query = new URLSearchParams((url ?? '').split('?')[1] ?? '')
+          const header = req.headers['last-event-id']
+          const headerValue = Array.isArray(header) ? header[0] : header
+          const rawAfter = query.get('after_seq') ?? headerValue ?? '0'
+          const parsedAfter = Number.parseInt(rawAfter, 10)
+          const afterSeq =
+            Number.isFinite(parsedAfter) && parsedAfter >= 0 ? parsedAfter : 0
+          const attached = attachDurableRunStream(
+            runId,
+            res,
+            afterSeq,
+            {},
+            state.agentHome,
+          )
+          if (!attached) sendJSON(res, 404, { error: 'Run not found' })
+          return
+        }
+
+        if (method === 'POST' && action === 'cancel') {
+          const ok = cancelDurableRun(runId, state.agentHome)
+          sendJSON(
+            res,
+            ok ? 200 : 409,
+            ok
+              ? { ok: true, run_id: runId }
+              : { error: 'Run is not active', run_id: runId },
+          )
+          return
+        }
+
+        if (method === 'GET' && !action) {
+          const {
+            agentHome: _agentHome,
+            ownerEmail: _ownerEmail,
+            ownerRole: _ownerRole,
+            requestPayload: _requestPayload,
+            cancelRequestedAt: _cancelRequestedAt,
+            ...publicState
+          } = state
+          sendJSON(res, 200, publicState)
+          return
+        }
+      }
+
       if (method === 'POST' && url === '/tool/abort') {
         try {
           const body = await readBody(req)
@@ -985,8 +1084,12 @@ export function createRouter({ staticDir }: RouterOptions) {
             sendJSON(res, 404, { error: `Session not found: ${sessionId}` })
             return
           }
-          const ok = abortTurn(sessionId, 'user-cancel')
-          sendJSON(res, 200, { ok, session_id: sessionId })
+          const cancelled = cancelActiveRunForSession(sessionId)
+          sendJSON(res, 200, {
+            ok: cancelled.ok,
+            session_id: sessionId,
+            ...(cancelled.runId ? { run_id: cancelled.runId } : {}),
+          })
         } catch {
           sendJSON(res, 400, { error: 'Invalid JSON' })
         }

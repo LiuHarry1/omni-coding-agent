@@ -27,6 +27,11 @@ export type WorkerFsOp =
       /** Default `bash` (Git Bash on Windows). Use `powershell` for the PowerShell tool. */
       shell?: ShellKind
     }
+  /**
+   * Idempotently cancel a foreground exec by the requestId of its fs_op.
+   * A missing target is acknowledged because the exec may have just settled.
+   */
+  | { op: 'exec_cancel'; targetRequestId: string }
   /** Background shell: spawn, write stdout/stderr to outputPath, return pid. */
   | {
       op: 'exec_bg_start'

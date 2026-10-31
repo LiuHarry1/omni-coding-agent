@@ -68,6 +68,13 @@ export class RuntimeBroker {
     )
     const runtime = await conn.openRuntime(handle.cwd, auth)
     this.runtimes.set(key, runtime)
+    let offFailure: () => void = () => {}
+    offFailure = runtime.onMessage(message => {
+      if (message.type !== 'error') return
+      if (this.runtimes.get(key) === runtime) this.runtimes.delete(key)
+      offFailure()
+      queueMicrotask(() => void runtime.close().catch(() => {}))
+    })
     return runtime
   }
 

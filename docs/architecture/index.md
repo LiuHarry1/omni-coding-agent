@@ -18,6 +18,7 @@ environments. The diagrams below zoom in on the documentation and one request.
 flowchart LR
     Start["Start here"] --> Loop["Agent loop"]
     Start --> Protocol["Protocol"]
+    Start --> Runs["Durable runs"]
     Loop --> Tools["Tools"]
     Loop --> Memory["Memory"]
     Tools --> Execution["Execution"]
@@ -28,6 +29,7 @@ flowchart LR
 
 - [Agent loop](./agent-loop.md) — how one turn becomes repeated model steps
 - [Protocol](./protocol.md) — messages shared by clients and the engine
+- [Durable runs](./durable-runs.md) — detached execution, replay, and recovery
 - [Tools](./tools.md) — selection, permission checks, and execution
 - [Memory](./memory.md) — rules, recall, history projection, and compaction
 - [Execution](./execution.md) — local and SSH-backed workspaces
@@ -70,8 +72,11 @@ sequenceDiagram
 3. `prepareChatTurn()` loads rules and extensions, builds the permitted tool
    pool, and resolves a local or remote execution backend.
 4. `query()` owns continuation: model output may trigger tools and another step.
-5. `runChatTurn()` persists new session messages after the loop has updated
-   history. Wire events are the live client view, not the persistence layer.
+5. HTTP creates a durable Run whose lifecycle is independent of its first SSE
+   subscriber.
+6. `runChatTurn()` checkpoints the opening message before the first model call
+   and checkpoints every complete step. Wire events are persisted separately
+   for sequence-based replay.
 
 ## Responsibilities
 
@@ -86,8 +91,11 @@ sequenceDiagram
 
 ## Failure boundaries
 
-- A disconnect or external abort propagates through the turn to model and tool
-  execution; usable partial output can still be recorded.
+- An HTTP disconnect only detaches that subscriber. Explicit Run cancellation
+  propagates to model and tool execution.
+- Process recovery resumes from the latest complete transcript checkpoint.
+  Unacknowledged side effects are recorded as `unknown` and inspected before
+  retry; they are never assumed not to have happened.
 - Remote backend resolution fails closed. It must not run file or shell tools on
   the control machine when the requested remote workspace is unavailable.
 - A context-length error gets one reactive compaction attempt. Transient model
@@ -105,4 +113,4 @@ sequenceDiagram
 - Execution-plane services: `src/execution/bootstrap.ts`
 - Wire schemas: `protocol/src/`
 
-Last verified: 2026-09-13
+Last verified: 2026-10-31

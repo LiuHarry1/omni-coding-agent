@@ -13,6 +13,7 @@ import {
   getTaskOutputPath,
   setTaskSessionId,
 } from '../utils/task/diskOutput.js'
+import { isWorkerChannelLostError } from '../execution/worker-channel-error.js'
 
 /**
  * Shared execution for Bash / PowerShell.
@@ -24,7 +25,7 @@ import {
  * `interrupted` stays for the model-facing `is_error` mapping and old sessions.
  */
 export type ShellOutcome =
-  'success' | 'failure' | 'timeout' | 'aborted' | 'spawnError'
+  'success' | 'failure' | 'timeout' | 'aborted' | 'spawnError' | 'unknown'
 
 export type ShellToolOutput = {
   text: string
@@ -35,6 +36,7 @@ export type ShellToolOutput = {
   backgrounded?: boolean
   interrupted?: boolean
   outcome?: ShellOutcome
+  failureReason?: 'worker_lost'
 }
 
 export const ShellToolOutputSchema = z.object({
@@ -47,7 +49,9 @@ export const ShellToolOutputSchema = z.object({
   interrupted: z.boolean().optional(),
   outcome: z
     .enum(['success', 'failure', 'timeout', 'aborted', 'spawnError'])
+    .or(z.literal('unknown'))
     .optional(),
+  failureReason: z.literal('worker_lost').optional(),
 })
 
 function outcomeOf(r: {
@@ -64,6 +68,17 @@ function shellOk(
   data: ShellToolOutput,
 ): DualChannelToolResult<ShellToolOutput> {
   return { data }
+}
+
+function unknownWorkerOutcome(): DualChannelToolResult<ShellToolOutput> {
+  return shellOk({
+    text:
+      'Outcome unknown: the Worker channel was lost before the command was ' +
+      'acknowledged. Inspect its effects before retrying.',
+    interrupted: true,
+    outcome: 'unknown',
+    failureReason: 'worker_lost',
+  })
 }
 
 const PROGRESS_INTERVAL_MS = 2_000
@@ -184,6 +199,9 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
                 outcome: 'success',
               })
             } catch (err) {
+              if (isWorkerChannelLostError(err)) {
+                return unknownWorkerOutcome()
+              }
               const msg = err instanceof Error ? err.message : String(err)
               return shellOk({
                 text: truncate(`[error starting background task: ${msg}]`),
@@ -204,6 +222,7 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
                 cwd: cwdRef.current,
                 timeoutMs: timeout,
                 shell,
+                signal: abortSignal,
               })
               if (result.cwdAfter) cwdRef.current = result.cwdAfter
               let out = result.stdout || ''
@@ -237,6 +256,9 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
                 outcome: outcomeOf(result),
               })
             } catch (err) {
+              if (isWorkerChannelLostError(err)) {
+                return unknownWorkerOutcome()
+              }
               const msg = err instanceof Error ? err.message : String(err)
               return shellOk({
                 text: truncate(`[error: ${msg}]`),

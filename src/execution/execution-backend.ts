@@ -35,6 +35,7 @@ export interface ExecutionBackend {
       timeoutMs?: number
       /** Default `bash` (Git Bash on Windows). */
       shell?: ShellKind
+      signal?: AbortSignal
     },
   ): Promise<ExecResult & { cwdAfter?: string }>
   /** Start background shell; output appended to outputPath on the Worker. */

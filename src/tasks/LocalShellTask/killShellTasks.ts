@@ -16,7 +16,8 @@ export function killTask(
   if (
     task.status === 'killed' ||
     task.status === 'completed' ||
-    task.status === 'failed'
+    task.status === 'failed' ||
+    task.status === 'unknown'
   ) {
     return
   }

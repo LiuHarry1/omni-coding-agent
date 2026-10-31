@@ -79,7 +79,14 @@ export function setCORS(res: ServerResponse, req?: IncomingMessage): void {
     'Access-Control-Allow-Methods',
     'GET, POST, PUT, PATCH, DELETE, OPTIONS',
   )
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, Last-Event-ID',
+  )
+  res.setHeader(
+    'Access-Control-Expose-Headers',
+    'X-Run-Id, X-Session-Id, X-Permission-Mode, X-Agent-Type',
+  )
   // Chrome Private / Local Network Access preflight (split-origin :8090 → :4567).
   const pna = req?.headers['access-control-request-private-network']
   if (pna === 'true') {

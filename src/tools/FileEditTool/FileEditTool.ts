@@ -16,6 +16,7 @@ import {
   getLspWorkspaceKey,
 } from '../../services/lsp/manager.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 import {
   activeReadFileState,
   recordWriteInState,
@@ -161,6 +162,7 @@ export const definition: ToolDefinition = {
               message: `Edited ${file_path} (${replacements} replacement${replacements === 1 ? '' : 's'}) [worker:${execution.environmentId}]`,
             })
           } catch (err) {
+            if (isWorkerChannelLostError(err)) throw err
             return err instanceof Error ? err.message : String(err)
           }
         }

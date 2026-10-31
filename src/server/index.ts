@@ -24,6 +24,8 @@ import {
   startCronScheduler,
   stopCronScheduler,
 } from '../services/cron/scheduler.js'
+import { getRunAgent } from '../agent-lazy.js'
+import { recoverDurableRuns } from '../services/runs/recovery.js'
 
 export function startServer(_opts: ServerOptions = {}): void {
   const PORT = parseInt(process.env.PORT || '4567', 10)
@@ -112,6 +114,20 @@ export function startServer(_opts: ServerOptions = {}): void {
         err instanceof Error ? err.message : err,
       )
     }
+    try {
+      const recovered = await recoverDurableRuns(async (...args) => {
+        const runAgent = await getRunAgent()
+        return runAgent(...args)
+      })
+      if (recovered > 0) {
+        console.log(`[server] resumed ${recovered} interrupted durable run(s)`)
+      }
+    } catch (err) {
+      console.warn(
+        '[server] durable run recovery scan failed:',
+        err instanceof Error ? err.message : err,
+      )
+    }
 
     server.listen(PORT, () => {
       profileCheckpoint('server_listen')
@@ -121,6 +137,9 @@ export function startServer(_opts: ServerOptions = {}): void {
       console.log(`[server]   DELETE /sessions/id -- delete session`)
       console.log(`[server]   POST /chat         -- chat (SSE stream)`)
       console.log(`[server]   POST /chat/cancel  -- stop in-flight turn`)
+      console.log(`[server]   GET  /runs/:id     -- durable run status`)
+      console.log(`[server]   GET  /runs/:id/stream -- resume run events`)
+      console.log(`[server]   POST /runs/:id/cancel -- cancel durable run`)
       console.log(`[server]   POST /tool/abort   -- abort one tool/subagent`)
       console.log(
         `[server]   GET  /environments -- list execution environments`,

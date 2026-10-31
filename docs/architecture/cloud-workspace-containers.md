@@ -67,6 +67,19 @@ CREATING → RUNNING → IDLE → STOPPED/DELETED
 - 定时任务触发时自动恢复 Container。
 - Factory Reset 删除 Container 和 Volume，再创建干净 Workspace。
 
+## Run 持久性与容器故障
+
+浏览器连接、Control Plane Run 和 Workspace Container 是三个不同的生命
+周期。浏览器离线只会取消订阅；Run 继续在 Control Plane 中执行。Container
+或 Worker 通道中断则会立即拒绝未完成的 RPC，由 Broker 在下一次访问时重建
+Runtime。
+
+Session transcript 和 Run sidecar 必须位于持久存储，而不是临时 Container
+文件系统。Control Plane 重启后从最近的完整 step checkpoint 继续。已发送但
+未确认的写文件、Shell 或外部调用记录为 `unknown/worker_lost`，恢复后的
+Agent 先检查 Volume、Git、输出文件或外部系统，再决定是否重试。系统不承诺
+副作用 exactly-once。
+
 ## 安全要求
 
 - Container 使用非 root 用户。
@@ -84,4 +97,3 @@ CREATING → RUNNING → IDLE → STOPPED/DELETED
 4. 接入 GitHub App 和私有仓库。
 5. 增加配额、任务队列和 Warm Pool。
 6. 规模扩大后迁移到 Kubernetes。
-

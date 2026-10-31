@@ -52,8 +52,10 @@ export async function* parseSSE(stream, signal) {
 /** @param {string} raw */
 function parseOneEvent(raw) {
   let dataLine = ''
+  let eventId = null
   for (const line of raw.split('\n')) {
     if (line.startsWith('data:')) dataLine = line.slice(5).trim()
+    if (line.startsWith('id:')) eventId = line.slice(3).trim()
   }
   if (!dataLine) return null
 
@@ -64,6 +66,12 @@ function parseOneEvent(raw) {
       typeof parsed === 'object' &&
       typeof parsed.type === 'string'
     ) {
+      if (eventId) {
+        Object.defineProperty(parsed, '__eventId', {
+          value: eventId,
+          enumerable: false,
+        })
+      }
       return parsed
     }
   } catch {

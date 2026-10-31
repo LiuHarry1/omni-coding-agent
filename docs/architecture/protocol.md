@@ -72,6 +72,23 @@ flowchart LR
 
 A `result` reports turn completion. Clients should tolerate the current error path emitting `result/error` followed by `result/success` with reason `done`; it does not yet guarantee exactly one terminal result. Compaction has its own stronger pairing rule: every start is followed by done with `ok`, `noop`, or `error`.
 
+## Durable HTTP runs
+
+For HTTP, Session identity and Run identity are separate. `POST /chat` creates a
+Run and returns `X-Run-Id`; its SSE response is the first subscription, not the
+owner of execution. Every persisted event has an SSE `id` equal to its
+monotonic Run sequence.
+
+Clients reconnect with `GET /runs/:runId/stream`, using either `after_seq` or
+`Last-Event-ID`. Delivery is at least once, so the client must ignore sequence
+numbers it has already applied. Run status remains available from
+`GET /runs/:runId` after the stream closes. Cancellation is explicit through
+`POST /runs/:runId/cancel`.
+
+The web client refresh path first reads the durable Session transcript and its
+`checkpointSeq`, then replays Run events after that sequence. See
+[Durable runs](./durable-runs.md) for persistence and recovery guarantees.
+
 ## Responsibilities
 
 - **Protocol package:** validates direction-specific message shapes and owns the protocol version.
@@ -84,7 +101,9 @@ A `result` reports turn completion. Clients should tolerate the current error pa
 
 - Invalid or incompatible messages must be rejected or ignored at the adapter boundary; breaking contract changes require a protocol-version bump.
 - Any non-protocol output on stdout corrupts NDJSON and ACP JSON-RPC framing. Startup, worker, and diagnostic logs belong on stderr.
-- HTTP disconnects and ACP cancellation can abort an active turn. Stdio intentionally keeps stdout open for later turns.
+- HTTP disconnects detach a subscriber and do not abort its Run. HTTP Run
+  cancellation and ACP cancellation are explicit abort boundaries. Stdio
+  intentionally keeps stdout open for later turns.
 - A missing control response leaves the corresponding permission, plan, or question broker waiting until cancellation or another boundary ends it.
 - Consumers must not join tool activity by tool name; concurrent calls require `tool_use_id`.
 - `keep_alive` is a narrow compatibility escape hatch, not a container for arbitrary stable events.
@@ -100,11 +119,11 @@ A `result` reports turn completion. Clients should tolerate the current error pa
 - `src/entrypoints/cli.ts` — mode selection
 - `src/turn/run-chat-turn.ts` — shared turn lifecycle
 - `src/core/wire-emitter.ts` — transport-neutral emission
-- `src/server/sse-transport.ts` — SSE framing
+- `src/services/runs/run-transport.ts` — durable HTTP SSE framing and replay
 - `src/server/stdio-transport.ts` — NDJSON output
 - `src/server/stdio-input.ts` — NDJSON input handling
 - `src/acp/turn-runner.ts` — ACP turn convergence
 - `src/acp/translate-outbound.ts` — ACP translation
 - `src/execution/runtime-protocol.ts` — separate worker RPC contract
 
-Last verified: 2026-09-13
+Last verified: 2026-10-31

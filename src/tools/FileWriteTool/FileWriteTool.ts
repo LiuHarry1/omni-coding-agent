@@ -17,6 +17,7 @@ import {
   getLspWorkspaceKey,
 } from '../../services/lsp/manager.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 import {
   activeReadFileState,
   recordWriteInState,
@@ -139,6 +140,7 @@ export const definition: ToolDefinition = {
               ),
             }
           } catch (err) {
+            if (isWorkerChannelLostError(err)) throw err
             return `Error: ${err instanceof Error ? err.message : String(err)}`
           }
         }

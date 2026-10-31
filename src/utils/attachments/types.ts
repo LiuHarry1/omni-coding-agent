@@ -123,7 +123,7 @@ export type TaskNotificationAttachment = {
   type: 'task_notification'
   taskId: string
   outputFile: string
-  status: 'completed' | 'failed' | 'killed'
+  status: 'completed' | 'failed' | 'killed' | 'unknown'
   summary: string
   toolUseId?: string
   rawXml: string

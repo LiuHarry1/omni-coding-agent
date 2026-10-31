@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { Message } from '../core/types.js'
+import type { Message, ToolResultPart } from '../core/types.js'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
 import {
   createCompactBoundaryMessage,
@@ -199,6 +199,66 @@ export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
     }
     messages.push(message)
     eventIndex++
+  }
+
+  const byUuid = new Map(
+    messages
+      .filter(message => typeof message.uuid === 'string')
+      .map(message => [message.uuid!, message]),
+  )
+  for (const line of lines) {
+    if (
+      line.type !== 'turn_timing' ||
+      typeof line.messageUuid !== 'string' ||
+      typeof line.startTime !== 'number' ||
+      typeof line.endTime !== 'number'
+    ) {
+      continue
+    }
+    const message = byUuid.get(line.messageUuid)
+    if (!message || !isRoleMessage(message) || message.role !== 'user') continue
+    message.turnStartTime = line.startTime
+    message.turnEndTime = line.endTime
+  }
+
+  for (const line of lines) {
+    if (
+      line.type !== 'tool_outcome_unknown' ||
+      typeof line.assistantMessageUuid !== 'string' ||
+      typeof line.toolMessageUuid !== 'string' ||
+      !Array.isArray(line.results)
+    ) {
+      continue
+    }
+    const assistantIndex = messages.findIndex(
+      message => message.uuid === line.assistantMessageUuid,
+    )
+    if (assistantIndex < 0) continue
+    const results = line.results.filter(
+      (part): part is ToolResultPart =>
+        !!part &&
+        typeof part === 'object' &&
+        (part as { type?: unknown }).type === 'tool-result' &&
+        typeof (part as { toolCallId?: unknown }).toolCallId === 'string',
+    )
+    if (results.length === 0) continue
+    const next = messages[assistantIndex + 1]
+    if (next && isRoleMessage(next) && next.role === 'tool') {
+      const existing = new Set(
+        next.content
+          .filter(part => part.type === 'tool-result')
+          .map(part => part.toolCallId),
+      )
+      next.content.push(
+        ...results.filter(part => !existing.has(part.toolCallId)),
+      )
+    } else {
+      messages.splice(assistantIndex + 1, 0, {
+        role: 'tool',
+        uuid: line.toolMessageUuid,
+        content: results,
+      })
+    }
   }
   return { messages, migrations }
 }

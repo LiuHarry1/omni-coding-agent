@@ -20,6 +20,8 @@ import type {
   AgentsListResponse,
   ChatJSONResult,
   ChatRequest,
+  DurableRun,
+  StartedChatRun,
   SkillInvokeRequest,
   SkillInvokeResult,
   SkillsListResponse,
@@ -122,6 +124,51 @@ export class AgentClient {
     return this.#postSSE('/chat', this.#chatBody(req), signal)
   }
 
+  /** Start a streaming chat and expose its stable Run identity immediately. */
+  async startChatRun(
+    req: ChatRequest,
+    signal?: AbortSignal,
+  ): Promise<StartedChatRun> {
+    const res = await this.#openPostSSE('/chat', this.#chatBody(req), signal)
+    const runId = res.headers.get('x-run-id')
+    if (!runId) {
+      throw new AgentClientError(
+        'Server did not return X-Run-Id',
+        res.status,
+        null,
+      )
+    }
+    return {
+      run_id: runId,
+      session_id: res.headers.get('x-session-id') ?? undefined,
+      events: this.#eventsFromResponse(res, signal, runId),
+    }
+  }
+
+  getRun(runId: string): Promise<DurableRun> {
+    return this.#getJSON<DurableRun>(`/runs/${encodeURIComponent(runId)}`)
+  }
+
+  streamRun(
+    runId: string,
+    afterSeq = 0,
+    signal?: AbortSignal,
+  ): AsyncIterable<AgentEvent> {
+    const qs = afterSeq > 0 ? `?after_seq=${afterSeq}` : ''
+    return this.#getSSE(
+      `/runs/${encodeURIComponent(runId)}/stream${qs}`,
+      signal,
+      afterSeq > 0 ? String(afterSeq) : undefined,
+    )
+  }
+
+  cancelRun(runId: string): Promise<{ ok: boolean; run_id: string }> {
+    return this.#postJSON<{ ok: boolean; run_id: string }>(
+      `/runs/${encodeURIComponent(runId)}/cancel`,
+      {},
+    )
+  }
+
   #workspacePath(path: string, workspace?: string): string {
     const ws = workspace ?? this.#defaultWorkspace
     return ws ? `${path}?workspace=${encodeURIComponent(ws)}` : path
@@ -206,6 +253,16 @@ export class AgentClient {
     body: unknown,
     signal?: AbortSignal,
   ): AsyncGenerator<AgentEvent> {
+    const res = await this.#openPostSSE(path, body, signal)
+    const runId = res.headers.get('x-run-id') ?? undefined
+    yield* this.#eventsFromResponse(res, signal, runId)
+  }
+
+  async #openPostSSE(
+    path: string,
+    body: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
     const res = await this.#fetch(this.#baseURL + path, {
       method: 'POST',
       headers: {
@@ -214,6 +271,45 @@ export class AgentClient {
         ...this.#authHeaders(),
       },
       body: JSON.stringify(body),
+      signal,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      const { message, body: errBody } = parseErrorText(text, res.status)
+      throw new AgentClientError(message, res.status, errBody)
+    }
+    if (!res.body) {
+      throw new AgentClientError('Empty response body', res.status, null)
+    }
+    return res
+  }
+
+  async *#eventsFromResponse(
+    res: Response,
+    signal?: AbortSignal,
+    runId?: string,
+  ): AsyncGenerator<AgentEvent> {
+    if (!res.body) {
+      throw new AgentClientError('Empty response body', res.status, null)
+    }
+    for await (const event of parseSSE(res.body, signal)) {
+      if (runId) event.run_id = runId
+      yield event
+    }
+  }
+
+  async *#getSSE(
+    path: string,
+    signal?: AbortSignal,
+    lastEventId?: string,
+  ): AsyncGenerator<AgentEvent> {
+    const res = await this.#fetch(this.#baseURL + path, {
+      method: 'GET',
+      headers: {
+        Accept: 'text/event-stream',
+        ...(lastEventId ? { 'Last-Event-ID': lastEventId } : {}),
+        ...this.#authHeaders(),
+      },
       signal,
     })
     if (!res.ok) {

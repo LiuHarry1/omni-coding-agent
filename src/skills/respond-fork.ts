@@ -48,7 +48,7 @@ function sendJSON(res: ServerResponse, status: number, data: unknown): void {
 
 export async function respondSkillFork(
   opts: RespondSkillForkOptions,
-): Promise<void> {
+): Promise<string | undefined> {
   const {
     res,
     stdioTransport,
@@ -70,13 +70,15 @@ export async function respondSkillFork(
   const targetAgentType = skill.agent ?? 'general_purpose'
   const targetAgent = activeAgents.find(a => a.agentType === targetAgentType)
   if (!targetAgent) {
+    const message = `Skill '${skill.name}' fork target '${targetAgentType}' not found`
     if (res) {
       sendJSON(res, 400, {
-        error: `Skill '${skill.name}' fork target '${targetAgentType}' not found`,
+        error: message,
         available: activeAgents.map(a => a.agentType),
       })
+      return undefined
     }
-    return
+    throw new Error(message)
   }
 
   const eventBus = new EventBus()
@@ -116,15 +118,16 @@ export async function respondSkillFork(
       const result = await runSkillFork(runOpts)
       wire.textDelta(result)
       wire.finish('skill_fork')
+      return result
     } catch (e) {
       wire.error((e as Error).message)
+      return undefined
     } finally {
       if (res) transport.end()
     }
-    return
   }
 
-  if (!res) return
+  if (!res) return undefined
 
   try {
     const result = await runSkillFork(runOpts)
@@ -136,7 +139,9 @@ export async function respondSkillFork(
       result,
       ...jsonMeta,
     })
+    return result
   } catch (e) {
     sendJSON(res, 500, { error: (e as Error).message, ...jsonMeta })
+    return undefined
   }
 }

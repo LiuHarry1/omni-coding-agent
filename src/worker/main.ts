@@ -51,9 +51,25 @@ type BgEntry = {
   killed: boolean
 }
 
-const bgByTask = new Map<string, BgEntry>()
+type ForegroundEntry = {
+  controller: AbortController
+  child?: ChildProcess
+}
 
-process.on('exit', () => {
+const bgByTask = new Map<string, BgEntry>()
+const foregroundByRequest = new Map<string, ForegroundEntry>()
+
+function killTrackedProcessGroups(): void {
+  // Exit handlers cannot await timers. Kill every foreground process group
+  // synchronously before this Worker disappears.
+  for (const entry of foregroundByRequest.values()) {
+    if (!entry.child) continue
+    try {
+      forceKillChild(entry.child)
+    } catch {
+      /* ignore */
+    }
+  }
   for (const e of bgByTask.values()) {
     if (!e.done) {
       try {
@@ -63,7 +79,15 @@ process.on('exit', () => {
       }
     }
   }
-})
+}
+
+process.on('exit', killTrackedProcessGroups)
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    killTrackedProcessGroups()
+    process.exit(signal === 'SIGTERM' ? 143 : 130)
+  })
+}
 
 function send(msg: RuntimeServerMessage): void {
   process.stdout.write(`${JSON.stringify(msg)}\n`)
@@ -75,7 +99,7 @@ function logErr(msg: string): void {
   process.stderr.write(`[${APP_SLUG}-worker] ${msg}\n`)
 }
 
-async function runFsOp(op: WorkerFsOp): Promise<unknown> {
+async function runFsOp(op: WorkerFsOp, requestId: string): Promise<unknown> {
   switch (op.op) {
     case 'readText':
       return fs.promises.readFile(op.path, 'utf-8')
@@ -108,13 +132,30 @@ async function runFsOp(op: WorkerFsOp): Promise<unknown> {
       logErr(
         `exec shell=${shell} cwd=${op.cwd} cmd=${JSON.stringify(op.command.slice(0, 120))}`,
       )
-      return runShellCommand({
-        shell,
-        command: op.command,
-        cwd: op.cwd,
-        timeoutMs: op.timeoutMs ?? 120_000,
-        cwdFilePrefix: WORKER_CWD_FILE_PREFIX,
-      })
+      const entry: ForegroundEntry = {
+        controller: new AbortController(),
+      }
+      foregroundByRequest.set(requestId, entry)
+      try {
+        return await runShellCommand({
+          shell,
+          command: op.command,
+          cwd: op.cwd,
+          timeoutMs: op.timeoutMs ?? 120_000,
+          abortSignal: entry.controller.signal,
+          onSpawn: child => {
+            entry.child = child
+          },
+          cwdFilePrefix: WORKER_CWD_FILE_PREFIX,
+        })
+      } finally {
+        foregroundByRequest.delete(requestId)
+      }
+    }
+    case 'exec_cancel': {
+      const entry = foregroundByRequest.get(op.targetRequestId)
+      entry?.controller.abort('control-plane-cancel')
+      return { acknowledged: true, found: entry != null }
     }
     case 'exec_bg_start': {
       await fs.promises.mkdir(path.dirname(op.outputPath), { recursive: true })
@@ -234,7 +275,7 @@ async function handle(msg: RuntimeClientMessage): Promise<void> {
     }
     case 'fs_op': {
       try {
-        const data = await runFsOp(msg.op)
+        const data = await runFsOp(msg.op, msg.requestId)
         send({ type: 'fs_op_result', requestId: msg.requestId, ok: true, data })
       } catch (err) {
         send({

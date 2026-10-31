@@ -26,6 +26,7 @@ import {
   toolResultBlocksToText,
 } from '../../utils/tool-result-content.js'
 import { TOOL_INTERRUPT_RESULT } from '../../utils/interrupt.js'
+import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 
 export interface ToolCallRef {
   toolCallId: string
@@ -208,6 +209,29 @@ export async function executeOneTool(
     const aborted =
       toolSignal?.aborted || (err instanceof Error && err.name === 'AbortError')
     if (aborted) return cancelledToolResult(tc, wire)
+    if (isWorkerChannelLostError(err)) {
+      const result =
+        'Outcome unknown: the Worker channel was lost before this operation ' +
+        'was acknowledged. Inspect the workspace or external state before ' +
+        'retrying.'
+      const toolUseResult = {
+        status: 'unknown' as const,
+        reason: 'worker_lost' as const,
+      }
+      wire.toolResult({
+        tool_use_id: tc.toolCallId,
+        result,
+        tool_use_result: toolUseResult,
+        is_error: true,
+      })
+      return {
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+        result,
+        toolUseResult,
+        isError: true,
+      }
+    }
     const result = `Error: ${formatToolError(tc.toolName, err)}`
     wire.toolResult({
       tool_use_id: tc.toolCallId,

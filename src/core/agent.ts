@@ -47,8 +47,10 @@ export async function runAgent(
     ),
   )
   ensureMessageUuids(messages)
+  await opts.onMessagesSeeded?.(messages)
 
   const result = await query({ ...opts, runAgent, messages })
+  await opts.onQueryResult?.(result)
   if (opts.throwOnError && result.reason === 'error') {
     const detail = result.finalText.trim()
     throw new Error(

@@ -7,6 +7,10 @@ import path from 'node:path'
 import { getBrowserLogsSessionDir } from '../core/session-paths.js'
 import { AUTH_COOKIE_NAME, slugifyEmail } from '../server/auth/identity.js'
 import { createRouter } from '../server/router.js'
+import {
+  createDurableRun,
+  resetRunManagerForTesting,
+} from '../services/runs/run-manager.js'
 import { createSession } from '../session/store.js'
 import { getChatUploadsDir } from '../utils/chat-uploads.js'
 import { runWithRequestScope } from '../utils/request-scope.js'
@@ -64,6 +68,18 @@ async function main() {
       { agentHome: aliceHome, cwd: aliceHome },
       () => createSession('alice@example.com'),
     )
+    const run = runWithRequestScope(
+      { agentHome: aliceHome, cwd: aliceHome },
+      () =>
+        createDurableRun({
+          sessionId: session.id,
+          ownerEmail: 'alice@example.com',
+          ownerRole: 'user',
+          agentHome: aliceHome,
+          cwd: aliceHome,
+          requestPayload: { message: 'private durable task' },
+        }),
+    )
     const uploadDir = getChatUploadsDir(session.id)
     fs.mkdirSync(uploadDir, { recursive: true })
     fs.writeFileSync(
@@ -101,6 +117,7 @@ async function main() {
     const preview = `/workspace/preview?path=${encodeURIComponent(chartPath)}`
     const upload = `/sessions/${session.id}/uploads/preview.png`
     const screenshot = `/sessions/${session.id}/browser/tool-call.png`
+    const runPath = `/runs/${run.runId}`
 
     assert.equal((await request(base, preview)).status, 401)
     assert.equal((await request(base, preview, alice)).status, 200)
@@ -164,6 +181,44 @@ async function main() {
       404,
     )
 
+    assert.equal((await request(base, runPath)).status, 401)
+    const runResponse = await request(base, runPath, alice)
+    assert.equal(runResponse.status, 200)
+    const publicRun = (await runResponse.json()) as Record<string, unknown>
+    assert.equal(publicRun.runId, run.runId)
+    assert.equal(publicRun.ownerEmail, undefined)
+    assert.equal(publicRun.ownerRole, undefined)
+    assert.equal(publicRun.agentHome, undefined)
+    assert.equal(publicRun.requestPayload, undefined)
+    assert.equal((await request(base, runPath, bob)).status, 404)
+    assert.equal((await request(base, runPath, superUser)).status, 200)
+    assert.equal(
+      (
+        await fetch(`${base}${runPath}/cancel`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${bob}` },
+        })
+      ).status,
+      404,
+    )
+    assert.equal(
+      (
+        await fetch(`${base}${runPath}/cancel`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${alice}` },
+        })
+      ).status,
+      200,
+    )
+    const terminalStream = await request(
+      base,
+      `${runPath}/stream?after_seq=0`,
+      alice,
+    )
+    assert.equal(terminalStream.status, 200)
+    assert.equal(terminalStream.headers.get('x-run-id'), run.runId)
+    assert.match(await terminalStream.text(), /: connected/)
+
     console.log('session artifact and chart preview auth tests OK')
   } finally {
     if (server) {
@@ -173,6 +228,7 @@ async function main() {
       if (value === undefined) delete process.env[key]
       else process.env[key] = value
     }
+    resetRunManagerForTesting()
     fs.rmSync(root, { recursive: true, force: true })
   }
 }

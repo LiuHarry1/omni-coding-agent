@@ -68,13 +68,35 @@ Set `AGENT_SKIP_LIVE=1` to skip integration tests.
 
 ## Cancellation
 
-Streaming methods accept an optional `AbortSignal`:
+Streaming methods accept an optional `AbortSignal`. Aborting that signal only
+closes the local subscription; it does not cancel a durable Run:
 
 ```ts
 const ac = new AbortController();
 for await (const ev of agent.chat({ message: "..." }, ac.signal)) { /* … */ }
 ac.abort();
 ```
+
+Use a stable Run handle for reconnect and explicit cancellation:
+
+```ts
+const run = await agent.startChatRun({ message: "long task" });
+let lastSeq = 0;
+for await (const event of run.events) {
+  lastSeq = Number(event.event_id ?? lastSeq);
+}
+
+// Resume after a network interruption.
+for await (const event of agent.streamRun(run.run_id, lastSeq)) {
+  lastSeq = Number(event.event_id ?? lastSeq);
+}
+
+const status = await agent.getRun(run.run_id);
+await agent.cancelRun(run.run_id);
+```
+
+Run streams are delivered at least once. Persist the last applied
+`event_id` and deduplicate on reconnect.
 
 ## Errors
 

@@ -9,6 +9,7 @@ import type { LspServerConfig } from '../core/types.js'
 import type { ShellKind } from '../core/shell/spawn-shell.js'
 import { registerPendingLSPDiagnostic } from '../services/lsp/LSPDiagnosticRegistry.js'
 import { getLspWorkspaceKey } from '../services/lsp/manager.js'
+import { WorkerChannelLostError } from './worker-channel-error.js'
 
 /** Windows drive/UNC abs must not go through posix.join (treated as relative). */
 function isWindowsAbsolutePath(p: string): boolean {
@@ -58,6 +59,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
   >()
   private unsub: () => void
   private workspaceKey: string
+  private channelFailure: WorkerChannelLostError | undefined
 
   constructor(
     readonly environmentId: string,
@@ -70,6 +72,10 @@ export class WorkerExecutionBackend implements ExecutionBackend {
   ) {
     this.workspaceKey = getLspWorkspaceKey(this.cwd, this.lspServers)
     this.unsub = runtime.onMessage(msg => {
+      if (msg.type === 'error') {
+        this.failChannel(msg.message)
+        return
+      }
       if (msg.type === 'lsp_event' && msg.event === 'diagnostics') {
         const count = msg.files.reduce((n, f) => n + f.diagnostics.length, 0)
         console.error(
@@ -96,33 +102,95 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     })
   }
 
-  private requestFs<T>(op: WorkerFsOp, timeoutMs = 180_000): Promise<T> {
+  private failChannel(message: string): WorkerChannelLostError {
+    if (this.channelFailure) return this.channelFailure
+    const error = new WorkerChannelLostError(message)
+    this.channelFailure = error
+    for (const pending of this.pending.values()) pending.reject(error)
+    this.pending.clear()
+    return error
+  }
+
+  private requestFs<T>(
+    op: WorkerFsOp,
+    timeoutMs = 180_000,
+    signal?: AbortSignal,
+  ): Promise<T> {
     const requestId = `fs-${++this.seq}-${Date.now()}`
     return new Promise<T>((resolve, reject) => {
+      if (this.channelFailure) {
+        reject(this.channelFailure)
+        return
+      }
+      let cancellationTimer: ReturnType<typeof setTimeout> | undefined
+      let sent = false
+      const cleanup = () => {
+        clearTimeout(timer)
+        if (cancellationTimer) clearTimeout(cancellationTimer)
+        signal?.removeEventListener('abort', onAbort)
+      }
       const timer = setTimeout(() => {
-        this.pending.delete(requestId)
-        reject(new Error(`Worker fs_op timed out: ${op.op}`))
+        if (!this.pending.has(requestId)) return
+        this.failChannel(`Worker fs_op timed out: ${op.op}`)
+        void this.runtime.close().catch(() => {})
       }, timeoutMs)
+      const onAbort = () => {
+        if (!sent || op.op !== 'exec' || !this.pending.has(requestId)) return
+        if (cancellationTimer) return
+        cancellationTimer = setTimeout(() => {
+          if (!this.pending.has(requestId)) return
+          this.failChannel('Worker exec cancellation timed out')
+          void this.runtime.close().catch(() => {})
+        }, 5_000)
+        cancellationTimer.unref?.()
+        try {
+          this.runtime.send({
+            type: 'fs_op',
+            requestId: `fs-${++this.seq}-${Date.now()}`,
+            op: { op: 'exec_cancel', targetRequestId: requestId },
+          })
+        } catch (err) {
+          this.failChannel(err instanceof Error ? err.message : String(err))
+          void this.runtime.close().catch(() => {})
+        }
+      }
+      signal?.addEventListener('abort', onAbort, { once: true })
       this.pending.set(requestId, {
         resolve: v => {
-          clearTimeout(timer)
+          cleanup()
           resolve(v as T)
         },
         reject: e => {
-          clearTimeout(timer)
+          cleanup()
           reject(e)
         },
       })
-      this.runtime.send({ type: 'fs_op', requestId, op })
+      try {
+        this.runtime.send({ type: 'fs_op', requestId, op })
+        sent = true
+        if (signal?.aborted) onAbort()
+      } catch (err) {
+        this.pending.delete(requestId)
+        const error = this.failChannel(
+          err instanceof Error ? err.message : String(err),
+        )
+        cleanup()
+        reject(error)
+      }
     })
   }
 
   private requestLsp<T>(op: WorkerLspOp, timeoutMs = 180_000): Promise<T> {
     const requestId = `lsp-${++this.seq}-${Date.now()}`
     return new Promise<T>((resolve, reject) => {
+      if (this.channelFailure) {
+        reject(this.channelFailure)
+        return
+      }
       const timer = setTimeout(() => {
-        this.pending.delete(requestId)
-        reject(new Error(`Worker lsp_op timed out: ${op.op}`))
+        if (!this.pending.has(requestId)) return
+        this.failChannel(`Worker lsp_op timed out: ${op.op}`)
+        void this.runtime.close().catch(() => {})
       }, timeoutMs)
       this.pending.set(requestId, {
         resolve: v => {
@@ -134,7 +202,16 @@ export class WorkerExecutionBackend implements ExecutionBackend {
           reject(e)
         },
       })
-      this.runtime.send({ type: 'lsp_op', requestId, op })
+      try {
+        this.runtime.send({ type: 'lsp_op', requestId, op })
+      } catch (err) {
+        this.pending.delete(requestId)
+        const error = this.failChannel(
+          err instanceof Error ? err.message : String(err),
+        )
+        clearTimeout(timer)
+        reject(error)
+      }
     })
   }
 
@@ -187,8 +264,17 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       cwd: string
       timeoutMs?: number
       shell?: ShellKind
+      signal?: AbortSignal
     },
   ): Promise<ExecResult & { cwdAfter?: string }> {
+    if (opts.signal?.aborted) {
+      return {
+        stdout: '',
+        stderr: '',
+        code: null,
+        interrupted: true,
+      }
+    }
     return this.requestFs(
       {
         op: 'exec',
@@ -198,6 +284,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
         shell: opts.shell,
       },
       (opts.timeoutMs ?? 120_000) + 10_000,
+      opts.signal,
     )
   }
 
@@ -320,10 +407,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
 
   dispose(): void {
     this.unsub()
-    for (const [, p] of this.pending) {
-      p.reject(new Error('WorkerExecutionBackend disposed'))
-    }
-    this.pending.clear()
+    this.failChannel('WorkerExecutionBackend disposed with pending RPCs')
   }
 }
 

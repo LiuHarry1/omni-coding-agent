@@ -115,6 +115,7 @@ export interface ChatRequest {
 
 export interface ChatJSONResult {
   session_id: string
+  run_id?: string
   text: string
   messages?: unknown[]
   /** Present when the server short-circuited via a built-in slash command. */
@@ -125,4 +126,44 @@ export interface ChatJSONResult {
  * Protocol messages emitted by `/chat` and fork skill SSE streams.
  * Shape matches `@ai-agent/protocol` OutgoingMessage JSON on the wire.
  */
-export type AgentEvent = Record<string, unknown> & { type: string }
+export type AgentEvent = Record<string, unknown> & {
+  type: string
+  /** SSE id used to resume a durable run stream. */
+  event_id?: string
+  /** Present on events opened through the SDK's streaming chat helper. */
+  run_id?: string
+}
+
+export interface StartedChatRun {
+  run_id: string
+  session_id?: string
+  events: AsyncIterable<AgentEvent>
+}
+
+export type DurableRunStatus =
+  | 'creating'
+  | 'running'
+  | 'requires_action'
+  | 'waiting_for_background_work'
+  | 'recovering'
+  | 'finished'
+  | 'error'
+  | 'cancelled'
+  | 'interrupted'
+
+export interface DurableRun {
+  version: 1
+  runId: string
+  sessionId: string
+  status: DurableRunStatus
+  createdAt: number
+  updatedAt: number
+  startedAt?: number
+  endedAt?: number
+  attempt: number
+  lastSeq: number
+  checkpointSeq: number
+  finalText?: string
+  reason?: string
+  error?: string
+}

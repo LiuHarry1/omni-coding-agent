@@ -36,6 +36,10 @@ export { SshProvider } from './providers/ssh/ssh-provider.js'
 export type { ExecutionBackend } from './execution-backend.js'
 export { WorkerExecutionBackend } from './worker-execution-backend.js'
 export {
+  WorkerChannelLostError,
+  isWorkerChannelLostError,
+} from './worker-channel-error.js'
+export {
   resolveExecutionBackend,
   isRemoteWorkspace,
 } from './resolve-backend.js'

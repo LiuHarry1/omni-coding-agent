@@ -59,6 +59,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     sessionMemory,
     onFullCompaction,
     onAfterStep,
+    onStepCommitted,
     onTurnEnd,
     logLabel,
     abortSignal,
@@ -259,6 +260,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         cwd,
         logLabel,
       })
+      await onStepCommitted?.(messages)
 
       const { text, toolCalls } = stepResult
       if (text) finalText = text

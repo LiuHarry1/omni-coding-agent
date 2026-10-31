@@ -27,7 +27,11 @@ import {
 import { applySseEvent } from './chat/apply-sse-event.js'
 import { createAssistantMutators } from './chat/assistant-mutators.js'
 import { refreshIdeAfterAgentTurn } from './chat/ide-bridge.js'
-import { streamChatTurn, streamSessionLive } from './chat/stream-chat.js'
+import {
+  streamChatTurn,
+  streamDurableRun,
+  streamSessionLive,
+} from './chat/stream-chat.js'
 
 function syncSessionPickerSelection(get, { mode, agentType }) {
   const { currentSessionId, workspace } = get()
@@ -68,7 +72,13 @@ function applyLocalPickerSelection(set, { mode, agentType }) {
 export const useChatStore = create((set, get) => {
   const mutators = createAssistantMutators(set, get)
 
-  const handleSse = data => applySseEvent(data, { set, get, mutators })
+  const handleSse = data => {
+    const seq = Number.parseInt(data?.__eventId ?? '', 10)
+    if (Number.isFinite(seq)) {
+      set({ lastRunSeq: Math.max(get().lastRunSeq || 0, seq) })
+    }
+    applySseEvent(data, { set, get, mutators })
+  }
 
   return {
     // ── Sessions ────────────────────────────────
@@ -92,6 +102,9 @@ export const useChatStore = create((set, get) => {
     isStreaming: false,
     currentStep: 0,
     abortController: null,
+    currentRunId: null,
+    lastRunSeq: 0,
+    runConnectionStatus: 'idle',
     /** True while a scheduled-task turn is rendering from /sessions/:id/live. */
     scheduledTurnActive: false,
     /** Open live SSE only when this session has (or just got) a timer. */
@@ -479,6 +492,7 @@ export const useChatStore = create((set, get) => {
     },
 
     switchSession: async id => {
+      get().abortController?.abort()
       if (!id) {
         get().clearSession()
         return
@@ -490,6 +504,11 @@ export const useChatStore = create((set, get) => {
         todos: [],
         sessionLoading: true,
         isAwaitingInteraction: false,
+        isStreaming: false,
+        abortController: null,
+        currentRunId: null,
+        lastRunSeq: 0,
+        runConnectionStatus: 'idle',
         liveNeeded: false,
         scheduledTurnActive: false,
         planState: { status: 'idle', content: '', filePath: null },
@@ -505,13 +524,79 @@ export const useChatStore = create((set, get) => {
         )
         const next = messagesToBubbles(msgs)
         const tasks = Array.isArray(scheduled?.tasks) ? scheduled.tasks : []
+        const activeRun = data.active_run
+        const isActiveRun =
+          activeRun &&
+          !['finished', 'error', 'cancelled', 'interrupted'].includes(
+            activeRun.status,
+          )
+        const resumedTurnId = isActiveRun
+          ? [...next.bubbleOrder]
+              .reverse()
+              .map(bubbleId => next.bubblesById[bubbleId]?.turnId)
+              .find(Boolean) || newId()
+          : null
+        const runAbortController = isActiveRun ? new AbortController() : null
         set({
           bubbleOrder: next.bubbleOrder,
           bubblesById: next.bubblesById,
-          activeTurnId: null,
+          activeTurnId: resumedTurnId,
           sessionLoading: false,
+          isStreaming: Boolean(isActiveRun),
+          abortController: runAbortController,
+          currentRunId: isActiveRun ? activeRun.run_id : null,
+          lastRunSeq: isActiveRun ? activeRun.checkpoint_seq || 0 : 0,
+          runConnectionStatus: isActiveRun ? 'connected' : 'idle',
           liveNeeded: tasks.length > 0,
         })
+        if (isActiveRun && runAbortController) {
+          get()._setThinking()
+          void (async () => {
+            try {
+              await streamDurableRun({
+                runId: activeRun.run_id,
+                afterSeq: activeRun.checkpoint_seq || 0,
+                signal: runAbortController.signal,
+                onEvent: data => {
+                  if (
+                    get().currentSessionId === id &&
+                    get().abortController === runAbortController
+                  ) {
+                    set({ runConnectionStatus: 'connected' })
+                    handleSse(data)
+                  }
+                },
+                onReconnecting: () => {
+                  if (get().currentRunId === activeRun.run_id) {
+                    set({ runConnectionStatus: 'reconnecting' })
+                  }
+                },
+              })
+            } catch (err) {
+              if (err?.name !== 'AbortError') {
+                console.warn('[chat] durable run reconnect failed', err)
+              }
+            } finally {
+              if (
+                get().currentSessionId === id &&
+                get().currentRunId === activeRun.run_id &&
+                get().abortController === runAbortController
+              ) {
+                get()._finalizeAssistant()
+                set({
+                  isStreaming: false,
+                  abortController: null,
+                  currentRunId: null,
+                  runConnectionStatus: 'idle',
+                  isAwaitingInteraction: false,
+                  activeTurnId: null,
+                })
+                refreshIdeAfterAgentTurn()
+                void get().refreshSessions()
+              }
+            }
+          })()
+        }
       } catch (err) {
         if (get().currentSessionId !== id) return
         if (
@@ -527,12 +612,18 @@ export const useChatStore = create((set, get) => {
     },
 
     clearSession: () => {
+      get().abortController?.abort()
       localStorage.removeItem('coding_agent_session_id')
       set({
         currentSessionId: null,
         ...emptyTranscript(),
         todos: [],
         sessionLoading: false,
+        isStreaming: false,
+        abortController: null,
+        currentRunId: null,
+        lastRunSeq: 0,
+        runConnectionStatus: 'idle',
         isAwaitingInteraction: false,
         liveNeeded: false,
         scheduledTurnActive: false,
@@ -541,34 +632,25 @@ export const useChatStore = create((set, get) => {
     },
 
     stopStreaming: async () => {
-      const { abortController, currentSessionId } = get()
+      const { currentSessionId, currentRunId } = get()
       // On Esc: settle tools + show Interrupted immediately, then cancel.
       get()._onInterrupted({ tool_use: true })
       set({
         isStreaming: false,
         isAwaitingInteraction: false,
-        abortController: null,
       })
 
-      let cancelled = false
-      if (currentSessionId) {
+      if (currentRunId || currentSessionId) {
         try {
-          const data = await agentApi.cancelChat(currentSessionId)
-          cancelled = data?.ok === true
+          if (currentRunId) await agentApi.cancelRun(currentRunId)
+          else await agentApi.cancelChat(currentSessionId)
         } catch (err) {
-          console.warn('[chat] cancelChat failed', err)
+          console.warn('[chat] explicit run cancel failed', err)
+          get()._appendPart({
+            type: 'error',
+            message: 'Failed to cancel the run. It may still be running.',
+          })
         }
-      }
-      if (abortController) {
-        if (!cancelled) {
-          abortController.abort()
-          return
-        }
-        // Server accepted cancel — give SSE a moment, then force-close.
-        const ac = abortController
-        setTimeout(() => {
-          if (!ac.signal.aborted) ac.abort()
-        }, 2_000)
       }
     },
 
@@ -649,6 +731,9 @@ export const useChatStore = create((set, get) => {
         return {
           isStreaming: true,
           abortController,
+          currentRunId: null,
+          lastRunSeq: 0,
+          runConnectionStatus: 'connecting',
           currentStep: 0,
           activeTurnId: assistantMsgId,
           bubbleOrder: next.bubbleOrder,
@@ -734,11 +819,31 @@ export const useChatStore = create((set, get) => {
         const meta = await streamChatTurn({
           body,
           signal: abortController.signal,
-          onEvent: handleSse,
+          onEvent: data => {
+            if (get().abortController !== abortController) return
+            set({ runConnectionStatus: 'connected' })
+            handleSse(data)
+          },
+          onOpen: opened => {
+            if (get().abortController !== abortController) return
+            if (opened.sessionId) get().setSessionId(opened.sessionId)
+            set({
+              currentRunId: opened.runId,
+              lastRunSeq: opened.lastSeq || 0,
+              runConnectionStatus: 'connected',
+            })
+          },
+          onReconnecting: () => {
+            if (get().abortController === abortController) {
+              set({ runConnectionStatus: 'reconnecting' })
+            }
+          },
           onSessionNotFound: () => {
+            if (get().abortController !== abortController) return
             get().setSessionId(null)
           },
           onHttpError: ({ status, message }) => {
+            if (get().abortController !== abortController) return
             get()._appendPart({
               type: 'error',
               message: status === 404 ? `HTTP ${status}: ${message}` : message,
@@ -746,6 +851,8 @@ export const useChatStore = create((set, get) => {
             set({
               isStreaming: false,
               abortController: null,
+              currentRunId: null,
+              runConnectionStatus: 'idle',
               activeTurnId: null,
             })
           },
@@ -773,11 +880,17 @@ export const useChatStore = create((set, get) => {
           set({ agentType: nextType })
         }
       } catch (err) {
-        if (err.name !== 'AbortError') {
+        if (
+          get().abortController === abortController &&
+          err.name !== 'AbortError'
+        ) {
           get()._appendPart({ type: 'error', message: err.message })
         }
       }
 
+      // Session switches detach this subscriber; the durable run continues,
+      // and the old send must not finalize or overwrite the newly loaded UI.
+      if (get().abortController !== abortController) return
       get()._finalizeAssistant()
       const planPatch =
         get().planState?.status === 'building'
@@ -791,6 +904,8 @@ export const useChatStore = create((set, get) => {
       set({
         isStreaming: false,
         abortController: null,
+        currentRunId: null,
+        runConnectionStatus: 'idle',
         isAwaitingInteraction: false,
         activeTurnId: null,
         ...planPatch,

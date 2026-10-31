@@ -10,6 +10,7 @@ import type {
   RuntimeServerMessage,
 } from './runtime-protocol.js'
 import { onNdjsonLines, writeNdjson } from './stdio-framing.js'
+import { WorkerChannelLostError } from './worker-channel-error.js'
 
 export type StdioRuntimePortOptions = {
   workspace: WorkspaceHandle
@@ -28,6 +29,7 @@ export class StdioRuntimePort implements RuntimePort {
   private ee = new EventEmitter()
   private closed = false
   private stdin: Writable
+  private stdout: Readable
   private child?: ChildProcess
   private onCloseHook?: () => void | Promise<void>
   private unsub: () => void
@@ -43,6 +45,7 @@ export class StdioRuntimePort implements RuntimePort {
   constructor(opts: StdioRuntimePortOptions) {
     this.workspace = opts.workspace
     this.stdin = opts.stdin
+    this.stdout = opts.stdout
     this.child = opts.child
     this.onCloseHook = opts.onClose
 
@@ -62,13 +65,13 @@ export class StdioRuntimePort implements RuntimePort {
         this.ee.emit('message', m)
       },
       err => {
-        this.lastError = err.message
-        this.ee.emit('message', {
-          type: 'error',
-          message: err.message,
-        } satisfies RuntimeServerMessage)
+        this.signalFailure(`Worker protocol error: ${err.message}`)
       },
     )
+
+    this.stdin.on('error', this.onStreamError)
+    this.stdout.on('error', this.onStreamError)
+    this.stdout.on('end', this.onStdoutEnd)
 
     opts.stderr?.on('data', (d: Buffer) => {
       const text = d.toString('utf8').trim()
@@ -78,24 +81,30 @@ export class StdioRuntimePort implements RuntimePort {
 
     // Spawn failures (ENOENT, EACCES) emit 'error' and may never emit 'exit'.
     this.child?.on('error', err => {
-      if (this.closed) return
-      this.lastError = `Worker spawn failed: ${err.message}`
-      this.ee.emit('message', {
-        type: 'error',
-        message: this.lastError,
-      } satisfies RuntimeServerMessage)
-      void this.close()
+      this.signalFailure(`Worker spawn failed: ${err.message}`)
     })
 
     this.child?.on('exit', (code, signal) => {
-      if (this.closed) return
-      this.lastError = `Worker exited (code=${code}, signal=${signal})`
-      this.ee.emit('message', {
-        type: 'error',
-        message: this.lastError,
-      } satisfies RuntimeServerMessage)
-      void this.close()
+      this.signalFailure(`Worker exited (code=${code}, signal=${signal})`)
     })
+  }
+
+  private onStreamError = (err: Error): void => {
+    this.signalFailure(`Worker stdio failed: ${err.message}`)
+  }
+
+  private onStdoutEnd = (): void => {
+    this.signalFailure('Worker stdout closed')
+  }
+
+  private signalFailure(message: string): void {
+    if (this.closed) return
+    this.lastError = message
+    this.ee.emit('message', {
+      type: 'error',
+      message,
+    } satisfies RuntimeServerMessage)
+    void this.close()
   }
 
   /**
@@ -124,14 +133,19 @@ export class StdioRuntimePort implements RuntimePort {
   }
 
   send(msg: RuntimeClientMessage): void {
-    if (this.closed) return
+    if (this.closed || this.stdin.destroyed || this.stdin.writableEnded) {
+      throw new WorkerChannelLostError(
+        this.lastError ?? 'Worker channel is closed',
+      )
+    }
     try {
       writeNdjson(this.stdin, msg)
     } catch (err) {
-      this.ee.emit('message', {
-        type: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      } satisfies RuntimeServerMessage)
+      const message = err instanceof Error ? err.message : String(err)
+      this.signalFailure(message)
+      throw new WorkerChannelLostError(message, {
+        cause: err,
+      })
     }
   }
 
@@ -148,7 +162,13 @@ export class StdioRuntimePort implements RuntimePort {
     if (this.closed) return
     this.closed = true
     try {
-      this.send({ type: 'shutdown' })
+      if (
+        !this.lastError &&
+        !this.stdin.destroyed &&
+        !this.stdin.writableEnded
+      ) {
+        writeNdjson(this.stdin, { type: 'shutdown' })
+      }
     } catch {
       /* ignore */
     }
@@ -159,6 +179,9 @@ export class StdioRuntimePort implements RuntimePort {
       w.reject(new Error(this.readyFailureMessage()))
     }
     this.unsub()
+    // Keep the error listeners attached until the owned streams die. A
+    // write can report EPIPE asynchronously after close() returns.
+    this.stdout.off('end', this.onStdoutEnd)
     this.ee.removeAllListeners()
     if (this.child && !this.child.killed) {
       this.child.kill('SIGTERM')
@@ -179,9 +202,19 @@ export class StdioRuntimePort implements RuntimePort {
           clearTimeout(timer)
           off()
           resolve('ok')
+        } else if (msg.type === 'error') {
+          clearTimeout(timer)
+          off()
+          resolve('dead')
         }
       })
-      this.send({ type: 'ping', id })
+      try {
+        this.send({ type: 'ping', id })
+      } catch {
+        clearTimeout(timer)
+        off()
+        resolve('dead')
+      }
     })
   }
 }

@@ -2,7 +2,6 @@
  * Transport-agnostic turn host (QueryEngine analogue).
  * HTTP / stdio / ACP adapters call this; persistence still uses server/session.
  */
-import type { ServerResponse } from 'http'
 import type {
   Session,
   RunAgentFn,
@@ -11,6 +10,7 @@ import type {
   AgentDefinition,
   UserFileAttachment,
 } from '../core/types.js'
+import type { QueryStopReason } from '../core/query/types.js'
 import { offloadChatImageRefs } from '../utils/chat-uploads.js'
 import { isRoleMessage } from '../core/types.js'
 import type { ModelRegistry } from '../core/llm/index.js'
@@ -26,6 +26,7 @@ import { generateSessionTitle } from '../services/sessionTitle.js'
 import {
   setSessionTitle,
   appendMessage,
+  appendTurnTiming,
   appendModeChange,
 } from '../session/index.js'
 import {
@@ -78,8 +79,10 @@ import {
 import type { SSETransport } from '../core/types.js'
 import { respondSkillFork } from '../skills/respond-fork.js'
 import {
+  abortReasonFromSignal,
   abortTurn,
   clearTurnAbort,
+  isTurnAbortReason,
   registerTurnAbort,
   type TurnAbortReason,
 } from '../core/turn-abort-registry.js'
@@ -87,6 +90,14 @@ import {
   resolveChatAttachments,
   type ChatAttachmentRef,
 } from '../utils/attachments/from-chat-upload.js'
+import {
+  checkpointDurableRun,
+  prepareDurableRunOpening,
+} from '../services/runs/run-manager.js'
+import {
+  persistFullCompactionFromCursor,
+  persistMessagesFromCursor,
+} from './transcript-checkpoint.js'
 
 export interface RunChatTurnInput {
   message: string
@@ -103,17 +114,11 @@ export interface RunChatTurnInput {
   mode?: string
   /** When false, skip system/init (multi-turn stdio). Default true. */
   emitHandshake?: boolean
-  /** HTTP skill-fork path; omit for stdio CLI. */
-  http?: {
-    res: ServerResponse
-    wantsStream: boolean
-    sseHeaders?: Record<string, string>
-  }
-  /** e.g. res.on('close', cleanup) for premature SSE disconnect. */
-  onClientDisconnect?: (cleanup: () => void) => void
+  /** Durable cloud Run owning this turn, when invoked by the HTTP run host. */
+  durableRunId?: string
   /**
-   * External cancel (ACP / POST /chat/cancel). Combined with disconnect into
-   * one turn AbortSignal passed to runAgent.
+   * External cancel (ACP / POST /chat/cancel), passed to runAgent.
+   * Transport disconnects intentionally do not own the turn lifecycle.
    */
   abortSignal?: AbortSignal
   /** When set, caller owns telemetry/quota subscriptions on this bus. */
@@ -123,7 +128,14 @@ export interface RunChatTurnInput {
 export interface RunChatTurnResult {
   finalText: string
   error: Error | null
-  reason?: 'compact' | 'slash_command' | 'skill_fork'
+  reason?:
+    | 'compact'
+    | 'slash_command'
+    | 'skill_fork'
+    | TurnAbortReason
+    | QueryStopReason
+  queryReason?: QueryStopReason
+  interrupted?: boolean
 }
 
 const noopTransport: SSETransport = {
@@ -221,9 +233,8 @@ export async function runChatTurn(
     isMeta,
     mode,
     emitHandshake = true,
-    http,
+    durableRunId,
     eventBus: externalBus,
-    onClientDisconnect,
     abortSignal: externalAbort,
   } = input
   const turnStartTime = Date.now()
@@ -263,17 +274,19 @@ export async function runChatTurn(
 
   const eventBus = externalBus ?? new EventBus()
   const turnAbort = registerTurnAbort(session.id)
-  const abortNow = (reason: TurnAbortReason) => {
-    abortTurn(session.id, reason)
-  }
   if (externalAbort) {
-    if (externalAbort.aborted) abortNow('external')
+    const forwardExternalAbort = () => {
+      const reason = isTurnAbortReason(externalAbort.reason)
+        ? externalAbort.reason
+        : 'external'
+      abortTurn(session.id, reason)
+    }
+    if (externalAbort.aborted) forwardExternalAbort()
     else
-      externalAbort.addEventListener('abort', () => abortNow('external'), {
+      externalAbort.addEventListener('abort', forwardExternalAbort, {
         once: true,
       })
   }
-  onClientDisconnect?.(() => abortNow('disconnect'))
 
   const finish = <T extends RunChatTurnResult>(result: T): T => {
     clearTurnAbort(session.id, turnAbort)
@@ -346,11 +359,8 @@ export async function runChatTurn(
   prepared.toolContext.wire = wire
 
   if (prepared.forkSkill) {
-    const streaming = http?.wantsStream ?? true
-    await respondSkillFork({
-      // SSE: chat route already opened the transport -- reuse it.
-      res: http && !streaming ? http.res : undefined,
-      stdioTransport: streaming ? transport : undefined,
+    const result = await respondSkillFork({
+      stdioTransport: transport,
       skill: prepared.forkSkill.entry.def,
       combined: prepared.forkSkill.text,
       cwd,
@@ -358,14 +368,17 @@ export async function runChatTurn(
       provider,
       models,
       config: resolvedSettings.config,
-      wantsStream: streaming,
-      sseHeaders: http?.sseHeaders,
+      wantsStream: true,
       sessionId: session.id,
     })
     unsubTelemetry?.()
     void flushUsage()
-    if (http?.wantsStream) transport.end()
-    return finish({ finalText: '', error: null, reason: 'skill_fork' })
+    transport.end()
+    return finish({
+      finalText: result ?? '',
+      error: null,
+      reason: 'skill_fork',
+    })
   }
 
   if (emitHandshake && transport !== noopTransport) {
@@ -585,6 +598,35 @@ export async function runChatTurn(
   let persistFrom = messagesBefore
   let finalText = ''
   let runError: Error | null = null
+  let queryReason: QueryStopReason | undefined
+
+  const turnMessages = () => session.messages.slice(messagesBefore)
+  const openingTurnMessage = () =>
+    turnMessages().find(
+      message =>
+        isRoleMessage(message) &&
+        message.role === 'user' &&
+        !!message.isMeta === !!isMeta,
+    )
+  const updateRunCheckpoint = () => {
+    if (!durableRunId) return
+    const messages = turnMessages()
+    const lastMessageUuid = [...messages]
+      .reverse()
+      .find(message => typeof message.uuid === 'string')?.uuid
+    checkpointDurableRun(durableRunId, {
+      openingMessageUuid: openingTurnMessage()?.uuid,
+      lastMessageUuid,
+    })
+  }
+  const persistPendingMessages = () => {
+    persistFrom = persistMessagesFromCursor(
+      session.id,
+      session.messages,
+      persistFrom,
+    )
+    updateRunCheckpoint()
+  }
 
   const systemPrompt = await resolveTurnSystemPrompt(
     session,
@@ -755,21 +797,36 @@ export async function runChatTurn(
         refreshSystemPrompt,
         memoryPrefetch,
         abortSignal: turnAbort.signal,
+        onMessagesSeeded: () => {
+          const opening = openingTurnMessage()
+          if (opening) {
+            if (durableRunId && opening.uuid) {
+              prepareDurableRunOpening(durableRunId, opening.uuid)
+            }
+            stampTurnTiming(turnMessages(), {
+              isMeta: !!isMeta,
+              startTime: turnStartTime,
+              endTime: turnStartTime,
+            })
+          }
+          persistPendingMessages()
+        },
+        onStepCommitted: () => {
+          persistPendingMessages()
+        },
+        onQueryResult: result => {
+          queryReason = result.reason
+        },
         onAfterStep: memoryHooks.onAfterStep,
         onTurnEnd: memoryHooks.onTurnEnd,
         onFullCompaction: compactedMessages => {
-          const compactStart =
-            session.messages.length - compactedMessages.length
-          for (const message of session.messages.slice(
+          persistFrom = persistFullCompactionFromCursor(
+            session.id,
+            session.messages,
             persistFrom,
-            compactStart,
-          )) {
-            appendMessage(session.id, message)
-          }
-          for (const message of compactedMessages) {
-            appendMessage(session.id, message)
-          }
-          persistFrom = session.messages.length
+            compactedMessages,
+          )
+          updateRunCheckpoint()
         },
       })
     } finally {
@@ -785,18 +842,32 @@ export async function runChatTurn(
     void flushUsage()
   }
 
-  stampTurnTiming(session.messages.slice(persistFrom), {
+  const turnEndTime = Date.now()
+  stampTurnTiming(turnMessages(), {
     isMeta: !!isMeta,
     startTime: turnStartTime,
-    endTime: Date.now(),
+    endTime: turnEndTime,
   })
-  for (const msg of session.messages.slice(persistFrom)) {
-    appendMessage(session.id, msg as Message)
+  const opening = openingTurnMessage()
+  if (opening?.uuid) {
+    appendTurnTiming(session.id, opening.uuid, turnStartTime, turnEndTime)
   }
+  persistPendingMessages()
 
   if (runError) wire.error(runError.message)
   wire.done()
   if (transport !== noopTransport) transport.end()
 
-  return finish({ finalText, error: runError })
+  return finish({
+    finalText,
+    error: runError,
+    reason: turnAbort.signal.aborted
+      ? abortReasonFromSignal(turnAbort.signal)
+      : queryReason === 'completed'
+        ? undefined
+        : queryReason,
+    queryReason,
+    interrupted:
+      turnAbort.signal.aborted || queryReason === 'aborted' || undefined,
+  })
 }

@@ -10,6 +10,8 @@ export {
   deleteSession,
   forgetSession,
   appendMessage,
+  appendTurnTiming,
+  appendUnknownToolResults,
   appendCompaction,
   appendModeChange,
   appendAgentChange,

@@ -28,6 +28,7 @@ import {
 import type { LocalShellTaskState } from './guards.js'
 import { isLocalShellTask } from './guards.js'
 import { killTask } from './killShellTasks.js'
+import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 
 export const BACKGROUND_BASH_SUMMARY_PREFIX = 'Background command '
 
@@ -51,7 +52,7 @@ function enqueueShellNotification(
   sessionId: string,
   taskId: string,
   description: string,
-  status: 'completed' | 'failed' | 'killed',
+  status: 'completed' | 'failed' | 'killed' | 'unknown',
   exitCode: number | null | undefined,
   toolUseId?: string,
 ): void {
@@ -73,6 +74,9 @@ function enqueueShellNotification(
       break
     case 'killed':
       summary = `${BACKGROUND_BASH_SUMMARY_PREFIX}"${description}" was stopped`
+      break
+    case 'unknown':
+      summary = `${BACKGROUND_BASH_SUMMARY_PREFIX}"${description}" has an unknown outcome because the Worker disconnected; inspect its effects before retrying`
       break
   }
 
@@ -119,7 +123,29 @@ async function watchUntilDone(opts: {
         done = p.done
         exitCode = p.exitCode
         killed = !!p.killed
-      } catch {
+      } catch (err) {
+        if (isWorkerChannelLostError(err)) {
+          updateTaskState(sessionId, taskId, task => ({
+            ...task,
+            status: 'unknown',
+            endTime: Date.now(),
+            result: {
+              code: null,
+              interrupted: true,
+              reason: 'worker_lost',
+            },
+          }))
+          enqueueShellNotification(
+            sessionId,
+            taskId,
+            description,
+            'unknown',
+            null,
+            toolUseId,
+          )
+          void evictTaskOutput(taskId)
+          return
+        }
         continue
       }
     } else {

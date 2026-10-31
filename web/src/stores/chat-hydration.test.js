@@ -1,14 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { streamChatTurn } = vi.hoisted(() => ({ streamChatTurn: vi.fn() }))
+const { streamChatTurn, streamDurableRun, agentApi } = vi.hoisted(() => ({
+  streamChatTurn: vi.fn(),
+  streamDurableRun: vi.fn(),
+  agentApi: {
+    listSessions: vi.fn(async () => ({ sessions: [] })),
+    getSessionMessages: vi.fn(),
+    getScheduledTasks: vi.fn(async () => ({ tasks: [] })),
+  },
+}))
 vi.mock('./chat/stream-chat.js', () => ({
   streamChatTurn,
+  streamDurableRun,
   streamSessionLive: vi.fn(),
 }))
 vi.mock('../lib/api/agent.js', () => ({
-  agentApi: {
-    listSessions: vi.fn(async () => ({ sessions: [] })),
-  },
+  agentApi,
 }))
 vi.mock('./chat/ide-bridge.js', () => ({
   refreshIdeAfterAgentTurn: vi.fn(),
@@ -21,6 +28,8 @@ globalThis.localStorage = {
   removeItem: key => values.delete(key),
   clear: () => values.clear(),
 }
+globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
+globalThis.cancelAnimationFrame = handle => clearTimeout(handle)
 
 const { useChatStore } = await import('./chat-store.js')
 
@@ -28,6 +37,10 @@ describe('chat hydration guards', () => {
   beforeEach(() => {
     values.clear()
     streamChatTurn.mockReset()
+    streamDurableRun.mockReset()
+    agentApi.getSessionMessages.mockReset()
+    agentApi.getScheduledTasks.mockReset()
+    agentApi.getScheduledTasks.mockResolvedValue({ tasks: [] })
     useChatStore.setState({
       currentSessionId: null,
       sessionLoading: false,
@@ -36,6 +49,9 @@ describe('chat hydration guards', () => {
       activeTurnId: null,
       isStreaming: false,
       abortController: null,
+      currentRunId: null,
+      lastRunSeq: 0,
+      runConnectionStatus: 'idle',
     })
   })
 
@@ -66,5 +82,42 @@ describe('chat hydration guards', () => {
     expect(userBubbles).toHaveLength(1)
     expect(userBubbles[0]?.content).toBe('keep this message')
     expect(state.currentSessionId).toBe('replacement-session')
+  })
+
+  it('hydrates the transcript then resumes an active run after checkpoint_seq', async () => {
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [{ type: 'user', id: 'u1', content: 'durable task' }],
+      active_run: {
+        run_id: 'run-active',
+        status: 'running',
+        last_seq: 7,
+        checkpoint_seq: 4,
+      },
+    })
+    streamDurableRun.mockImplementation(async options => {
+      options.onEvent({
+        type: 'stream_event',
+        delta: { kind: 'text', text: 'resumed' },
+        __eventId: '5',
+      })
+      options.onEvent({
+        type: 'result',
+        subtype: 'success',
+        reason: 'done',
+        __eventId: '6',
+      })
+      return { runId: options.runId, lastSeq: 6 }
+    })
+
+    await useChatStore.getState().switchSession('session-with-active-run')
+    await vi.waitFor(() => expect(streamDurableRun).toHaveBeenCalledOnce())
+
+    expect(streamDurableRun.mock.calls[0]?.[0]).toMatchObject({
+      runId: 'run-active',
+      afterSeq: 4,
+    })
+    await vi.waitFor(() =>
+      expect(useChatStore.getState().isStreaming).toBe(false),
+    )
   })
 })

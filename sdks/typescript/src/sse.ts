@@ -78,8 +78,10 @@ export async function collectText(
 
 function parseOneEvent(raw: string): AgentEvent | null {
   let dataLine = ''
+  let eventId: string | undefined
   for (const line of raw.split('\n')) {
     if (line.startsWith('data:')) dataLine = line.slice(5).trim()
+    if (line.startsWith('id:')) eventId = line.slice(3).trim()
   }
   if (!dataLine) return null
 
@@ -90,6 +92,7 @@ function parseOneEvent(raw: string): AgentEvent | null {
       typeof parsed === 'object' &&
       typeof parsed.type === 'string'
     ) {
+      if (eventId) parsed.event_id = eventId
       return parsed
     }
   } catch {

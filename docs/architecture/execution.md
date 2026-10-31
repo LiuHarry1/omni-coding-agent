@@ -96,8 +96,17 @@ For remote sessions, files, commands, search, and language servers operate in th
 - Binding fails if the worker cannot change to the requested directory. Local binding waits up to 15 seconds; SSH binding waits up to 90 seconds.
 - A dead cached runtime is closed and reopened. Concurrent opens for the same workspace share one promise.
 - Filesystem and LSP failures return an error carrying the original request ID. Backend requests also time out if no matching result arrives.
+- A Worker or SSH channel loss rejects every pending RPC immediately with
+  `WorkerChannelLostError`, and the broker evicts that runtime so the next
+  request opens a new one.
+- An unacknowledged side-effecting operation has an `unknown/worker_lost`
+  outcome. Recovery inspects its effects before retrying; it is not converted
+  to an ordinary failure or replayed automatically.
 - Worker interrupt is currently a no-op in worker v1; turn cancellation still stops control-plane orchestration.
-- Background commands require explicit polling or termination. The worker force-kills unfinished children when it exits.
+- Background commands require explicit polling or termination. If their Worker
+  channel disappears, their task state becomes `unknown` rather than treating
+  a null exit code as success. The worker force-kills unfinished children when
+  it exits when the process is still reachable.
 - Auth-proxy startup failure is logged and bootstrap continues. Deployments that depend on proxied credentials must treat that as degraded operation.
 - Server shutdown closes all runtimes and then stops the credential proxy.
 
@@ -109,6 +118,7 @@ For remote sessions, files, commands, search, and language servers operate in th
 - `src/execution/runtime-broker.ts` — worker reuse and lifecycle
 - `src/execution/workspace-service.ts` — environment-aware browsing
 - `src/execution/worker-execution-backend.ts` — tool-facing RPC backend
+- `src/execution/worker-channel-error.ts` — channel-loss outcome type
 - `src/execution/runtime-protocol.ts` — worker message contract
 - `src/execution/stdio-runtime-port.ts` — NDJSON runtime channel and binding
 - `src/execution/providers/local/local-provider.ts` — local worker startup
@@ -118,4 +128,4 @@ For remote sessions, files, commands, search, and language servers operate in th
 - `src/worker/main.ts` — filesystem, shell, search, and bind handling
 - `src/worker/lsp-host.ts` — worker-local language servers
 
-Last verified: 2026-09-13
+Last verified: 2026-10-31

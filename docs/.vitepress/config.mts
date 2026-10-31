@@ -37,6 +37,7 @@ export default withMermaid(defineConfig({
             { text: 'Tool system', link: '/architecture/tools' },
             { text: 'Memory and context', link: '/architecture/memory' },
             { text: 'Protocol and clients', link: '/architecture/protocol' },
+            { text: 'Durable runs', link: '/architecture/durable-runs' },
             { text: 'Execution plane', link: '/architecture/execution' },
             { text: 'Extension system', link: '/architecture/extensions' },
             { text: 'Browser Automation', link: '/architecture/browser' },

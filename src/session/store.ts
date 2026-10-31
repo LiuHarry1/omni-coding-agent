@@ -1,7 +1,12 @@
 import * as fs from 'fs'
 import * as path from 'path'
 import { randomUUID } from 'crypto'
-import type { Session, SessionInfo, Message } from '../core/types.js'
+import type {
+  Session,
+  SessionInfo,
+  Message,
+  ToolResultPart,
+} from '../core/types.js'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
 import { isCompactBoundaryMessage } from '../core/messages/compact-boundary.js'
 import type { ExternalMode } from '../core/permission-mode.js'
@@ -10,6 +15,7 @@ import { resetSessionMemoryState } from '../services/session-memory/state.js'
 import { resetAutoMemoryState } from '../services/auto-memory/state.js'
 import { resetMicroCompactState } from '../services/compact/microCompact.js'
 import { removeTasksForSession } from '../services/cron/store.js'
+import { removeRunsForSession } from '../services/runs/run-store.js'
 import {
   computeProjectKey,
   getCachedSessionLocation,
@@ -473,6 +479,7 @@ export function deleteSession(id: string): void {
   sessions.delete(id)
 
   if (loc) {
+    removeRunsForSession(id, loc.agentHome)
     const filePath = getSessionJsonlPath(id, loc.projectKey, loc.agentHome)
     if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
     const memoryDir = getSessionDataDir(id, loc.projectKey, loc.agentHome)
@@ -531,6 +538,38 @@ export function appendMessage(sessionId: string, message: Message): void {
     return
   }
   appendLine(sessionId, { type: 'message', ...forDisk, timestamp })
+}
+
+/** Append-only enrichment for an opening user message already checkpointed. */
+export function appendTurnTiming(
+  sessionId: string,
+  messageUuid: string,
+  startTime: number,
+  endTime: number,
+): void {
+  appendLine(sessionId, {
+    type: 'turn_timing',
+    messageUuid,
+    startTime,
+    endTime,
+    timestamp: Date.now(),
+  })
+}
+
+/** Durable repair for tool calls whose Worker outcome was lost on restart. */
+export function appendUnknownToolResults(
+  sessionId: string,
+  assistantMessageUuid: string,
+  toolMessageUuid: string,
+  results: ToolResultPart[],
+): void {
+  appendLine(sessionId, {
+    type: 'tool_outcome_unknown',
+    assistantMessageUuid,
+    toolMessageUuid,
+    results,
+    timestamp: Date.now(),
+  })
 }
 
 /**

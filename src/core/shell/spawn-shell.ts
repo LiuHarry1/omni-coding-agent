@@ -310,6 +310,8 @@ export async function runShellCommand(opts: {
   cwdFilePrefix?: string
   stdin?: string
   abortSignal?: AbortSignal
+  /** Called synchronously after spawn so the Worker can track process cleanup. */
+  onSpawn?: (child: ChildProcess) => void
   /** Default false — file fd mode. True = pipes (real-time onStdout-style). */
   usePipeMode?: boolean
   /** Progress while running (polled from output file, or pipe chunks in pipe mode). */
@@ -359,6 +361,7 @@ export async function runShellCommand(opts: {
     cleanupCwdFile(prepared.cwdFileNative)
     throw err
   }
+  opts.onSpawn?.(child)
 
   // Parent closes its copy — child has a dup.
   await closeShellOutputHandle(outputHandle)

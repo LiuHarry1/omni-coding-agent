@@ -12,6 +12,7 @@ export type LocalShellTaskState = TaskStateBase & {
   result?: {
     code: number | null
     interrupted: boolean
+    reason?: 'worker_lost'
   }
   completionStatusSentInAttachment: boolean
   /** Worker / local pid when known. */

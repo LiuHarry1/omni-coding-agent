@@ -22,7 +22,8 @@ export async function stopTask(
   if (
     task.status === 'completed' ||
     task.status === 'failed' ||
-    task.status === 'killed'
+    task.status === 'killed' ||
+    task.status === 'unknown'
   ) {
     return { message: `Task ${taskId} already finished (${task.status}).` }
   }

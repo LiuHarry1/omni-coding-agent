@@ -6,6 +6,25 @@ export const isWindows = process.platform === 'win32'
 /** One-line platform summary for system prompts. */
 export const platformLabel = `${process.platform} (${process.arch})`
 
+function signalPosixProcessGroup(
+  child: ChildProcess,
+  signal: NodeJS.Signals,
+): void {
+  const pid = child.pid
+  if (pid == null) return
+  try {
+    // Shells are spawned detached on POSIX, so their PID is also the process
+    // group id. Signalling the group prevents grandchildren becoming orphans.
+    process.kill(-pid, signal)
+    return
+  } catch {
+    // PowerShell and test children may not own a process group.
+  }
+  try {
+    child.kill(signal)
+  } catch {}
+}
+
 export function killChild(child: ChildProcess): void {
   if (isWindows) {
     try {
@@ -14,12 +33,9 @@ export function killChild(child: ChildProcess): void {
       })
     } catch {}
   } else {
-    child.kill('SIGTERM')
-    setTimeout(() => {
-      try {
-        child.kill('SIGKILL')
-      } catch {}
-    }, 3000)
+    signalPosixProcessGroup(child, 'SIGTERM')
+    const timer = setTimeout(() => forceKillChild(child), 3000)
+    timer.unref?.()
   }
 }
 
@@ -31,9 +47,7 @@ export function forceKillChild(child: ChildProcess): void {
       })
     } catch {}
   } else {
-    try {
-      child.kill('SIGKILL')
-    } catch {}
+    signalPosixProcessGroup(child, 'SIGKILL')
   }
 }
 
