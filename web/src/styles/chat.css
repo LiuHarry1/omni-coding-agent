@@ -466,6 +466,12 @@
   color: var(--accent);
 }
 
+.hint-card:hover .hint-icon {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-tertiary));
+}
+
 .hint-card--compact {
   align-items: center;
   gap: 10px;
@@ -481,7 +487,13 @@
   align-items: center;
   justify-content: center;
   background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid transparent;
   border-radius: 8px;
+  transition:
+    color 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
 }
 
 .hint-label {
@@ -491,6 +503,28 @@
   transition: color 0.15s;
 }
 
+@media (max-width: 560px) {
+  .hint-grid--3col {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hint-card--compact {
+    min-width: 0;
+    padding: 9px 10px;
+  }
+
+  .hint-icon {
+    width: 30px;
+    height: 30px;
+  }
+}
+
+@media (max-width: 340px) {
+  .hint-grid--3col {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ── Message Bubbles ───────────────────────── */
 .msg {
   max-width: 100%;
@@ -498,7 +532,8 @@
 }
 
 .msg-user {
-  align-self: flex-end;
+  width: fit-content;
+  margin-left: auto;
   background: rgba(88, 166, 255, 0.12);
   border: 1px solid rgba(88, 166, 255, 0.18);
   color: var(--text-primary);

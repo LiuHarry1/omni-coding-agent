@@ -60,7 +60,13 @@
     },
     "python": {
       "command": "npx",
-      "args": ["--yes", "pyright-langserver", "--stdio"],
+      "args": [
+        "--yes",
+        "--package",
+        "pyright",
+        "pyright-langserver",
+        "--stdio"
+      ],
       "extensionToLanguage": {
         ".py": "python",
         ".pyi": "python"

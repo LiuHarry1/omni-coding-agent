@@ -1,6 +1,8 @@
 /* ── Session switcher pill + dropdown (in chat header) ───────────────── */
 
-.session-switcher { position: relative; }
+.session-switcher {
+  position: relative;
+}
 
 /* Compact icon button — replaces the wide preview pill that used to live
    here. The current session preview is surfaced via the button's
@@ -15,8 +17,9 @@
   min-width: 14px;
   height: 14px;
   padding: 0 3px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-light);
   font-size: 9.5px;
   font-weight: 600;
   font-family: var(--font-sans);
@@ -36,7 +39,7 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   z-index: 200;
   overflow: hidden;
   animation: dropIn 0.12s ease;
@@ -56,7 +59,9 @@
   border-bottom: 1px solid var(--border);
   text-align: left;
   font-family: var(--font-sans);
-  transition: background 0.12s, color 0.12s;
+  transition:
+    background 0.12s,
+    color 0.12s;
 }
 .session-dropdown-new:hover {
   background: var(--bg-tertiary);
@@ -80,7 +85,9 @@
   font-size: 12.5px;
   font-family: var(--font-sans);
 }
-.session-dropdown-search input::placeholder { color: var(--text-muted); }
+.session-dropdown-search input::placeholder {
+  color: var(--text-muted);
+}
 
 .session-dropdown-list {
   max-height: 360px;
@@ -103,9 +110,15 @@
   border-bottom: 1px solid var(--border);
   transition: background 0.1s;
 }
-.session-dropdown-item:last-child { border-bottom: none; }
-.session-dropdown-item:hover { background: var(--bg-tertiary); }
-.session-dropdown-item.active { background: var(--accent-dim); }
+.session-dropdown-item:last-child {
+  border-bottom: none;
+}
+.session-dropdown-item:hover {
+  background: var(--bg-tertiary);
+}
+.session-dropdown-item.active {
+  background: var(--accent-dim);
+}
 
 .session-dot {
   width: 6px;
@@ -159,12 +172,14 @@
   display: flex;
   align-items: center;
 }
-.session-dropdown-item:hover .session-dropdown-item-delete { opacity: 1; }
+.session-dropdown-item:hover .session-dropdown-item-delete {
+  opacity: 1;
+}
 .session-dropdown-item-delete:hover {
   color: var(--red);
   background: var(--bg-primary);
 }
 
-[data-theme="light"] .session-dropdown {
-  box-shadow: 0 10px 28px rgba(0,0,0,0.12);
+[data-theme='light'] .session-dropdown {
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
 }

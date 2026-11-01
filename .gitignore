@@ -47,6 +47,7 @@ agent-stderr.log
 *.temp
 coverage/
 coding-tools-ui-e2e-*/
+.workspace-seeded
 
 # Python
 __pycache__/

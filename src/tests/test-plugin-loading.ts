@@ -302,7 +302,12 @@ async function testMcpCollision(): Promise<void> {
 
   console.log(`\n=== MCP collision: ${tmp} ===`)
   const result = await loadPlugins(tmp)
-  assert(result.plugins.length === 2, 'expected 2 plugins')
+  const projectPlugins = result.plugins.filter(
+    plugin =>
+      plugin.scope === 'project' &&
+      (plugin.name === 'plugin-a' || plugin.name === 'plugin-b'),
+  )
+  assert(projectPlugins.length === 2, 'expected 2 project plugins')
   assert('shared' in result.mcpServers, 'shared MCP should exist')
   assert(
     result.errors.some(e => e.type === 'mcp-collision'),
@@ -319,28 +324,36 @@ async function testHotReloadPlugin(): Promise<void> {
   console.log(`\n=== plugin hot reload: ${tmp} ===`)
 
   let turn = await simulateChatTurn(tmp)
-  assert(turn.plugins.plugins.length === 0, 'turn1 should have no plugins')
-  console.log('Turn 1 (no plugins): ok')
+  assert(
+    !turn.plugins.plugins.some(p => p.name === 'hot-plugin'),
+    'turn1 should not have hot-plugin',
+  )
+  console.log('Turn 1 (no project hot-plugin): ok')
 
-  scaffoldFullPlugin(pluginsDir, 'hot-plugin')
+  const hotRoot = scaffoldFullPlugin(pluginsDir, 'hot-plugin')
   turn = await simulateChatTurn(tmp)
   assert(
     turn.plugins.plugins.some(p => p.name === 'hot-plugin'),
     'hot-plugin missing turn2',
   )
   assert(
-    turn.activeAgents.some(a => a.agentType === 'plugin-reviewer'),
+    turn.plugins.agentFiles.some(file => file.filePath.startsWith(hotRoot)),
     'agent missing turn2',
   )
   assert(
-    turn.slash.entries.some(e => e.name === 'plugin-hello'),
+    turn.plugins.commandFiles.some(file => file.filePath.startsWith(hotRoot)),
     'command missing turn2',
   )
   assert(
-    turn.activeSkills.some(s => s.name === 'demo-changelog'),
+    turn.plugins.skills.some(skill => skill.baseDir?.startsWith(hotRoot)),
     'skill missing turn2',
   )
-  assert('plugin-filesystem' in turn.mcpServers, 'mcp missing turn2')
+  const hotMcp = turn.mcpServers['plugin-filesystem'] as
+    { args?: string[] } | undefined
+  assert(
+    hotMcp?.args?.some(arg => arg.includes(hotRoot)) === true,
+    'mcp missing turn2',
+  )
   console.log(
     'Turn 2 (+full plugin): agents, commands, skills, MCP all present',
   )
@@ -355,18 +368,23 @@ async function testHotReloadPlugin(): Promise<void> {
     'plugin should be gone',
   )
   assert(
-    !turn.activeAgents.some(a => a.agentType === 'plugin-reviewer'),
+    !turn.plugins.agentFiles.some(file => file.filePath.startsWith(hotRoot)),
     'agent should be gone',
   )
   assert(
-    !turn.slash.entries.some(e => e.name === 'plugin-hello'),
+    !turn.plugins.commandFiles.some(file => file.filePath.startsWith(hotRoot)),
     'command should be gone',
   )
   assert(
-    !turn.activeSkills.some(s => s.name === 'demo-changelog'),
+    !turn.plugins.skills.some(skill => skill.baseDir?.startsWith(hotRoot)),
     'skill should be gone',
   )
-  assert(!('plugin-filesystem' in turn.mcpServers), 'mcp should be gone')
+  const remainingMcp = turn.mcpServers['plugin-filesystem'] as
+    { args?: string[] } | undefined
+  assert(
+    !remainingMcp?.args?.some(arg => arg.includes(hotRoot)),
+    'mcp should be gone',
+  )
   console.log('Turn 3 (-removed plugin): all contributions cleared')
   console.log('[ok] plugin hot reload')
 }

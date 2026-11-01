@@ -7,6 +7,8 @@ const { streamChatTurn, streamDurableRun, agentApi } = vi.hoisted(() => ({
     listSessions: vi.fn(async () => ({ sessions: [] })),
     getSessionMessages: vi.fn(),
     getScheduledTasks: vi.fn(async () => ({ tasks: [] })),
+    setSessionMode: vi.fn(async () => ({})),
+    setSessionAgent: vi.fn(async () => ({})),
   },
 }))
 vi.mock('./chat/stream-chat.js', () => ({
@@ -32,6 +34,16 @@ globalThis.requestAnimationFrame = callback => setTimeout(callback, 0)
 globalThis.cancelAnimationFrame = handle => clearTimeout(handle)
 
 const { useChatStore } = await import('./chat-store.js')
+const { useWorkspaceContextStore } =
+  await import('./workspace-context-store.js')
+
+function deferred() {
+  let resolve
+  const promise = new Promise(res => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
 
 describe('chat hydration guards', () => {
   beforeEach(() => {
@@ -41,6 +53,9 @@ describe('chat hydration guards', () => {
     agentApi.getSessionMessages.mockReset()
     agentApi.getScheduledTasks.mockReset()
     agentApi.getScheduledTasks.mockResolvedValue({ tasks: [] })
+    agentApi.setSessionMode.mockClear()
+    agentApi.setSessionAgent.mockClear()
+    useWorkspaceContextStore.getState().clear()
     useChatStore.setState({
       currentSessionId: null,
       sessionLoading: false,
@@ -52,6 +67,9 @@ describe('chat hydration guards', () => {
       currentRunId: null,
       lastRunSeq: 0,
       runConnectionStatus: 'idle',
+      agentMode: 'agent',
+      agentType: null,
+      agentPicker: null,
     })
   })
 
@@ -60,6 +78,36 @@ describe('chat hydration guards', () => {
     await useChatStore.getState().sendMessage('wait for hydration')
     expect(streamChatTurn).not.toHaveBeenCalled()
     expect(useChatStore.getState().bubbleOrder).toEqual([])
+  })
+
+  it('keeps session loading active until workspace restoration finishes', async () => {
+    const workspaceSync = deferred()
+    const originalSync = useWorkspaceContextStore.getState().syncFromSession
+    const syncFromSession = vi.fn(() => workspaceSync.promise)
+    useWorkspaceContextStore.setState({ syncFromSession })
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [{ type: 'user', id: 'u1', content: 'bound message' }],
+    })
+
+    try {
+      const switching = useChatStore.getState().switchSession('bound-session')
+      await Promise.resolve()
+
+      expect(useChatStore.getState().sessionLoading).toBe(true)
+      expect(useChatStore.getState().bubbleOrder).toEqual([])
+      await useChatStore.getState().sendMessage('must wait')
+      expect(streamChatTurn).not.toHaveBeenCalled()
+
+      workspaceSync.resolve({
+        environmentId: 'cloud:bound',
+        cwd: '/workspace/repo',
+      })
+      await switching
+      expect(useChatStore.getState().sessionLoading).toBe(false)
+      expect(useChatStore.getState().bubbleOrder).not.toEqual([])
+    } finally {
+      useWorkspaceContextStore.setState({ syncFromSession: originalSync })
+    }
   })
 
   it('keeps the optimistic user bubble across stale-session retry', async () => {
@@ -82,6 +130,91 @@ describe('chat hydration guards', () => {
     expect(userBubbles).toHaveLength(1)
     expect(userBubbles[0]?.content).toBe('keep this message')
     expect(state.currentSessionId).toBe('replacement-session')
+  })
+
+  it('builds chat requests from the workspace context snapshot', async () => {
+    useWorkspaceContextStore.getState().apply(
+      {
+        environmentId: 'ssh:dev-box',
+        cwd: '/srv/project',
+      },
+      { label: 'Dev box:/srv/project' },
+    )
+    streamChatTurn.mockResolvedValue({
+      sessionId: 'remote-session',
+      runId: null,
+      lastSeq: 0,
+      permissionMode: null,
+      agentType: undefined,
+    })
+
+    await useChatStore.getState().sendMessage('use the remote workspace')
+
+    expect(streamChatTurn).toHaveBeenCalledOnce()
+    expect(streamChatTurn.mock.calls[0]?.[0]?.body).toMatchObject({
+      message: 'use the remote workspace',
+      workspace: '/srv/project',
+      environmentId: 'ssh:dev-box',
+    })
+    expect(useChatStore.getState()).not.toHaveProperty('workspace')
+    expect(useChatStore.getState()).not.toHaveProperty('workspaceHandle')
+  })
+
+  it('clears chat history before selecting a different workspace', () => {
+    useWorkspaceContextStore
+      .getState()
+      .apply({ environmentId: 'local', cwd: '/first' })
+    useChatStore.setState({
+      currentSessionId: 'bound-session',
+      bubbleOrder: ['user:1'],
+      bubblesById: {
+        'user:1': { id: 'user:1', kind: 'user', content: 'existing' },
+      },
+    })
+
+    expect(
+      useWorkspaceContextStore
+        .getState()
+        .select({ environmentId: 'local', cwd: '/second' }),
+    ).toBe(true)
+
+    expect(useChatStore.getState().currentSessionId).toBeNull()
+    expect(useChatStore.getState().bubbleOrder).toEqual([])
+    expect(useWorkspaceContextStore.getState().cwd).toBe('/second')
+  })
+
+  it('keeps the current workspace when starting a new chat', () => {
+    useWorkspaceContextStore
+      .getState()
+      .apply({ environmentId: 'local', cwd: '/keep-me' })
+
+    useChatStore.getState().clearSession()
+
+    expect(useWorkspaceContextStore.getState().cwd).toBe('/keep-me')
+  })
+
+  it('uses workspace context for session mode and agent updates', () => {
+    useWorkspaceContextStore
+      .getState()
+      .apply({ environmentId: 'ssh:dev', cwd: '/remote/repo' })
+    useChatStore.setState({
+      currentSessionId: 'bound-session',
+      agentPicker: null,
+    })
+
+    useChatStore.getState().setAgentMode('ask')
+    useChatStore.getState().setAgentType('reviewer')
+
+    expect(agentApi.setSessionMode).toHaveBeenCalledWith({
+      session_id: 'bound-session',
+      mode: 'ask',
+      workspace: '/remote/repo',
+    })
+    expect(agentApi.setSessionAgent).toHaveBeenCalledWith({
+      session_id: 'bound-session',
+      agentType: 'reviewer',
+      workspace: '/remote/repo',
+    })
   })
 
   it('hydrates the transcript then resumes an active run after checkpoint_seq', async () => {

@@ -8,6 +8,7 @@
 # Usage from repo root:
 #
 #   1. Build the base image (slow — only when agent code changes):
+#        npm run build:worker
 #        docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 #
 #   2. Edit platform policy under `deploy/managed/` (managed-settings.json,
@@ -16,19 +17,20 @@
 #
 #   3. Build the tenant image (from repo root):
 #        docker build -f deploy/Dockerfile.agent-tenant \
-#          --build-arg BASE_TAG=latest \
 #          -t ai-agent-tenant:latest .
+#      To use a published base, add:
+#        --build-arg BASE_IMAGE=registry.example.com/ai-agent-base:latest
 #
 #   4. Run via compose (which already references ai-agent-tenant:latest):
-#        docker compose -f deploy/docker-compose.yml up -d
+#        docker compose -f deploy/docker-compose.admin.yml up -d
 #
 # Secrets:
 #   DO NOT commit API keys into managed-settings.json — they will end up in
 #   image layers and are recoverable via `docker history` even if a later
 #   layer overwrites them. Prefer env injection at runtime (compose .env).
 
-ARG BASE_TAG=latest
-FROM 10.150.115.69:80/dice-zero/ai-agent-base:${BASE_TAG}
+ARG BASE_IMAGE=ai-agent-base:latest
+FROM ${BASE_IMAGE}
 
 # UTF-8 locale — agent logs include CJK user text; a non-UTF-8 locale makes
 # in-container shells/pagers (docker exec + less, etc.) show <E4><BD>… bytes.

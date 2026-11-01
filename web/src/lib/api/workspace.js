@@ -6,8 +6,8 @@
  * this file, and nothing here should import from `agent.js` — the only
  * shared code is the tiny `fetchJSON` helper.
  */
-import { fetchJSON, apiUrl, withAuth } from './_http.js'
-import { authHeader, handleUnauthorized } from '../auth.js'
+import { fetchJSON, apiUrl, postForm, withAuth } from './_http.js'
+import { handleUnauthorized } from '../auth.js'
 import { fileName } from '../utils.js'
 
 const json = body => ({
@@ -72,52 +72,25 @@ export const workspaceApi = {
 
   // ── Binary transfer ─────────────────────────────────────
   /**
-   * Upload one or more files into `dir`. Uses XHR (not fetch) so we can
-   * surface upload progress — fetch has no upload-progress event.
+   * Upload one or more files into `dir`.
    *
    * @param {string} dir       Absolute target directory.
    * @param {FileList|File[]} files
    * @param {(pct:number)=>void} [onProgress]  0–100.
    * @returns {Promise<{dir:string, uploaded:Array<{name,path,size}>}>}
    */
-  uploadFiles: (dir, files, onProgress) =>
-    new Promise((resolve, reject) => {
-      const form = new FormData()
-      form.append('dir', dir)
-      for (const f of files) form.append('file', f)
+  uploadFiles: (dir, files, onProgress) => {
+    const form = new FormData()
+    form.append('dir', dir)
+    for (const f of files) form.append('file', f)
+    return postForm('/workspace/upload', form, onProgress)
+  },
 
-      const xhr = new XMLHttpRequest()
-      xhr.open('POST', apiUrl('/workspace/upload'))
-      const auth = authHeader()
-      if (auth.Authorization)
-        xhr.setRequestHeader('Authorization', auth.Authorization)
-      xhr.upload.onprogress = e => {
-        if (onProgress && e.lengthComputable) {
-          onProgress(Math.round((e.loaded / e.total) * 100))
-        }
-      }
-      xhr.onload = () => {
-        let body = null
-        try {
-          body = JSON.parse(xhr.responseText)
-        } catch {}
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve(body ?? {})
-        } else {
-          const err = new Error(
-            `HTTP ${xhr.status}${body?.error ? `: ${body.error}` : ''}`,
-          )
-          err.status = xhr.status
-          reject(err)
-        }
-      }
-      xhr.onerror = () => reject(new Error('Upload failed (network error)'))
-      xhr.send(form)
-    }),
+  /** API path that streams a file (or a zip of a directory) as a download. */
+  downloadPath: path => `/workspace/download?path=${encodeURIComponent(path)}`,
 
   /** URL that streams a file (or a zip of a directory) as a download. */
-  downloadUrl: path =>
-    apiUrl(`/workspace/download?path=${encodeURIComponent(path)}`),
+  downloadUrl: path => apiUrl(workspaceApi.downloadPath(path)),
 
   // ── Git (read-only) ─────────────────────────────────────
   gitStatus: () => fetchJSON('/workspace/git/status'),
@@ -140,9 +113,9 @@ function filenameFromContentDisposition(header) {
   return null
 }
 
-/** Fetch a file/dir download with auth headers (anchor href can't send them). */
-async function fetchDownloadBlob(path) {
-  const res = await fetch(workspaceApi.downloadUrl(path), withAuth())
+/** Fetch a download with auth headers (anchor href can't send them). */
+async function fetchDownloadBlob(resourcePath, path) {
+  const res = await fetch(apiUrl(resourcePath), withAuth())
   if (res.status === 401) {
     handleUnauthorized()
     throw new Error('Unauthorized')
@@ -168,9 +141,13 @@ async function fetchDownloadBlob(path) {
  * Trigger a browser download for `path` (file or directory-as-zip) by
  * fetching with auth and clicking a transient anchor. Kept out of
  * `workspaceApi` because it touches the DOM rather than the network.
+ * `resourcePath` picks the download endpoint (local folder by default).
  */
-export async function triggerDownload(path) {
-  const { blob, name } = await fetchDownloadBlob(path)
+export async function triggerDownload(
+  path,
+  resourcePath = workspaceApi.downloadPath(path),
+) {
+  const { blob, name } = await fetchDownloadBlob(resourcePath, path)
   const url = URL.createObjectURL(blob)
   try {
     const a = document.createElement('a')
@@ -188,8 +165,11 @@ export async function triggerDownload(path) {
  * Authenticated blob URL for inline previews (e.g. images). Caller must
  * revoke the URL when done.
  */
-export async function fetchAuthenticatedBlobUrl(path) {
-  const { blob } = await fetchDownloadBlob(path)
+export async function fetchAuthenticatedBlobUrl(
+  path,
+  resourcePath = workspaceApi.downloadPath(path),
+) {
+  const { blob } = await fetchDownloadBlob(resourcePath, path)
   return URL.createObjectURL(blob)
 }
 

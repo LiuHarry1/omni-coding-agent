@@ -2,6 +2,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import type { IncomingMessage } from 'http'
 import { getDefaultWorkspace } from '../core/workspace.js'
+import { normalizeWorkspacePath } from '../core/workspace-path.js'
+import type { WorkspaceHandle } from '../execution/types.js'
 import { isAuthEnabled, type AuthedRequest } from './auth/identity.js'
 
 /**
@@ -52,4 +54,31 @@ export function resolveSettingsRequestCwd(
   }
 
   return getDefaultWorkspace()
+}
+
+/**
+ * Status endpoints use a full execution handle. Legacy callers that only send
+ * `?workspace=` remain local and keep the existing SSO pinning behavior.
+ */
+export function resolveStatusWorkspaceHandle(
+  req: IncomingMessage,
+  url?: string | null,
+): WorkspaceHandle {
+  const query = new URLSearchParams(url?.split('?')[1] ?? '')
+  const environmentId = query.get('environmentId')?.trim()
+  if (!environmentId) {
+    return {
+      environmentId: 'local',
+      cwd: resolveSettingsRequestCwd(req, url),
+    }
+  }
+
+  const requestedCwd = (query.get('cwd') ?? query.get('workspace'))?.trim()
+  if (!requestedCwd) {
+    throw new Error('environmentId and cwd must be provided together')
+  }
+  return {
+    environmentId,
+    cwd: normalizeWorkspacePath(requestedCwd),
+  }
 }

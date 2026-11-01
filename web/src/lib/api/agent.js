@@ -4,6 +4,62 @@
  */
 import { fetchJSON, withAuth, apiUrl } from './_http.js'
 
+export function appendMarketplaceTarget(params, target) {
+  if (target == null) return params
+  // Compatibility for callers using the pre-scope `?workspace=` contract.
+  if (typeof target === 'string') {
+    if (target) params.set('workspace', target)
+    return params
+  }
+  if (!target || (target.scope !== 'user' && target.scope !== 'workspace')) {
+    throw new TypeError(
+      "Marketplace target scope must be 'user' or 'workspace'",
+    )
+  }
+  params.set('scope', target.scope)
+  if (target.scope === 'workspace') {
+    if (
+      typeof target.environmentId !== 'string' ||
+      !target.environmentId ||
+      typeof target.cwd !== 'string' ||
+      !target.cwd
+    ) {
+      throw new TypeError(
+        'Marketplace Workspace target requires environmentId and cwd',
+      )
+    }
+    params.set('environmentId', target.environmentId)
+    params.set('cwd', target.cwd)
+  }
+  return params
+}
+
+export function appendWorkspaceHandle(params, workspace) {
+  if (workspace == null) return params
+  if (typeof workspace === 'string') {
+    if (workspace) params.set('workspace', workspace)
+    return params
+  }
+  if (
+    typeof workspace.environmentId !== 'string' ||
+    !workspace.environmentId ||
+    typeof workspace.cwd !== 'string' ||
+    !workspace.cwd
+  ) {
+    throw new TypeError('Workspace handle requires environmentId and cwd')
+  }
+  params.set('environmentId', workspace.environmentId)
+  params.set('cwd', workspace.cwd)
+  return params
+}
+
+function marketplaceEndpoint(path, target, initial = undefined) {
+  const params = new URLSearchParams(initial)
+  appendMarketplaceTarget(params, target)
+  const query = params.toString()
+  return `${path}${query ? `?${query}` : ''}`
+}
+
 export const agentApi = {
   listSessions: () => fetchJSON('/sessions'),
   createSession: () => fetchJSON('/sessions', { method: 'POST' }),
@@ -22,8 +78,9 @@ export const agentApi = {
   },
 
   getAgents: workspace => {
-    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
-    return fetchJSON(`/agents${qs}`)
+    const qs = appendWorkspaceHandle(new URLSearchParams(), workspace)
+    const query = qs.toString()
+    return fetchJSON(`/agents${query ? `?${query}` : ''}`)
   },
 
   getSkills: workspace => {
@@ -36,15 +93,15 @@ export const agentApi = {
     return fetchJSON(`/plugins${qs}`)
   },
 
-  getMarketplaceProviders: workspace => {
-    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
-    return fetchJSON(`/marketplaces/providers${qs}`)
-  },
+  getMarketplaceProviders: target =>
+    fetchJSON(marketplaceEndpoint('/marketplaces/providers', target)),
 
-  marketplaceLogin: (providerId, credentials, workspace) => {
-    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
+  marketplaceLogin: (providerId, credentials, target) => {
     return fetchJSON(
-      `/marketplaces/${encodeURIComponent(providerId)}/auth/login${qs}`,
+      marketplaceEndpoint(
+        `/marketplaces/${encodeURIComponent(providerId)}/auth/login`,
+        target,
+      ),
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -53,10 +110,12 @@ export const agentApi = {
     )
   },
 
-  marketplaceLogout: (providerId, workspace) => {
-    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
+  marketplaceLogout: (providerId, target) => {
     return fetchJSON(
-      `/marketplaces/${encodeURIComponent(providerId)}/auth/logout${qs}`,
+      marketplaceEndpoint(
+        `/marketplaces/${encodeURIComponent(providerId)}/auth/logout`,
+        target,
+      ),
       { method: 'POST' },
     )
   },
@@ -67,26 +126,26 @@ export const agentApi = {
     if (params.q) qs.set('q', params.q)
     if (params.page) qs.set('page', String(params.page))
     if (params.perPage) qs.set('perPage', String(params.perPage))
-    if (params.workspace) qs.set('workspace', params.workspace)
+    appendMarketplaceTarget(qs, params.target ?? params.workspace)
     return fetchJSON(
       `/marketplaces/${encodeURIComponent(providerId)}/catalog?${qs}`,
     )
   },
 
-  getMarketplaceEnvSchema: (providerId, id, workspace) => {
+  getMarketplaceEnvSchema: (providerId, id, target) => {
     const qs = new URLSearchParams({ kind: 'skill', id })
-    if (workspace) qs.set('workspace', workspace)
+    appendMarketplaceTarget(qs, target)
     return fetchJSON(
       `/marketplaces/${encodeURIComponent(providerId)}/env-schema?${qs}`,
     )
   },
 
-  installMarketplaceItem: (providerId, item, workspace, options = {}) => {
+  installMarketplaceItem: (providerId, item, target, options = {}) => {
     const qs = new URLSearchParams({
       kind: item.kind,
       id: item.externalId,
     })
-    if (workspace) qs.set('workspace', workspace)
+    appendMarketplaceTarget(qs, target)
     return fetchJSON(
       `/marketplaces/${encodeURIComponent(providerId)}/install?${qs}`,
       {
@@ -104,12 +163,12 @@ export const agentApi = {
     )
   },
 
-  previewMarketplaceBundle: (providerId, item, workspace) => {
+  previewMarketplaceBundle: (providerId, item, target) => {
     const qs = new URLSearchParams({
       kind: 'bundle',
       id: item.externalId,
     })
-    if (workspace) qs.set('workspace', workspace)
+    appendMarketplaceTarget(qs, target)
     return fetchJSON(
       `/marketplaces/${encodeURIComponent(providerId)}/preview?${qs}`,
       {
@@ -120,12 +179,12 @@ export const agentApi = {
     )
   },
 
-  uninstallMarketplaceItem: (providerId, item, workspace) => {
+  uninstallMarketplaceItem: (providerId, item, target) => {
     const qs = new URLSearchParams({
       kind: item.kind,
       id: item.externalId,
     })
-    if (workspace) qs.set('workspace', workspace)
+    appendMarketplaceTarget(qs, target)
     return fetchJSON(
       `/marketplaces/${encodeURIComponent(providerId)}/uninstall?${qs}`,
       { method: 'DELETE' },
@@ -138,10 +197,27 @@ export const agentApi = {
     return fetchJSON(`/mcp${qs}`)
   },
 
+  /** Persist an HTTP/SSE MCP server and return its live connection status. */
+  addMcp: (name, config, scope = 'user') =>
+    fetchJSON('/settings/mcp', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'add', scope, name, config }),
+    }),
+
+  /** Remove a user-configured MCP server. */
+  removeMcp: (name, scope) =>
+    fetchJSON('/settings/mcp', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'remove', scope, name }),
+    }),
+
   /** Configured / running LSP servers for the workspace. */
   getLsp: workspace => {
-    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
-    return fetchJSON(`/lsp${qs}`)
+    const qs = appendWorkspaceHandle(new URLSearchParams(), workspace)
+    const query = qs.toString()
+    return fetchJSON(`/lsp${query ? `?${query}` : ''}`)
   },
 
   postChat: (body, signal) =>

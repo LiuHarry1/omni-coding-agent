@@ -1,6 +1,8 @@
 import { useEffect } from 'react'
 import { useChatStore } from './stores/chat-store.js'
 import { useWorkspaceIdeStore } from './stores/workspace-ide-store.js'
+import { useWorkspaceContextStore } from './stores/workspace-context-store.js'
+import { useCapabilitiesStore } from './stores/capabilities-store.js'
 import { agentApi } from './lib/api/agent.js'
 import { setKnownMcpServers } from './lib/tool-kind.js'
 import { ChatActionsProvider } from './lib/chat-actions.jsx'
@@ -18,40 +20,51 @@ export default function App() {
   const liveNeeded = useChatStore(s => s.liveNeeded)
   const switchSession = useChatStore(s => s.switchSession)
   const connectSessionLive = useChatStore(s => s.connectSessionLive)
-  const chatWorkspace = useChatStore(s => s.workspace)
-  const workspaceEnvId = useChatStore(
-    s => s.workspaceHandle?.environmentId || 'local',
+  const workspace = useWorkspaceContextStore(s => s.cwd)
+  const workspaceEnvId = useWorkspaceContextStore(
+    s => s.handle?.environmentId || 'local',
   )
   const workspaceIdeOpen = useWorkspaceIdeStore(s => s.open)
   const setIdeRootPath = useWorkspaceIdeStore(s => s.setRootPath)
+  const loadCapabilities = useCapabilitiesStore(s => s.load)
+  const reloadCapabilities = useCapabilitiesStore(s => s.reload)
+  const capabilitiesStatus = useCapabilitiesStore(s => s.status)
+  const capabilitiesError = useCapabilitiesStore(s => s.error)
+  const capabilitiesReady =
+    capabilitiesStatus === 'ready' || capabilitiesStatus === 'legacy'
+
+  useEffect(() => {
+    void loadCapabilities()
+  }, [loadCapabilities])
 
   useEffect(() => {
     syncHljs()
   }, [theme])
 
   useEffect(() => {
-    if (currentSessionId) switchSession(currentSessionId)
-  }, [])
+    if (capabilitiesReady && currentSessionId) switchSession(currentSessionId)
+  }, [capabilitiesReady, currentSessionId, switchSession])
 
   useEffect(() => {
-    if (!currentSessionId || !liveNeeded) return
+    if (!capabilitiesReady || !currentSessionId || !liveNeeded) return
     return connectSessionLive(currentSessionId)
-  }, [currentSessionId, liveNeeded, connectSessionLive])
+  }, [capabilitiesReady, currentSessionId, liveNeeded, connectSessionLive])
 
-  // Bridge: chat owns cwd + environment; IDE stores both so FS calls can
-  // route local vs remote without importing chat-store.
+  // Bridge: workspace context owns cwd + environment; IDE stores both so FS
+  // calls can route local vs remote without importing the context store.
   useEffect(() => {
-    setIdeRootPath(chatWorkspace, {
+    setIdeRootPath(workspace, {
       resetTree: true,
       environmentId: workspaceEnvId,
     })
-  }, [chatWorkspace, workspaceEnvId, setIdeRootPath])
+  }, [workspace, workspaceEnvId, setIdeRootPath])
 
   // Cache MCP server names for accurate `server/tool` labels in chat rows.
   useEffect(() => {
+    if (!capabilitiesReady) return
     let cancelled = false
     agentApi
-      .getMcp(chatWorkspace || undefined)
+      .getMcp(workspace || undefined)
       .then(data => {
         if (cancelled) return
         const names = (data?.servers ?? []).map(s => s.name).filter(Boolean)
@@ -63,7 +76,7 @@ export default function App() {
     return () => {
       cancelled = true
     }
-  }, [chatWorkspace])
+  }, [capabilitiesReady, workspace])
 
   // Warn before unload if any open file has unsaved edits. Reads the
   // store imperatively (no re-render needed for this side-effect-only listener).
@@ -79,6 +92,45 @@ export default function App() {
     window.addEventListener('beforeunload', handler)
     return () => window.removeEventListener('beforeunload', handler)
   }, [])
+
+  if (!capabilitiesReady) {
+    const failed = capabilitiesStatus === 'unavailable'
+    return (
+      <div className={`app ${theme}`} data-theme={theme}>
+        <main className='capabilities-gate' aria-live='polite'>
+          {failed ? (
+            <>
+              <span className='capabilities-gate__mark' aria-hidden='true'>
+                !
+              </span>
+              <h1>Couldn&apos;t connect to the agent</h1>
+              <p>
+                Server capabilities could not be loaded. Workspace and extension
+                actions are paused to avoid using the wrong runtime.
+              </p>
+              {capabilitiesError && (
+                <code className='capabilities-gate__error'>
+                  {capabilitiesError}
+                </code>
+              )}
+              <button
+                type='button'
+                className='capabilities-gate__button'
+                onClick={() => void reloadCapabilities()}
+              >
+                Retry
+              </button>
+            </>
+          ) : (
+            <>
+              <span className='spinner' aria-hidden='true' />
+              <p>Loading agent capabilities…</p>
+            </>
+          )}
+        </main>
+      </div>
+    )
+  }
 
   return (
     <div className={`app ${theme}`} data-theme={theme}>

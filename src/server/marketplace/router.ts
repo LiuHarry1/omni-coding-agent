@@ -1,8 +1,17 @@
+import * as path from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
 import { loadWorkspaceContributions } from '../../core/workspace-load.js'
+import {
+  getExecutionPlane,
+  type ExecutionPlane,
+} from '../../execution/bootstrap.js'
 import { readBody, sendJSON } from '../http.js'
 import { isAuthEnabled, type AuthedRequest } from '../auth/identity.js'
 import { resolveRequestCwd } from '../request-cwd.js'
+import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
+import type { WorkspaceHandle } from '../../execution/types.js'
+import { getAgentHome } from '../../utils/request-scope.js'
+import { canUseEnvironment } from '../routes/execution.js'
 import {
   decorateInstallState,
   installMarketplaceArtifact,
@@ -62,19 +71,159 @@ async function localNames(cwd: string): Promise<{
   }
 }
 
-export function createMarketplaceRouter() {
+/**
+ * Cloud Marketplace resources are account-level extensions shared by every
+ * workspace, so install them under the control-plane user home. Desktop keeps
+ * the existing project-scoped Marketplace behavior.
+ */
+export function resolveMarketplaceCwd(
+  req: IncomingMessage,
+  clientWorkspace?: unknown,
+): string {
+  if (isCloudWorkspacesEnabled()) return getAgentHome()
+  return resolveRequestCwd(req, clientWorkspace)
+}
+
+type MarketplacePlane = Pick<ExecutionPlane, 'registry' | 'workspaces'>
+
+export type ResolvedMarketplaceTarget = {
+  /** Effective target. Cloud always resolves to User. */
+  scope: 'user' | 'workspace'
+  cwd: string
+  workspace?: WorkspaceHandle
+  /** True only for the pre-scope Desktop `?workspace=` contract. */
+  legacy: boolean
+}
+
+export type MarketplaceTargetResolverDeps = {
+  isCloud?: () => boolean
+  agentHome?: () => string
+  getPlane?: () => MarketplacePlane
+  canUseEnvironment?: (req: IncomingMessage, environmentId: string) => boolean
+}
+
+export const SSH_MARKETPLACE_TARGET_DISABLED_REASON =
+  'Marketplace Workspace targets are unavailable for SSH because remote atomic install, rollback, and ownership semantics are not supported'
+
+function requestedMarketplaceScope(url: URL): 'user' | 'workspace' | undefined {
+  const scope = url.searchParams.get('scope')
+  if (scope === null) return undefined
+  if (scope === 'user' || scope === 'workspace') return scope
+  throw new MarketplaceError("scope must be 'user' or 'workspace'", 400)
+}
+
+/**
+ * Resolve one filesystem target before provider settings or install state are
+ * read. This keeps provider config, catalog/detail state, preview, install,
+ * and uninstall on the same authorized root.
+ */
+export async function resolveMarketplaceTarget(
+  req: IncomingMessage,
+  url: URL,
+  options: MarketplaceTargetResolverDeps = {},
+): Promise<ResolvedMarketplaceTarget> {
+  const scope = requestedMarketplaceScope(url)
+  const cloud = (options.isCloud ?? isCloudWorkspacesEnabled)()
+  const resolveAgentHome = options.agentHome ?? getAgentHome
+
+  // Cloud extensions are control-plane user resources. Even an explicit
+  // Workspace target must never resolve into a container repository.
+  if (cloud) {
+    return {
+      scope: 'user',
+      cwd: resolveAgentHome(),
+      legacy: scope === undefined,
+    }
+  }
+
+  if (scope === undefined) {
+    return {
+      scope: 'workspace',
+      cwd: resolveMarketplaceCwd(
+        req,
+        url.searchParams.get('workspace') ?? undefined,
+      ),
+      legacy: true,
+    }
+  }
+
+  if (scope === 'user') {
+    return { scope, cwd: resolveAgentHome(), legacy: false }
+  }
+
+  const environmentId = url.searchParams.get('environmentId')
+  const cwd = url.searchParams.get('cwd')
+  if (!environmentId || !cwd) {
+    throw new MarketplaceError(
+      'Marketplace Workspace target requires environmentId and cwd',
+      400,
+    )
+  }
+
+  const authorize = options.canUseEnvironment ?? canUseEnvironment
+  if (!authorize(req, environmentId)) {
+    throw new MarketplaceError('Environment not found', 404)
+  }
+
+  const plane = (options.getPlane ?? getExecutionPlane)()
+  const descriptor = (await plane.registry.listAll()).find(
+    environment => environment.id === environmentId,
+  )
+  if (!descriptor) throw new MarketplaceError('Environment not found', 404)
+  if (descriptor.kind === 'ssh') {
+    throw new MarketplaceError(SSH_MARKETPLACE_TARGET_DISABLED_REASON, 409)
+  }
+  if (descriptor.kind !== 'local') {
+    throw new MarketplaceError(
+      'Marketplace Workspace targets support local environments only',
+      400,
+    )
+  }
+  if (!path.isAbsolute(cwd)) {
+    throw new MarketplaceError(
+      'Marketplace Workspace target cwd must be an absolute path',
+      400,
+    )
+  }
+
+  let workspace: WorkspaceHandle
+  try {
+    workspace = await plane.workspaces.normalizeHandle({ environmentId, cwd })
+    const stats = await plane.workspaces.stat(workspace, workspace.cwd)
+    if (stats.type !== 'dir') {
+      throw new MarketplaceError(
+        'Marketplace Workspace target cwd must be a directory',
+        400,
+      )
+    }
+  } catch (error) {
+    if (error instanceof MarketplaceError) throw error
+    throw new MarketplaceError(
+      'Marketplace Workspace target cwd was not found',
+      404,
+    )
+  }
+
+  return {
+    scope: 'workspace',
+    cwd: workspace.cwd,
+    workspace,
+    legacy: false,
+  }
+}
+
+export function createMarketplaceRouter(
+  options: MarketplaceTargetResolverDeps = {},
+) {
   return async function marketplaceRouter(
     req: IncomingMessage,
     res: ServerResponse,
   ): Promise<boolean> {
     const url = new URL(req.url ?? '/', 'http://agent.local')
     if (!url.pathname.startsWith('/marketplaces')) return false
-    const cwd = resolveRequestCwd(
-      req,
-      url.searchParams.get('workspace') ?? undefined,
-    )
 
     try {
+      const { cwd } = await resolveMarketplaceTarget(req, url, options)
       const ctx = identityContext(req)
       if (req.method === 'GET' && url.pathname === '/marketplaces/providers') {
         const providers = getMarketplaceProviders(cwd)

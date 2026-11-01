@@ -12,10 +12,13 @@ import {
   trackTurnTokens,
 } from '../../server/quota.js'
 import { attachUsageTelemetry, flushUsage } from '../../server/telemetry.js'
-import { endTurn, getSession, tryBeginTurn } from '../../session/store.js'
-import { findSessionLocation } from '../../session/session-index.js'
+import { endTurn, tryBeginTurn } from '../../session/store.js'
 import { formatScheduledPrompt } from './scheduled-prompt.js'
-import { isScheduledTasksEnabled } from './settings.js'
+import { resolveScheduledTaskContext } from './settings.js'
+import { getCloudWorkspaceManager } from '../cloud-workspaces/index.js'
+import { parseCloudEnvironmentId } from '../../execution/providers/cloud/cloud-provider.js'
+import type { Session } from '../../core/types.js'
+import type { CloudWorkspaceManager } from '../cloud-workspaces/manager.js'
 import {
   computeNextRunAtMs,
   isRecurringTaskAged,
@@ -28,30 +31,45 @@ import {
   type ScheduledTask,
 } from './types.js'
 
+export function isScheduledWorkspaceAvailable(
+  session: Pick<Session, 'workspace'>,
+  manager: CloudWorkspaceManager | null = getCloudWorkspaceManager(),
+): boolean {
+  const workspaceId = parseCloudEnvironmentId(session.workspace?.environmentId)
+  if (!workspaceId) return true
+  return manager?.get(workspaceId)?.status === 'ready'
+}
+
 export async function fireScheduledTask(
   task: ScheduledTask,
   nowMs = Date.now(),
 ): Promise<FireResult> {
-  if (!isScheduledTasksEnabled(task.cwd)) return 'disabled'
+  let context
+  try {
+    context = resolveScheduledTaskContext(task)
+  } catch (error) {
+    console.warn(
+      `[cron] settings check failed for ${task.id}: ${
+        error instanceof Error ? error.message : error
+      }`,
+    )
+    return 'disabled'
+  }
+  if (!context) {
+    removeCronTasks([task.id])
+    return 'missing'
+  }
+  if (!context.enabled) return 'disabled'
+  const { agentHome, session, cwd } = context
 
-  const loc = findSessionLocation(task.sessionId)
-  if (!loc) {
+  if (!tryBeginTurn(session.id, agentHome)) return 'busy'
+
+  if (!isScheduledWorkspaceAvailable(session)) {
+    endTurn(session.id)
     removeCronTasks([task.id])
     return 'missing'
   }
 
-  const agentHome = loc.agentHome
-  const session = runWithRequestScope({ agentHome, cwd: task.cwd }, () =>
-    getSession(task.sessionId, { agentHome }),
-  )
-  if (!session) {
-    removeCronTasks([task.id])
-    return 'missing'
-  }
-
-  if (!tryBeginTurn(session.id)) return 'busy'
-
-  const cwd = session.workspace?.cwd ?? task.cwd
   const eventBus = new EventBus()
   const quotaUser = session.ownerEmail
   const quotaEventId = `${session.id}:cron:${randomUUID()}`

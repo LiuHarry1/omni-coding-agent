@@ -1,146 +1,102 @@
-import type { DirEntry, FileStat, FsPort, ReadOpts } from '../../types.js'
-import { shQuote, sshExecOk } from './ssh-exec.js'
+import type { ChildProcess } from 'child_process'
+import {
+  ShellFsPort,
+  type ShellResult,
+  type ShellRunOptions,
+} from '../../shell-fs.js'
+import { sshSpawn } from './ssh-exec.js'
 import type { ParsedSshHost } from './ssh-config.js'
 
-/**
- * Build a remote shell expression for a path.
- * Bare `~` / `~/…` must NOT be fully single-quoted or tilde never expands
- * (that caused HTTP 500 ERR:not_a_dir when browsing SSH hosts).
- */
-export function remotePathShell(filePath: string): string {
-  const p = (filePath || '~').trim()
-  if (p === '~' || p === '') return '"$HOME"'
-  if (p.startsWith('~/')) {
-    return `"$HOME"/${shQuote(p.slice(2))}`
-  }
-  if (p === '$HOME') return '"$HOME"'
-  if (p.startsWith('$HOME/')) {
-    return `"$HOME"/${shQuote(p.slice('$HOME/'.length))}`
-  }
-  return shQuote(p)
-}
+export { remotePathShell } from '../../shell-fs.js'
 
 /**
  * Remote filesystem via `ssh` + shell helpers (no ssh2 dependency).
  */
-export class SshFsPort implements FsPort {
-  constructor(private host: ParsedSshHost) {}
+export class SshFsPort extends ShellFsPort {
+  private active = 0
+  private readonly waiters: Array<() => void> = []
+  private readonly pendingReads = new Map<string, Promise<unknown>>()
 
-  async list(dirPath: string): Promise<DirEntry[]> {
-    const { dir, entries } = await this.listResolved(dirPath)
-    // Preserve resolved dir for callers that only use list()
-    Object.defineProperty(entries, 'resolvedDir', {
-      value: dir,
-      enumerable: false,
-    })
-    return entries
+  constructor(
+    host: ParsedSshHost,
+    private readonly maxConcurrency = 4,
+  ) {
+    super({ spawn: script => sshSpawn(host, script) })
   }
 
-  async listResolved(
-    dirPath: string,
-  ): Promise<{ dir: string; entries: DirEntry[] }> {
-    const expr = remotePathShell(dirPath)
-    const script = `
-set -e
-d=${expr}
-if [ ! -d "$d" ]; then
-  echo "ERR:not_a_dir"
-  echo "path=$d" >&2
-  exit 1
-fi
-d=$(cd "$d" && pwd -P)
-echo "DIR:$d"
-for e in "$d"/.* "$d"/*; do
-  [ -e "$e" ] || continue
-  base=$(basename "$e")
-  [ "$base" = "." ] || [ "$base" = ".." ] && continue
-  if [ -d "$e" ]; then t=d
-  elif [ -f "$e" ]; then t=f
-  else t=o; fi
-  printf '%s\\t%s\\n' "$base" "$t"
-done
-`
-    let out: string
+  private async acquire(): Promise<() => void> {
+    if (this.active >= this.maxConcurrency) {
+      await new Promise<void>(resolve => this.waiters.push(resolve))
+    }
+    this.active += 1
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.active -= 1
+      this.waiters.shift()?.()
+    }
+  }
+
+  private async withSlot<T>(operation: () => Promise<T>): Promise<T> {
+    const release = await this.acquire()
     try {
-      out = await sshExecOk(this.host, script)
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err)
-      throw new Error(
-        `Cannot list remote directory "${dirPath}": ${msg}. ` +
-          `Hint: use an absolute path or ~/… (home is expanded on the remote).`,
-        { cause: err },
-      )
+      return await operation()
+    } finally {
+      release()
     }
+  }
 
-    let resolvedDir = dirPath
-    const entries: DirEntry[] = []
-    for (const line of out.split(/\r?\n/)) {
-      if (!line.trim()) continue
-      if (line.startsWith('DIR:')) {
-        resolvedDir = line.slice(4).trim() || resolvedDir
-        continue
-      }
-      if (line.startsWith('ERR:')) continue
-      const [name, y] = line.split('\t')
-      if (!name || name === '.' || name === '..') continue
-      const type: DirEntry['type'] =
-        y === 'd' ? 'dir' : y === 'f' ? 'file' : 'other'
-      entries.push({
-        name,
-        path: `${resolvedDir.replace(/\/$/, '')}/${name}`,
-        type,
-      })
-    }
-    entries.sort((a, b) => {
-      if (a.type !== b.type) return a.type === 'dir' ? -1 : 1
-      return a.name.localeCompare(b.name)
+  private coalesce<T>(key: string, operation: () => Promise<T>): Promise<T> {
+    const existing = this.pendingReads.get(key) as Promise<T> | undefined
+    if (existing) return existing
+    const pending = operation().finally(() => {
+      if (this.pendingReads.get(key) === pending) this.pendingReads.delete(key)
     })
-    return { dir: resolvedDir, entries }
+    this.pendingReads.set(key, pending)
+    return pending
   }
 
-  async stat(filePath: string): Promise<FileStat> {
-    const expr = remotePathShell(filePath)
-    const script = `
-p=${expr}
-if [ ! -e "$p" ]; then echo 'ERR:enoent'; exit 1; fi
-if [ -d "$p" ]; then
-  t=dir
-  rp=$(cd "$p" && pwd -P)
-else
-  [ -f "$p" ] && t=file || t=other
-  rp=$(cd "$(dirname "$p")" && pwd -P)/$(basename "$p")
-fi
-size=$(wc -c < "$p" 2>/dev/null || echo 0)
-mtime=$(stat -c %Y "$p" 2>/dev/null || stat -f %m "$p" 2>/dev/null || echo 0)
-printf '%s\\t%s\\t%s\\t%s\\n' "$t" "$size" "$mtime" "$rp"
-`
-    const out = (await sshExecOk(this.host, script)).trim()
-    if (out.startsWith('ERR:')) {
-      throw new Error(`Remote path not found: ${filePath}`)
-    }
-    const [type, size, mtime, resolved] = out.split('\t')
-    return {
-      path: resolved || filePath,
-      type: (type as FileStat['type']) || 'other',
-      size: Number(size) || 0,
-      mtimeMs: (Number(mtime) || 0) * 1000,
+  override run(script: string, opts?: ShellRunOptions): Promise<ShellResult> {
+    return this.withSlot(() => super.run(script, opts))
+  }
+
+  override async spawn(script: string): Promise<ChildProcess> {
+    const release = await this.acquire()
+    try {
+      const child = await super.spawn(script)
+      child.once('close', release)
+      child.once('error', release)
+      return child
+    } catch (error) {
+      release()
+      throw error
     }
   }
 
-  async read(filePath: string, opts?: ReadOpts): Promise<Uint8Array | string> {
-    const out = await sshExecOk(this.host, `cat ${remotePathShell(filePath)}`)
-    if (opts?.encoding) return out
-    return new TextEncoder().encode(out)
+  override listResolved(dirPath: string) {
+    return this.coalesce(`list\0${dirPath}`, () => super.listResolved(dirPath))
   }
 
-  async realpath(filePath: string): Promise<string> {
-    const expr = remotePathShell(filePath)
-    const out = await sshExecOk(
-      this.host,
-      `p=${expr}; if [ -d "$p" ]; then cd "$p" && pwd -P; elif [ -e "$p" ]; then cd "$(dirname "$p")" && echo "$(pwd -P)/$(basename "$p")"; else echo ${shQuote(filePath)}; fi`,
+  override stat(filePath: string) {
+    return this.coalesce(`stat\0${filePath}`, () => super.stat(filePath))
+  }
+
+  override inspectPath(filePath: string) {
+    return this.coalesce(`inspect\0${filePath}`, () =>
+      super.inspectPath(filePath),
     )
-    return out.trim().split(/\r?\n/)[0] || filePath
   }
 
-  async close(): Promise<void> {}
+  override readHead(filePath: string, maxBytes: number) {
+    return this.coalesce(`head\0${maxBytes}\0${filePath}`, () =>
+      super.readHead(filePath, maxBytes),
+    )
+  }
+
+  override realpath(filePath: string) {
+    return this.coalesce(`realpath\0${filePath}`, () =>
+      super.realpath(filePath),
+    )
+  }
 }

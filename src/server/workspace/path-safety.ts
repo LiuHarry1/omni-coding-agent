@@ -28,3 +28,10 @@ export function assertSafeName(name: string): void {
     throw new Error('Name must not contain path separators')
   if (name.includes('\0')) throw new Error('Invalid name')
 }
+
+/** True when any path segment addresses Git's writable metadata directory. */
+export function containsGitMetadataPath(input: string): boolean {
+  return String(input)
+    .split(/[\\/]+/)
+    .some(segment => segment.toLowerCase() === '.git')
+}

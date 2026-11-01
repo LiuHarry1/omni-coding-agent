@@ -8,12 +8,9 @@ import {
 import type { WorkspaceHandle } from './types.js'
 import { getDefaultWorkspace } from '../core/workspace.js'
 
+/** Any non-local environment: SSH hosts and cloud workspace containers. */
 export function isRemoteWorkspace(workspace?: WorkspaceHandle | null): boolean {
-  return Boolean(
-    workspace &&
-    workspace.environmentId !== 'local' &&
-    workspace.environmentId.startsWith('ssh:'),
-  )
+  return Boolean(workspace && workspace.environmentId !== 'local')
 }
 
 /**

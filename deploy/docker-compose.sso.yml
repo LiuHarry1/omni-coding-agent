@@ -16,7 +16,7 @@
 #         │                              │ quota
 #         │  SSO redirects        ┌──────▼───────┐   ┌───────────┐
 #         └──────────────────────▶│ auth-service │   │ analytics │
-#             ${AUTH_PUBLIC_URL}   │  (external)  │   └───────────┘
+#                 ${AUTH_BASE}     │  (external)  │   └───────────┘
 #                                  └──────────────┘
 #
 #   • The web image serves the SPA and (nginx.sso-proxy.conf) reverse-proxies
@@ -29,6 +29,27 @@
 #     /workspace HTTP refuse paths outside the user dir (application-layer;
 #     bash is not OS-isolated).
 #
+# Cloud workspaces are opt-in. Layer the Cloud override on this base:
+#
+#     agent ──docker.sock──▶ host dockerd ──▶ agent-ws-<id>  (per workspace)
+#       │                                      ├ /workspace  ← volume agent-ws-<id>
+#       └──── docker exec -i ── NDJSON ───────▶└ node worker (uid 1000, cap-drop ALL)
+#
+#   • Users create workspaces in the header (clone a public https repo or
+#     start blank). Tools, bash and git run INSIDE the container; the agent
+#     keeps chats/memory under /workspace/users/<email> and never runs user
+#     code. Containers sit on network `agent-ws` (created on demand, ICC off).
+#   • Idle containers are removed after WORKSPACE_IDLE_MINUTES; the volume
+#     stays, so the next message recreates the container from the latest
+#     image with the repo intact. Deleting a workspace removes its volume.
+#   • The agent base image and Cloud workspace image both need the worker:
+#       npm run build:worker
+#       docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
+#       docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
+#   • Start with:
+#       docker compose -f deploy/docker-compose.sso.yml \
+#         -f deploy/docker-compose.sso.cloud.yml --env-file deploy/.env up -d
+#
 # Required setup (split-origin):
 #   • JWT_SECRET MUST equal the secret your auth-service signs with — that is
 #     the trust anchor (the agent verifies tokens statelessly, no DB/network).
@@ -37,7 +58,7 @@
 #   • Set the three public origins in deploy/.env:
 #       FRONTEND_ORIGIN   = https://app.example.com   (where the SPA is served)
 #       AGENT_PUBLIC_URL  = https://agent.example.com  (browser → agent API)
-#       AUTH_PUBLIC_URL   = https://auth.example.com   (browser → auth-service)
+#       AUTH_BASE         = https://auth.example.com   (browser → auth-service)
 #
 # NOTE: web preview (generated dev-server apps) is DISABLED in this mode —
 # it needs a path-based proxy in front of the agent's dynamic ports, which
@@ -53,72 +74,77 @@ services:
   analytics:
     image: agent-analytics:latest
     ports:
-      - "${ANALYTICS_PORT:-8200}:8200"
+      - '${ANALYTICS_PORT:-8200}:8200'
     environment:
-      MYSQL_HOST: "${MYSQL_HOST:-localhost}"
-      MYSQL_PORT: "${MYSQL_PORT:-3306}"
-      MYSQL_USER: "${MYSQL_USER:-root}"
-      MYSQL_PASSWORD: "${MYSQL_PASSWORD:-xxx}"
-      MYSQL_DATABASE: "${MYSQL_DATABASE:-knowbot}"
+      MYSQL_HOST: '${MYSQL_HOST:-localhost}'
+      MYSQL_PORT: '${MYSQL_PORT:-3306}'
+      MYSQL_USER: '${MYSQL_USER:-root}'
+      MYSQL_PASSWORD: '${MYSQL_PASSWORD:-xxx}'
+      MYSQL_DATABASE: '${MYSQL_DATABASE:-knowbot}'
     restart: unless-stopped
     healthcheck:
       test:
-        ["CMD", "python", "-c",
-         "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8200/healthz').status==200 else 1)"]
+        [
+          'CMD',
+          'python',
+          '-c',
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8200/healthz').status==200 else 1)",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
 
-
   agent:
-    image: ai-agent-tenant:latest 
+    image: ai-agent-tenant:latest
     # Published (NOT just `expose`) — in split mode the browser reaches the
     # agent directly at ${AGENT_PUBLIC_URL}, which must map to this port.
     ports:
-      - "${AGENT_PORT:-4567}:4567"
+      - '${AGENT_PORT:-4567}:4567'
     environment:
       NODE_ENV: production
-      PORT: "4567"
+      HOST: '0.0.0.0'
+      PORT: '4567'
       WORKSPACE: /workspace
       # ── UTF-8 locale: log lines contain CJK user text; without a UTF-8
       #    locale, shells/pagers inside the container render them as <E4><BD>…
-      LANG: "C.UTF-8"
-      LC_ALL: "C.UTF-8"
+      LANG: 'C.UTF-8'
+      LC_ALL: 'C.UTF-8'
       # ── Headless: do NOT serve the SPA; the web service owns the frontend ─
-      SERVE_STATIC: "0"
+      SERVE_STATIC: '0'
       # ── CORS allowlist: the browser calls this API from the web origin ────
       # Must list every frontend origin that talks to this agent.
-      ALLOWED_ORIGINS: "${FRONTEND_ORIGIN:-http://localhost:8090}"
+      ALLOWED_ORIGINS: '${FRONTEND_ORIGIN:-http://localhost:8090}'
       # ── Public URL for ECharts preview links (GET /workspace/preview) ───
-      AGENT_PUBLIC_URL: "${AGENT_PUBLIC_URL:-http://localhost:4567}"
+      AGENT_PUBLIC_URL: '${AGENT_PUBLIC_URL:-http://localhost:4567}'
       # ── Auth + per-user workspace pinning ────────────────────────────────
-      AUTH_ENABLED: "true"
+      AUTH_ENABLED: 'true'
       # MUST match the external auth-service's secret. Required.
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required and must match the auth service}"
-      JWT_ALGORITHM: "HS256"
+      JWT_SECRET: '${JWT_SECRET:?JWT_SECRET is required and must match the auth service}'
+      JWT_ALGORITHM: 'HS256'
       USERS_ROOT: /workspace/users
-      WORKSPACE_SEED_DIR: "/opt/workspace-seed"
+      WORKSPACE_SEED_DIR: '/opt/workspace-seed'
       # Process-scoped cron store (sessions live under each user's .ai-agent/projects).
       AI_AGENT_DATA_DIR: /app/.ai-agent
       # AUTH_ENABLED: JWT gate + pin per-user workspace. File boundary uses
       # derived mode dontAsk (outside path → deny, no Allow UI). Bash is NOT OS-isolated.
       # ── Analytics + daily token quota (optional) ─────────────────────────
-      QUOTA_ENABLED: "${QUOTA_ENABLED:-false}"
-      ANALYTICS_URL: "${ANALYTICS_URL:-http://analytics:8200}"
-      ANALYTICS_INGEST_API_KEY: "${ANALYTICS_INGEST_API_KEY:-}"
+      QUOTA_ENABLED: '${QUOTA_ENABLED:-false}'
+      ANALYTICS_URL: '${ANALYTICS_URL:-http://analytics:8200}'
+      ANALYTICS_INGEST_API_KEY: '${ANALYTICS_INGEST_API_KEY:-}'
       # ── Provider secrets ─────────────────────────────────────────────────
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
-      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
-      GOOGLE_GENERATIVE_AI_API_KEY: "${GOOGLE_GENERATIVE_AI_API_KEY:-}"
+      OPENAI_API_KEY: '${OPENAI_API_KEY:-}'
+      ANTHROPIC_API_KEY: '${ANTHROPIC_API_KEY:-}'
+      DEEPSEEK_API_KEY: '${DEEPSEEK_API_KEY:-}'
+      GOOGLE_GENERATIVE_AI_API_KEY: '${GOOGLE_GENERATIVE_AI_API_KEY:-}'
       # ── Preview proxy removed (PublishPreview deleted) ────────────────────
-      SEARXNG_URL: "${SEARXNG_URL:-http://localhost:8888}"
-      WEB_SEARCH_PROVIDER: "${WEB_SEARCH_PROVIDER:-exa}"
+      SEARXNG_URL: '${SEARXNG_URL:-http://localhost:8888}'
+      WEB_SEARCH_PROVIDER: '${WEB_SEARCH_PROVIDER:-exa}'
     volumes:
       - ./workspaces:/workspace:rw
-      # Process data (cron scheduled_tasks.json). Chat transcripts live under
-      # each user workspace: /workspace/users/<email>/.ai-agent/projects/
+      # Process data (cron scheduled_tasks.json, cloud-workspaces/*.json).
+      # Chat transcripts live under each user home:
+      # /workspace/users/<email>/.ai-agent/projects/
       - ./agent-data:/app/.ai-agent:rw
     depends_on:
       analytics:
@@ -126,8 +152,12 @@ services:
     restart: unless-stopped
     healthcheck:
       test:
-        ["CMD", "node", "-e",
-         "require('http').get('http://127.0.0.1:4567/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+        [
+          'CMD',
+          'node',
+          '-e',
+          "require('http').get('http://127.0.0.1:4567/health',(r)=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -145,17 +175,17 @@ services:
       - seccomp:unconfined
     environment:
       # Turns on the SPA's SSO login flow (window.__APP_CONFIG__.authEnabled).
-      AUTH_ENABLED: "true"
+      AUTH_ENABLED: 'true'
       # Hide Remote SSH picker in tenant SSO deploys.
-      REMOTE_ENABLED: "false"
+      REMOTE_ENABLED: 'false'
       # Empty = same-origin (nginx proxies agent APIs). Do not point this at
       # :4567 on a LAN IP — Chrome will stall GET /workspace with no console error.
-      API_BASE: ""
+      API_BASE: ''
       # Browser → auth-service origin for /sso/authorize + /sso/logout.
       # NOTE: the static web image's web-runtime-config.sh reads AUTH_BASE
       # (NOT AUTH_SERVICE_URL — that's the single-origin admin proxy's var).
       # If left empty the SPA redirects SSO to its own origin and loops.
-      AUTH_BASE: "${AUTH_BASE:-http://localhost:52320}"
+      AUTH_BASE: '${AUTH_BASE:-http://localhost:52320}'
       # WEB_PASSWORD intentionally unset → Basic Auth OFF (login = auth-service).
     volumes:
       - ./nginx.sso-proxy.conf:/etc/nginx/conf.d/default.conf:ro
@@ -163,10 +193,10 @@ services:
       agent:
         condition: service_healthy
     ports:
-      - "${WEB_PORT:-8090}:80"
+      - '${WEB_PORT:-8090}:80'
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1/healthz"]
+      test: ['CMD', 'wget', '-q', '-O', '-', 'http://127.0.0.1/healthz']
       interval: 30s
       timeout: 5s
       retries: 3

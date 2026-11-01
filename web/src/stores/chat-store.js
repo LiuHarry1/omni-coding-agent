@@ -9,6 +9,10 @@
 import { create } from 'zustand'
 import { agentApi } from '../lib/api/agent.js'
 import {
+  setWorkspaceSwitchGuard,
+  useWorkspaceContextStore,
+} from './workspace-context-store.js'
+import {
   isAgentTypeAllowedByPicker,
   isModeAllowedByPicker,
   isSpecialistOnlyPicker,
@@ -33,16 +37,27 @@ import {
   streamSessionLive,
 } from './chat/stream-chat.js'
 
+function workspaceSnapshot() {
+  const { handle, cwd } = useWorkspaceContextStore.getState()
+  const workspace = handle?.cwd || cwd || undefined
+  const environmentId = handle?.environmentId || 'local'
+  return {
+    workspace,
+    environmentId,
+    handle: workspace ? { environmentId, cwd: workspace } : undefined,
+  }
+}
+
 function syncSessionPickerSelection(get, { mode, agentType }) {
-  const { currentSessionId, workspace } = get()
+  const { currentSessionId } = get()
   if (!currentSessionId) return
-  const ws = workspace || undefined
+  const { workspace } = workspaceSnapshot()
   if (mode != null) {
     agentApi
       .setSessionMode({
         session_id: currentSessionId,
         mode,
-        workspace: ws,
+        workspace,
       })
       .catch(() => {})
   }
@@ -51,7 +66,7 @@ function syncSessionPickerSelection(get, { mode, agentType }) {
       .setSessionAgent({
         session_id: currentSessionId,
         agentType,
-        workspace: ws,
+        workspace,
       })
       .catch(() => {})
   }
@@ -85,10 +100,6 @@ export const useChatStore = create((set, get) => {
     sessions: [],
     currentSessionId: localStorage.getItem('coding_agent_session_id') || null,
     sessionLoading: Boolean(localStorage.getItem('coding_agent_session_id')),
-    /** Display label e.g. `atsrws0049:/home/...` when using execution environments. */
-    workspaceLabel: null,
-    /** Bound WorkspaceHandle from execution plane. */
-    workspaceHandle: null,
 
     // ── Transcript (flat bubbles) ──────────────
     bubbleOrder: [],
@@ -111,7 +122,6 @@ export const useChatStore = create((set, get) => {
     liveNeeded: false,
 
     // ── UI state ────────────────────────────────
-    workspace: '',
     theme: localStorage.getItem('coding_agent_theme') || 'dark',
 
     // ── Agent mode (Agent / Ask / Plan) ─────────
@@ -134,8 +144,6 @@ export const useChatStore = create((set, get) => {
     ...mutators,
 
     // ── Actions ─────────────────────────────────
-
-    setWorkspace: workspace => set({ workspace }),
 
     /**
      * Apply workspace picker from GET /agents.
@@ -174,7 +182,9 @@ export const useChatStore = create((set, get) => {
     loadAgentPicker: async workspace => {
       set({ agentPickerLoaded: false })
       try {
-        const data = await agentApi.getAgents(workspace || undefined)
+        const data = await agentApi.getAgents(
+          workspace || workspaceSnapshot().handle,
+        )
         const picker = data?.picker
         const modes = Array.isArray(picker?.modes)
           ? picker.modes
@@ -216,13 +226,14 @@ export const useChatStore = create((set, get) => {
       if (specialistOnly && mode === 'agent') {
         localStorage.setItem('coding_agent_mode', 'agent')
         set({ agentMode: 'agent' })
-        const { currentSessionId, workspace, agentType } = get()
+        const { currentSessionId, agentType } = get()
+        const { workspace } = workspaceSnapshot()
         if (currentSessionId) {
           agentApi
             .setSessionMode({
               session_id: currentSessionId,
               mode: 'agent',
-              workspace: workspace || undefined,
+              workspace,
             })
             .catch(() => {})
           if (agentType) {
@@ -230,7 +241,7 @@ export const useChatStore = create((set, get) => {
               .setSessionAgent({
                 session_id: currentSessionId,
                 agentType,
-                workspace: workspace || undefined,
+                workspace,
               })
               .catch(() => {})
           }
@@ -241,13 +252,14 @@ export const useChatStore = create((set, get) => {
       localStorage.setItem('coding_agent_mode', mode)
       localStorage.removeItem('coding_agent_type')
       set({ agentMode: mode, agentType: null })
-      const { currentSessionId, workspace } = get()
+      const { currentSessionId } = get()
+      const { workspace } = workspaceSnapshot()
       if (currentSessionId) {
         agentApi
           .setSessionMode({
             session_id: currentSessionId,
             mode,
-            workspace: workspace || undefined,
+            workspace,
           })
           .catch(() => {})
         if (mode === 'agent') {
@@ -255,7 +267,7 @@ export const useChatStore = create((set, get) => {
             .setSessionAgent({
               session_id: currentSessionId,
               agentType: null,
-              workspace: workspace || undefined,
+              workspace,
             })
             .catch(() => {})
         }
@@ -274,13 +286,14 @@ export const useChatStore = create((set, get) => {
         localStorage.removeItem('coding_agent_type')
         set({ agentType: null })
       }
-      const { currentSessionId, workspace } = get()
+      const { currentSessionId } = get()
+      const { workspace } = workspaceSnapshot()
       if (currentSessionId) {
         agentApi
           .setSessionAgent({
             session_id: currentSessionId,
             agentType: next,
-            workspace: workspace || undefined,
+            workspace,
           })
           .catch(() => {})
       }
@@ -517,6 +530,7 @@ export const useChatStore = create((set, get) => {
         const [data, scheduled] = await Promise.all([
           agentApi.getSessionMessages(id),
           agentApi.getScheduledTasks(id).catch(() => ({ tasks: [] })),
+          useWorkspaceContextStore.getState().syncFromSession(id),
         ])
         if (get().currentSessionId !== id) return
         const msgs = sanitizeMessagesForUi(
@@ -613,6 +627,7 @@ export const useChatStore = create((set, get) => {
 
     clearSession: () => {
       get().abortController?.abort()
+      void useWorkspaceContextStore.getState().syncFromSession(null)
       localStorage.removeItem('coding_agent_session_id')
       set({
         currentSessionId: null,
@@ -804,13 +819,14 @@ export const useChatStore = create((set, get) => {
         }))
       }
 
+      const workspace = workspaceSnapshot()
       const body = {
         message: text,
-        workspace: get().workspaceHandle?.cwd || get().workspace,
+        workspace: workspace.workspace,
         session_id: get().currentSessionId,
         mode: get().agentMode,
         agentType: get().agentType,
-        environmentId: get().workspaceHandle?.environmentId || 'local',
+        environmentId: workspace.environmentId,
       }
       if (wireImages.length > 0) body.images = wireImages
       if (wireAttachments.length > 0) body.attachments = wireAttachments
@@ -917,6 +933,13 @@ export const useChatStore = create((set, get) => {
     /** @deprecated Prefer applySseEvent via stream; kept for tests / harness. */
     _handleSSE: (_event, data) => handleSse(data),
   }
+})
+
+setWorkspaceSwitchGuard(() => {
+  const chat = useChatStore.getState()
+  if (chat.isStreaming || chat.sessionLoading) return false
+  if (chat.bubbleOrder.length > 0) chat.clearSession()
+  return true
 })
 
 // Dev-only: browser / CDP harness can inject transcript fixtures.

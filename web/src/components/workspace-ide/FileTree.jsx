@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useWorkspaceIdeStore } from '../../stores/workspace-ide-store.js'
-import { triggerDownload } from '../../lib/api/workspace.js'
+import {
+  downloadEntry,
+  useWorkspaceIdeStore,
+} from '../../stores/workspace-ide-store.js'
 import { fileName } from '../../lib/utils.js'
 import TreeContextMenu from './TreeContextMenu.jsx'
 import {
@@ -18,7 +20,7 @@ import {
  *
  * Directories also expose hover actions (+File / +Folder) that trigger an
  * inline input row inside the directory. The actual filesystem write goes
- * through `workspaceApi.createFile / createFolder` from the store.
+ * through the store, which targets the bound environment's file API.
  */
 const APP_CONFIG_DIR = '.ai-agent'
 
@@ -61,7 +63,11 @@ export default function FileTree({ rootPath }) {
         menu={ctxMenu}
         onClose={() => setCtxMenu(null)}
         onDelete={t => deleteEntry(t)}
-        onDownload={t => triggerDownload(t.path)}
+        onDownload={t =>
+          downloadEntry(t.path).catch(e =>
+            window.alert(e.message || 'Download failed'),
+          )
+        }
       />
     </div>
   )
@@ -201,12 +207,38 @@ function DirNode({ dirPath, depth, isWorkspaceRoot = false, onContextMenu }) {
       {isExpanded &&
         data &&
         (data.entries.length === 0 && !showInlineRow ? (
-          <div
-            className='tree-row tree-empty'
-            style={{ paddingLeft: 8 + (depth + 1) * 14 }}
-          >
-            (empty)
-          </div>
+          isWorkspaceRoot ? (
+            <div className='tree-root-empty'>
+              <span className='tree-root-empty__icon' aria-hidden='true'>
+                <FolderIcon open />
+              </span>
+              <strong>This workspace is empty</strong>
+              <span>
+                Create a file, add a folder, or upload an existing project.
+              </span>
+              <div className='tree-root-empty__actions'>
+                <button type='button' onClick={handleAction('file')}>
+                  <NewFileIcon size={13} />
+                  New file
+                </button>
+                <button type='button' onClick={handleAction('folder')}>
+                  <NewFolderIcon size={13} />
+                  New folder
+                </button>
+                <button type='button' onClick={handleUploadClick}>
+                  <UploadIcon size={13} />
+                  Upload
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div
+              className='tree-row tree-empty'
+              style={{ paddingLeft: 8 + (depth + 1) * 14 }}
+            >
+              (empty)
+            </div>
+          )
         ) : (
           data.entries.map(entry =>
             entry.isDir ? (

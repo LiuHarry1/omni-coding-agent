@@ -49,10 +49,15 @@ import {
 } from '../core/workspace-load.js'
 import type { AgentDefinition, RunAgentFn } from '../core/types.js'
 import type { SkillDefinition } from '../skills/types.js'
-import { resolveRequestCwd } from './request-cwd.js'
+import {
+  resolveRequestCwd,
+  resolveStatusWorkspaceHandle,
+} from './request-cwd.js'
 import { resolveSettings } from '../core/settings-manager.js'
-import { resolveAgentPicker } from '../core/agent-picker.js'
+import { loadAgentPickerWorkspace } from '../core/agent-picker-workspace.js'
 import { createModelRegistry } from '../core/llm/index.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
+import { canUseEnvironment } from './routes/execution.js'
 
 function sendJSON(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' })
@@ -206,17 +211,24 @@ export function createSkillsApi({ runAgent }: SkillsApiOptions) {
       return true
     }
 
-    // GET /agents?workspace=/path  (workspace ignored when auth-pinned)
+    // GET /agents?environmentId=&cwd= (legacy ?workspace= remains local)
     if (method === 'GET' && pathOnly === '/agents') {
-      const cwd = resolveRequestWorkspace(req, query.get('workspace'))
       try {
-        const { agents, plugins } = await loadWorkspaceContributions(cwd)
+        const handle = resolveStatusWorkspaceHandle(req, url)
+        if (!canUseEnvironment(req, handle.environmentId)) {
+          sendJSON(res, 404, { error: 'Environment not found' })
+          return true
+        }
+        const { contributions, picker } = await loadAgentPickerWorkspace(
+          handle,
+          handle.cwd,
+        )
+        const { agents, plugins } = contributions
         const { activeAgents, allAgents, errors: agentErrors } = agents
         const resolved = resolveAgentOverrides(allAgents, activeAgents)
-        const settings = resolveSettings(cwd)
-        const picker = resolveAgentPicker(settings.config.agents, activeAgents)
         sendJSON(res, 200, {
-          workspace: cwd,
+          workspace: handle.cwd,
+          environmentId: handle.environmentId,
           agents: activeAgents.map(a => toAgentSummary(a)),
           all: resolved.map(a => toAgentSummary(a)),
           sourceGroups: AGENT_SOURCE_GROUPS,
@@ -271,6 +283,13 @@ async function handleSkillInvoke(args: {
   wantsStream: boolean
 }): Promise<void> {
   const { req, res, skillName, body, runAgent, wantsStream } = args
+  if (isCloudWorkspacesEnabled()) {
+    sendJSON(res, 409, {
+      error:
+        'Direct skill invocation is not available for cloud workspaces; invoke the skill from a workspace-bound chat.',
+    })
+    return
+  }
   const cwd = resolveRequestWorkspace(req, body.workspace)
   const resolvedSettings = resolveSettings(cwd)
   const models = createModelRegistry(resolvedSettings.config.models)

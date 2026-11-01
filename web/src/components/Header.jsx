@@ -1,125 +1,110 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { useWorkspaceIdeStore } from '../stores/workspace-ide-store.js'
+import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
+import { useCapabilitiesStore } from '../stores/capabilities-store.js'
 import { workspaceApi } from '../lib/api/workspace.js'
-import {
-  factoryResetDesktop,
-  isDesktop,
-  pickWorkspaceDir,
-} from '../lib/desktop.js'
-import {
-  authEnabled,
-  getUser,
-  isSuperUser,
-  logout,
-  remoteEnabled,
-} from '../lib/auth.js'
+import { factoryResetDesktop, isDesktop } from '../lib/desktop.js'
+import { authEnabled, getUser, logout } from '../lib/auth.js'
 import SessionSwitcher from './SessionSwitcher.jsx'
 import BaizeLogo from './BaizeLogo.jsx'
-import WorkspacePanel from './WorkspacePanel.jsx'
-import MarketplacePanel from './MarketplacePanel.jsx'
-import EnvironmentPicker from './EnvironmentPicker.jsx'
+import ExtensionsHub from './extensions/ExtensionsHub.jsx'
+import WorkspaceManager from './workspaces/WorkspaceManager.jsx'
+import WorkspaceQuickSwitcher from './workspaces/WorkspaceQuickSwitcher.jsx'
+import { useCloudWorkspaceStore } from '../stores/cloud-workspace-store.js'
 import { APP_NAME } from '../lib/brand.js'
 import { shortDisplayPath } from '../lib/utils.js'
 
 export default function Header() {
-  // SSO mode: regular users are pinned server-side, so the folder picker is
-  // read-only. Super may browse USERS_ROOT (all tenant workspaces).
-  const locked = authEnabled() && !isSuperUser()
-  const showRemote = remoteEnabled()
   const user = authEnabled() ? getUser() : null
   const desktopApp = isDesktop()
 
-  const workspace = useChatStore(s => s.workspace)
-  const setWorkspace = useChatStore(s => s.setWorkspace)
+  const workspace = useWorkspaceContextStore(s => s.cwd)
+  const workspaceLabel = useWorkspaceContextStore(s => s.label)
+  const applyWorkspace = useWorkspaceContextStore(s => s.apply)
   const toggleWorkspaceIde = useWorkspaceIdeStore(s => s.toggle)
   const workspaceIdeOpen = useWorkspaceIdeStore(s => s.open)
   const toggleTheme = useChatStore(s => s.toggleTheme)
   const theme = useChatStore(s => s.theme)
   const clearSession = useChatStore(s => s.clearSession)
   const isStreaming = useChatStore(s => s.isStreaming)
+  const loadCloudWorkspaces = useCloudWorkspaceStore(s => s.load)
+  const capabilitiesLoaded = useCapabilitiesStore(s => s.loaded)
+  const runtimeProfile = useCapabilitiesStore(s => s.profile)
+  const workspaceCapability = useCapabilitiesStore(s => s.manifest.workspace)
+  const extensionSections = useCapabilitiesStore(
+    s => s.manifest.extensions.sections,
+  )
+  const cloudProfile = runtimeProfile === 'cloud'
+  const extensionDisabledReasons = [
+    ...new Set(
+      Object.values(extensionSections)
+        .filter(section => !section.enabled && section.reason)
+        .map(section => section.reason),
+    ),
+  ]
 
-  const [dropdownOpen, setDropdownOpen] = useState(false)
-  const [dropdownData, setDropdownData] = useState(null)
-  /** When non-null, the dropdown renders an inline "new folder" input row. */
-  const [newFolderName, setNewFolderName] = useState(null)
-  const [newFolderError, setNewFolderError] = useState(null)
-  const [workspacePanelOpen, setWorkspacePanelOpen] = useState(false)
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false)
+  const [workspaceSwitcherOpen, setWorkspaceSwitcherOpen] = useState(false)
+  const [workspaceManagerOpen, setWorkspaceManagerOpen] = useState(false)
+  const [extensionsHubOpen, setExtensionsHubOpen] = useState(false)
   const [accountOpen, setAccountOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
   const [resetConfirmation, setResetConfirmation] = useState('')
   const [resetBusy, setResetBusy] = useState(false)
   const [resetError, setResetError] = useState(null)
-  const dropdownRef = useRef(null)
   const accountRef = useRef(null)
+  const workspaceMenuRef = useRef(null)
 
   useEffect(() => {
+    if (!capabilitiesLoaded) return
+    if (cloudProfile) {
+      void loadCloudWorkspaces()
+      return
+    }
+    const applyDefault = cwd => {
+      if (useWorkspaceContextStore.getState().handle) return
+      applyWorkspace(
+        { environmentId: 'local', cwd },
+        {
+          label: cwd,
+          profile: 'desktop',
+          invalidateSync: false,
+        },
+      )
+    }
     workspaceApi
       .getRoot()
-      .then(d => setWorkspace(d.workspace))
-      .catch(() => setWorkspace('.'))
-  }, [setWorkspace])
+      .then(data => applyDefault(data.workspace))
+      .catch(() => applyDefault('.'))
+  }, [applyWorkspace, capabilitiesLoaded, cloudProfile, loadCloudWorkspaces])
 
   useEffect(() => {
     const handler = e => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setDropdownOpen(false)
-      }
       if (accountRef.current && !accountRef.current.contains(e.target)) {
         setAccountOpen(false)
+      }
+      if (
+        workspaceMenuRef.current &&
+        !workspaceMenuRef.current.contains(e.target)
+      ) {
+        setWorkspaceSwitcherOpen(false)
       }
     }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [])
 
-  const loadDirectory = useCallback(
-    async dir => {
-      try {
-        const data = await workspaceApi.listDir(dir)
-        setDropdownData(data)
-        setWorkspace(data.dir)
-        setDropdownOpen(true)
-        setNewFolderName(null)
-        setNewFolderError(null)
-      } catch {
-        setDropdownData(null)
+  useEffect(() => {
+    if (!workspaceSwitcherOpen) return undefined
+    const closeOnEscape = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setWorkspaceSwitcherOpen(false)
       }
-    },
-    [setWorkspace],
-  )
-
-  const handleCreateFolder = async () => {
-    const name = (newFolderName || '').trim()
-    if (!name || /[\\/]/.test(name) || name === '.' || name === '..') {
-      setNewFolderError('Invalid name')
-      return
     }
-    const target = `${dropdownData.dir.replace(/\/$/, '')}/${name}`
-    try {
-      await workspaceApi.createFolder(target)
-      // Reload the current dir so the new folder shows up, then auto-pick it.
-      await loadDirectory(dropdownData.dir)
-      setWorkspace(target)
-      setDropdownOpen(false)
-    } catch (err) {
-      setNewFolderError(err.message || 'Create failed')
-    }
-  }
-
-  const handleBrowse = e => {
-    e.stopPropagation()
-    if (dropdownOpen) setDropdownOpen(false)
-    else loadDirectory(workspace || '.')
-  }
-
-  const handlePickFolder = async e => {
-    e.stopPropagation()
-    setDropdownOpen(false)
-    const dir = await pickWorkspaceDir()
-    if (dir) setWorkspace(dir)
-  }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [workspaceSwitcherOpen])
 
   const handleFactoryReset = async () => {
     if (resetConfirmation !== 'RESET' || resetBusy) return
@@ -147,13 +132,6 @@ export default function Header() {
     }
   }
 
-  const selectDir = dir => {
-    setWorkspace(dir)
-    setDropdownOpen(false)
-    setNewFolderName(null)
-    setNewFolderError(null)
-  }
-
   const folderIcon = (
     <svg
       width='14'
@@ -171,12 +149,13 @@ export default function Header() {
   )
 
   const pathLabel =
-    shortDisplayPath(workspace, 32) || workspace || 'Select workspace'
+    shortDisplayPath(workspaceLabel || workspace, 32) ||
+    workspaceLabel ||
+    workspace ||
+    'Select workspace'
   const userLabel =
     user?.username || user?.email || (desktopApp ? 'Desktop app' : '')
   const userInitial = userLabel.trim().charAt(0).toUpperCase() || 'U'
-
-  const dirs = dropdownData?.entries?.filter(e => e.isDir) || []
 
   return (
     <header className='header'>
@@ -196,7 +175,8 @@ export default function Header() {
             strokeLinecap='round'
             strokeLinejoin='round'
           >
-            <path d='M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' />
+            <rect x='3' y='3' width='18' height='18' rx='2' />
+            <path d='M9 3v18' />
           </svg>
         </button>
 
@@ -232,187 +212,60 @@ export default function Header() {
           </svg>
         </button>
 
-        {!workspaceIdeOpen &&
-          (locked ? (
-            <div
-              className='workspace-chip workspace-chip--readonly'
-              title={workspace}
+        <div className='workspace-switcher-anchor' ref={workspaceMenuRef}>
+          <button
+            type='button'
+            className={`workspace-chip workspace-chip--manager ${
+              workspaceSwitcherOpen ? 'open' : ''
+            }`}
+            onClick={() => setWorkspaceSwitcherOpen(value => !value)}
+            title={
+              workspaceCapability.enabled
+                ? workspaceLabel || workspace || 'Switch workspace'
+                : workspaceCapability.reason ||
+                  'Workspace management unavailable'
+            }
+            aria-haspopup='dialog'
+            aria-expanded={workspaceSwitcherOpen}
+          >
+            {folderIcon}
+            <span className='workspace-chip-path'>{pathLabel}</span>
+            <svg
+              className='workspace-chip-caret'
+              width='12'
+              height='12'
+              viewBox='0 0 24 24'
+              fill='none'
+              stroke='currentColor'
+              strokeWidth='2.5'
+              strokeLinecap='round'
+              strokeLinejoin='round'
+              aria-hidden='true'
             >
-              {folderIcon}
-              <span className='workspace-chip-path'>{pathLabel}</span>
-            </div>
-          ) : (
-            <div
-              className={`workspace-bar ${dropdownOpen ? 'open' : ''}`}
-              ref={dropdownRef}
-            >
-              <button
-                type='button'
-                className={`workspace-chip ${dropdownOpen ? 'open' : ''}`}
-                onClick={handleBrowse}
-                title={workspace || 'Choose workspace'}
-              >
-                {folderIcon}
-                <span className='workspace-chip-path'>{pathLabel}</span>
-                <svg
-                  className='workspace-chip-caret'
-                  width='12'
-                  height='12'
-                  viewBox='0 0 24 24'
-                  fill='none'
-                  stroke='currentColor'
-                  strokeWidth='2.5'
-                  strokeLinecap='round'
-                  strokeLinejoin='round'
-                  aria-hidden='true'
-                >
-                  <polyline points='6 9 12 15 18 9' />
-                </svg>
-              </button>
-
-              {isDesktop() && (
-                <button
-                  type='button'
-                  className='icon-btn workspace-pick-btn'
-                  onClick={handlePickFolder}
-                  title='Choose folder'
-                >
-                  <svg
-                    width='14'
-                    height='14'
-                    viewBox='0 0 24 24'
-                    fill='none'
-                    stroke='currentColor'
-                    strokeWidth='2'
-                    strokeLinecap='round'
-                    strokeLinejoin='round'
-                  >
-                    <path d='M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z' />
-                    <line x1='12' y1='11' x2='12' y2='17' />
-                    <line x1='9' y1='14' x2='15' y2='14' />
-                  </svg>
-                </button>
-              )}
-
-              {dropdownOpen && dropdownData && (
-                <div className='workspace-dropdown open'>
-                  <div className='ws-dropdown-toolbar'>
-                    {dropdownData.parent !== dropdownData.dir && (
-                      <button
-                        type='button'
-                        className='ws-parent-btn'
-                        onClick={e => {
-                          e.stopPropagation()
-                          loadDirectory(dropdownData.parent)
-                        }}
-                        title='Parent folder'
-                      >
-                        ..
-                      </button>
-                    )}
-                    <span className='ws-path' title={dropdownData.dir}>
-                      {dropdownData.dir}
-                    </span>
-                    <button
-                      type='button'
-                      className='ws-open-btn'
-                      onClick={e => {
-                        e.stopPropagation()
-                        selectDir(dropdownData.dir)
-                      }}
-                      title='Use this folder as workspace'
-                    >
-                      Open
-                    </button>
-                  </div>
-
-                  <div className='ws-dropdown-actions'>
-                    <button
-                      type='button'
-                      className='ws-new-folder-btn'
-                      onClick={e => {
-                        e.stopPropagation()
-                        setNewFolderName('')
-                        setNewFolderError(null)
-                      }}
-                    >
-                      + New folder
-                    </button>
-                  </div>
-
-                  {newFolderName !== null && (
-                    <div
-                      className={`ws-entry ws-entry--new ${newFolderError ? 'ws-entry--error' : ''}`}
-                    >
-                      <span className='ws-entry-icon'>{folderIcon}</span>
-                      <input
-                        autoFocus
-                        className='ws-new-folder-input'
-                        value={newFolderName}
-                        placeholder='Folder name'
-                        onChange={e => {
-                          setNewFolderName(e.target.value)
-                          setNewFolderError(null)
-                        }}
-                        onClick={e => e.stopPropagation()}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault()
-                            handleCreateFolder()
-                          } else if (e.key === 'Escape') {
-                            e.preventDefault()
-                            setNewFolderName(null)
-                            setNewFolderError(null)
-                          }
-                        }}
-                      />
-                      {newFolderError && (
-                        <span
-                          className='ws-new-folder-error'
-                          title={newFolderError}
-                        >
-                          {newFolderError}
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  <div className='ws-dropdown-list'>
-                    {dirs.length === 0 && newFolderName === null ? (
-                      <div className='ws-empty'>No subfolders</div>
-                    ) : (
-                      dirs.map(entry => (
-                        <button
-                          type='button'
-                          className='ws-entry'
-                          key={entry.path}
-                          onClick={() => loadDirectory(entry.path)}
-                          onDoubleClick={e => {
-                            e.preventDefault()
-                            selectDir(entry.path)
-                          }}
-                          title='Open folder · double-click to use as workspace'
-                        >
-                          <span className='ws-entry-icon'>{folderIcon}</span>
-                          <span className='ws-entry-name'>{entry.name}</span>
-                        </button>
-                      ))
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
-
-        {showRemote && !workspaceIdeOpen && <EnvironmentPicker />}
+              <polyline points='9 6 15 12 9 18' />
+            </svg>
+          </button>
+          <WorkspaceQuickSwitcher
+            open={workspaceSwitcherOpen}
+            onClose={() => setWorkspaceSwitcherOpen(false)}
+            onManage={() => {
+              setWorkspaceSwitcherOpen(false)
+              setWorkspaceManagerOpen(true)
+            }}
+          />
+        </div>
       </div>
 
       <div className='header-right'>
         <button
           type='button'
-          className='marketplace-trigger'
-          onClick={() => setMarketplaceOpen(true)}
-          title='Browse skills and agents'
+          className='ai-extensions-trigger'
+          onClick={() => setExtensionsHubOpen(true)}
+          title={
+            extensionDisabledReasons.length > 0
+              ? `Manage AI extensions · ${extensionDisabledReasons.join(' ')}`
+              : 'Manage AI extensions'
+          }
         >
           <svg
             width='15'
@@ -425,32 +278,12 @@ export default function Header() {
             strokeLinejoin='round'
             aria-hidden='true'
           >
-            <path d='M3 9l1.5-5h15L21 9' />
-            <path d='M5 13v7h14v-7' />
-            <path d='M9 20v-6h6v6' />
-            <path d='M3 9a3 3 0 0 0 6 0 3 3 0 0 0 6 0 3 3 0 0 0 6 0' />
+            <rect x='3' y='3' width='7' height='7' rx='2' />
+            <rect x='14' y='3' width='7' height='7' rx='2' />
+            <rect x='3' y='14' width='7' height='7' rx='2' />
+            <path d='M17.5 14v7M14 17.5h7' />
           </svg>
-          <span>Marketplace</span>
-        </button>
-        <button
-          className='icon-btn'
-          onClick={() => setWorkspacePanelOpen(true)}
-          title='Workspace extensions (agents, skills, plugins)'
-        >
-          <svg
-            width='16'
-            height='16'
-            viewBox='0 0 24 24'
-            fill='none'
-            stroke='currentColor'
-            strokeWidth='2'
-            strokeLinecap='round'
-            strokeLinejoin='round'
-          >
-            <path d='M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z' />
-            <circle cx='8.5' cy='14.5' r='1.5' />
-            <circle cx='15.5' cy='14.5' r='1.5' />
-          </svg>
+          <span>AI Extensions</span>
         </button>
         <button className='icon-btn' onClick={toggleTheme} title='Toggle theme'>
           {theme === 'dark' ? (
@@ -577,15 +410,17 @@ export default function Header() {
           </>
         )}
       </div>
-      <WorkspacePanel
-        open={workspacePanelOpen}
-        workspace={workspace}
-        onClose={() => setWorkspacePanelOpen(false)}
+      <WorkspaceManager
+        open={workspaceManagerOpen}
+        onClose={() => setWorkspaceManagerOpen(false)}
+        onAddWorkspace={() => {
+          setWorkspaceManagerOpen(false)
+          requestAnimationFrame(() => setWorkspaceSwitcherOpen(true))
+        }}
       />
-      <MarketplacePanel
-        open={marketplaceOpen}
-        workspace={workspace}
-        onClose={() => setMarketplaceOpen(false)}
+      <ExtensionsHub
+        open={extensionsHubOpen}
+        onClose={() => setExtensionsHubOpen(false)}
       />
       {resetOpen && (
         <div
@@ -605,6 +440,7 @@ export default function Header() {
             <p>
               This permanently deletes files, chats, memories, scheduled tasks,
               browser data, custom agents and skills
+              {cloudProfile ? ', and every workspace with its repository' : ''}
               {desktopApp ? ', and all saved API keys' : ''}.
             </p>
             {desktopApp && (

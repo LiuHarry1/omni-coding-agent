@@ -70,6 +70,7 @@ User-level configuration: `~/.ai-agent/settings.json`. Project-level configurati
 | `npm run desktop:dev` | Start the desktop app (recommended for new users) |
 | `npm start` | Start only the agent backend (`:4567`) |
 | `npm run dev:web` | Start the Web UI in development mode (run `npm start` in another terminal) |
+| `npm run cloud:start` | Build and start the local Docker-backed Cloud profile |
 | `npm run browser:pair` | Check that the Chrome extension can reach the agent |
 | `npm run desktop:pack` | Package the desktop installer |
 | `npm run desktop:pack:win` | Package the Windows installer |

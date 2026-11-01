@@ -6,6 +6,7 @@ import { PermissionGateway } from './permission-gateway.js'
 import { LocalProvider } from './providers/local/local-provider.js'
 import { SshProvider } from './providers/ssh/ssh-provider.js'
 import type { SshSettingsEntry } from './providers/ssh/ssh-config.js'
+import type { EnvironmentProvider } from './types.js'
 
 export type ExecutionPlane = {
   registry: EnvironmentRegistry
@@ -23,6 +24,11 @@ export type BootstrapOptions = {
   sshHosts?: SshSettingsEntry[]
   /** Start local AuthProxy (default true). */
   startAuthProxy?: boolean
+  /**
+   * Replaces the local + SSH providers. Cloud deployments pass only the
+   * container provider so no tool can resolve to the control-plane host.
+   */
+  providers?: EnvironmentProvider[]
 }
 
 /**
@@ -39,8 +45,12 @@ export async function bootstrapExecutionPlane(
   const registry = new EnvironmentRegistry()
   const local = new LocalProvider()
   const ssh = new SshProvider({ settingsHosts: opts?.sshHosts ?? [] })
-  registry.register(local)
-  registry.register(ssh)
+  if (opts?.providers) {
+    for (const provider of opts.providers) registry.register(provider)
+  } else {
+    registry.register(local)
+    registry.register(ssh)
+  }
 
   const credentials = new CredentialBroker()
   if (opts?.startAuthProxy !== false) {

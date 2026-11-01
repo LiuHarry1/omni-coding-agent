@@ -7,9 +7,15 @@ import type { ServerOptions } from '../core/types.js'
 import { shutdownAllLspManagers } from '../services/lsp/manager.js'
 import {
   bootstrapExecutionPlane,
+  getExecutionPlane,
   prewarmLocalRuntime,
   shutdownExecutionPlane,
 } from '../execution/index.js'
+import {
+  initCloudWorkspaces,
+  startCloudWorkspaceSweeper,
+} from '../services/cloud-workspaces/index.js'
+import { busyCloudWorkspaceIds } from './routes/cloud-workspaces.js'
 import * as os from 'os'
 import { resolveSettings } from '../core/settings-manager.js'
 import { getDefaultWorkspace } from '../core/workspace.js'
@@ -29,6 +35,7 @@ import { recoverDurableRuns } from '../services/runs/recovery.js'
 
 export function startServer(_opts: ServerOptions = {}): void {
   const PORT = parseInt(process.env.PORT || '4567', 10)
+  const HOST = process.env.HOST?.trim() || undefined
 
   // Last-line defense against flaky upstreams (e.g. copilot-api dropping the
   // socket mid-stream). Without these the undici fetch/body errors surface as
@@ -68,11 +75,13 @@ export function startServer(_opts: ServerOptions = {}): void {
 
   const server = http.createServer(handler)
   let shuttingDown = false
+  let stopCloudSweeper: () => void = () => {}
   const shutdown = (signal: string) => {
     if (shuttingDown) return
     shuttingDown = true
     console.log(`[server] ${signal}: shutting down`)
     stopCronScheduler()
+    stopCloudSweeper()
     server.close(() => {
       void (async () => {
         await shutdownExecutionPlane().catch(() => {})
@@ -92,6 +101,19 @@ export function startServer(_opts: ServerOptions = {}): void {
       // can load SSH hosts (managed still comes from getManagedDir).
       // Per-request scope is set in the router via runWithRequestScope.
       const bootCwd = getDefaultWorkspace()
+      const cloud = initCloudWorkspaces()
+      if (cloud) {
+        try {
+          await cloud.containers.preflight()
+        } catch (err) {
+          console.error(
+            '[server] Cloud Workspace preflight failed; server was not started:',
+            err instanceof Error ? err.message : err,
+          )
+          process.exitCode = 1
+          return
+        }
+      }
       await runWithRequestScope(
         { agentHome: os.homedir(), cwd: bootCwd },
         async () => {
@@ -99,15 +121,29 @@ export function startServer(_opts: ServerOptions = {}): void {
           initBrowserLifecycle(bootCwd)
           await bootstrapExecutionPlane({
             sshHosts: settings.config.environments?.ssh ?? [],
+            ...(cloud ? { providers: [cloud.createProvider()] } : {}),
           })
           profileCheckpoint('execution_plane_ready')
           // Overlap the TLS handshake and the Worker process launch with the
           // rest of boot instead of paying for both inside the first turn.
           preconnectModelApis(settings.config.models)
-          prewarmLocalRuntime(bootCwd)
+          if (!cloud) prewarmLocalRuntime(bootCwd)
         },
       )
-      console.log(`[server] execution plane ready (local + ssh providers)`)
+      if (cloud) {
+        cloud.setBusyProbe(busyCloudWorkspaceIds)
+        cloud.setBeforeStop(async handle => {
+          const plane = getExecutionPlane()
+          await plane.runtimes.closeEnvironment(handle.environmentId)
+          await plane.registry.disconnectEnvironment(handle.environmentId)
+        })
+        stopCloudSweeper = startCloudWorkspaceSweeper(cloud)
+        console.log(
+          `[server] execution plane ready (cloud workspaces, image ${cloud.config.image})`,
+        )
+      } else {
+        console.log(`[server] execution plane ready (local + ssh providers)`)
+      }
     } catch (err) {
       console.warn(
         '[server] execution plane bootstrap failed:',
@@ -129,9 +165,9 @@ export function startServer(_opts: ServerOptions = {}): void {
       )
     }
 
-    server.listen(PORT, () => {
+    server.listen(PORT, HOST, () => {
       profileCheckpoint('server_listen')
-      console.log(`[server] listening on http://localhost:${PORT}`)
+      console.log(`[server] listening on http://${HOST || 'localhost'}:${PORT}`)
       console.log(`[server]   POST /sessions     -- create session`)
       console.log(`[server]   GET  /sessions     -- list sessions`)
       console.log(`[server]   DELETE /sessions/id -- delete session`)

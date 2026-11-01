@@ -138,7 +138,16 @@ export function createSkillTool(
           // identical output byte-for-byte.
           let combined: string
           try {
-            ;({ combined } = await expandSkillBody(skill, rawArgs ?? '', cwd))
+            const directiveRuntime =
+              context.execution?.environmentId !== 'local'
+                ? context.execution
+                : undefined
+            ;({ combined } = await expandSkillBody(
+              skill,
+              rawArgs ?? '',
+              cwd,
+              directiveRuntime,
+            ))
           } catch (e) {
             if (e instanceof SkillExpansionError) return `Error: ${e.message}`
             throw e

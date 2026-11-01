@@ -39,7 +39,8 @@ export default function WorkspaceIDE() {
 
   if (!open) return null
 
-  const cwdLabel = workspace ? fileName(workspace) : 'Workspace'
+  const normalizedWorkspace = workspace?.replace(/[\\/]+$/, '')
+  const cwdLabel = normalizedWorkspace ? fileName(normalizedWorkspace) : null
 
   return (
     <aside className='workspace-ide' style={{ width }}>
@@ -49,7 +50,7 @@ export default function WorkspaceIDE() {
             <FolderIcon size={15} />
           </span>
           <span className='workspace-ide-title-label'>Workspace</span>
-          {workspace && (
+          {cwdLabel && (
             <>
               <span className='workspace-ide-title-sep'>·</span>
               <span className='workspace-ide-title-cwd' title={workspace}>

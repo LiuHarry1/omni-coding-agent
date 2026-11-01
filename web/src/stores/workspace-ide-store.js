@@ -1,6 +1,9 @@
 import { create } from 'zustand'
-import { workspaceApi } from '../lib/api/workspace.js'
-import { environmentsApi } from '../lib/api/environments.js'
+import {
+  fetchAuthenticatedBlobUrl,
+  triggerDownload,
+} from '../lib/api/workspace.js'
+import { createEnvironmentFsClient } from '../lib/environment-fs.js'
 import { FILE_MUTATING_TOOLS, SHELL_TOOLS } from '../lib/tool-names.js'
 import { fileName } from '../lib/utils.js'
 
@@ -9,54 +12,20 @@ const STORAGE_KEY_TREE_WIDTH = 'coding_agent_ide_tree_width'
 const STORAGE_KEY_SHOW_HIDDEN = 'coding_agent_ide_show_hidden'
 const DEFAULT_TREE_WIDTH = 260
 
-function isRemoteEnvironmentId(environmentId) {
-  return Boolean(
-    environmentId &&
-    environmentId !== 'local' &&
-    !String(environmentId).startsWith('local'),
-  )
+/** File API for the environment the IDE is bound to. */
+function ideFs() {
+  const { environmentId, rootPath } = useWorkspaceIdeStore.getState()
+  return createEnvironmentFsClient({ environmentId, cwd: rootPath })
 }
 
-function shouldShowEntry(name, showHidden) {
-  if (name === '.' || name === '..') return false
-  if (!name.startsWith('.')) return true
-  if (name === '.ai-agent' || name === '.env' || name.startsWith('.env.')) {
-    return true
-  }
-  return showHidden
+/** Download a file or folder from the bound environment. */
+export function downloadEntry(path) {
+  return triggerDownload(path, ideFs().downloadPath(path))
 }
 
-/** Normalize environments FS entries to workspace IDE shape `{ isDir }`. */
-function normalizeListPayload(data, dirPath, showHidden) {
-  const dir = data.dir || dirPath
-  const cleaned = dir.replace(/\/$/, '') || '/'
-  const slash = cleaned.lastIndexOf('/')
-  const parent = slash > 0 ? cleaned.slice(0, slash) : cleaned
-  const entries = (data.entries || [])
-    .filter(e => shouldShowEntry(e.name, showHidden))
-    .map(e => ({
-      name: e.name,
-      path: e.path,
-      isDir: e.isDir ?? e.type === 'dir',
-    }))
-  return { dir, parent, entries }
-}
-
-async function listDirForIde(dirPath, showHidden) {
-  const environmentId = useWorkspaceIdeStore.getState().environmentId
-  if (isRemoteEnvironmentId(environmentId)) {
-    const data = await environmentsApi.listDir(environmentId, dirPath)
-    return normalizeListPayload(data, dirPath, showHidden)
-  }
-  return workspaceApi.listDir(dirPath, showHidden)
-}
-
-async function getFileForIde(filePath) {
-  const environmentId = useWorkspaceIdeStore.getState().environmentId
-  if (isRemoteEnvironmentId(environmentId)) {
-    return environmentsApi.getFile(environmentId, filePath)
-  }
-  return workspaceApi.getFile(filePath)
+/** Object URL for an inline preview (images); caller revokes it. */
+export function entryBlobUrl(path) {
+  return fetchAuthenticatedBlobUrl(path, ideFs().downloadPath(path))
 }
 
 function initialShowHidden() {
@@ -86,8 +55,8 @@ function initialTreeWidth() {
  *
  * Lives in its own zustand store rather than the chat store because none
  * of this state participates in message streaming and the two concerns
- * have no shared mutations beyond the workspace cwd (which still lives
- * on the chat store).
+ * have no shared mutations. The active cwd lives in workspace-context-store
+ * and App bridges it into this IDE-specific state.
  */
 const DEFAULT_CHANGES = {
   loading: false,
@@ -121,17 +90,22 @@ function resolveAbsPath(rootPath, p) {
   return `${root}/${rel}`.replace(/\/+/g, '/')
 }
 
+function workspaceCacheKey(environmentId, rootPath) {
+  return `${environmentId || 'local'}\0${rootPath || ''}`
+}
+
 export const useWorkspaceIdeStore = create((set, get) => ({
   // ── Workspace root ───────────────────────────────────
   /**
    * Absolute path of the directory the IDE is browsing. Set externally by
-   * whoever owns "what workspace are we working in?" — in this app that's
-   * the chat feature, but the IDE doesn't care: it only reads `rootPath`
-   * here. This breaks the reverse dependency on chat-store.
+   * whoever owns "what workspace are we working in?" The IDE only reads
+   * `rootPath` here, avoiding a reverse dependency on workspace context.
    */
   rootPath: null,
   /** Bound execution environment (`local` or e.g. `ssh:host`). Set by App bridge. */
   environmentId: 'local',
+  /** Guards async cache writes across workspaces that share the same cwd. */
+  workspaceKey: workspaceCacheKey('local', null),
   /**
    * @param {string|null} p
    * @param {{ resetTree?: boolean, environmentId?: string }} [opts]
@@ -142,9 +116,11 @@ export const useWorkspaceIdeStore = create((set, get) => ({
     const pathSame = get().rootPath === p
     const envSame = get().environmentId === nextEnv
     if (pathSame && envSame && !resetTree) return
+    const identityChanged = !pathSame || !envSame
     set({
       rootPath: p,
       environmentId: nextEnv,
+      workspaceKey: workspaceCacheKey(nextEnv, p),
       dirCache: {},
       expandedDirs: new Set(),
       // Drop git state so the new repo isn't shown with stale changes.
@@ -153,7 +129,16 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       openDiffs: [],
       activeDiff: null,
       activeView: 'explorer',
-      activeKind: get().activeFile ? 'file' : null,
+      ...(identityChanged
+        ? {
+            openFiles: [],
+            activeFile: null,
+            fileContents: {},
+            activeKind: null,
+            pendingNew: null,
+            uploadState: {},
+          }
+        : { activeKind: get().activeFile ? 'file' : null }),
     })
     // FileTree only auto-expands when rootPath changes; after a same-path
     // env switch we still need to re-expand and fetch via the new FS API.
@@ -228,10 +213,14 @@ export const useWorkspaceIdeStore = create((set, get) => ({
   },
 
   loadDir: async dirPath => {
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     try {
-      const data = await listDirForIde(dirPath, get().showHiddenFiles)
+      const data = await fs.listDir(dirPath, get().showHiddenFiles)
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({ dirCache: { ...s.dirCache, [dirPath]: data } }))
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       console.error('[workspace-ide] listDir failed:', e)
     }
   },
@@ -270,8 +259,11 @@ export const useWorkspaceIdeStore = create((set, get) => ({
     const cur = get().fileContents[filePath]
     if (!cur || cur.dirty || cur.loading) return
     if (!get().openFiles.includes(filePath)) return
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     try {
-      const data = await getFileForIde(filePath)
+      const data = await fs.getFile(filePath)
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         fileContents: {
           ...s.fileContents,
@@ -284,6 +276,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
         },
       }))
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       console.error('[workspace-ide] reloadOpenFileIfClean failed:', e)
     }
   },
@@ -342,12 +335,15 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       return
     }
     const fullPath = pending.parentDir.replace(/\/$/, '') + '/' + name
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     try {
       if (pending.kind === 'folder') {
-        await workspaceApi.createFolder(fullPath)
+        await fs.createFolder(fullPath)
       } else {
-        await workspaceApi.createFile(fullPath, '')
+        await fs.createFile(fullPath, '')
       }
+      if (workspaceKey !== get().workspaceKey) return
       set({ pendingNew: null })
       await get().loadDir(pending.parentDir)
       if (pending.kind === 'file') {
@@ -356,6 +352,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
         get().expandDir(fullPath)
       }
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set({ pendingNew: { ...pending, error: e.message || 'Create failed' } })
     }
   },
@@ -387,8 +384,11 @@ export const useWorkspaceIdeStore = create((set, get) => ({
 
     if (!window.confirm(`Delete ${label}? This cannot be undone.`)) return
 
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     try {
-      await workspaceApi.removeEntry(targetPath)
+      await fs.removeEntry(targetPath)
+      if (workspaceKey !== get().workspaceKey) return
 
       for (const p of [...affectedFiles]) get().closeFile(p, { force: true })
 
@@ -418,6 +418,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       await get().loadDir(parentDir(targetPath))
       if (get().changes.lastFetchedAt) get().refreshChanges()
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       window.alert(e.message || 'Delete failed')
     }
   },
@@ -436,12 +437,16 @@ export const useWorkspaceIdeStore = create((set, get) => ({
     if (!dir || list.length === 0) return
     if (!get().expandedDirs.has(dir)) get().expandDir(dir)
 
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     set(s => ({ uploadState: { ...s.uploadState, [dir]: { pct: 0 } } }))
     const setPct = pct =>
+      workspaceKey === get().workspaceKey &&
       set(s => ({ uploadState: { ...s.uploadState, [dir]: { pct } } }))
 
     try {
-      await workspaceApi.uploadFiles(dir, list, setPct)
+      await fs.uploadFiles(dir, list, setPct)
+      if (workspaceKey !== get().workspaceKey) return
       await get().loadDir(dir)
       // Clear the progress row shortly after completion.
       set(s => {
@@ -450,6 +455,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
         return { uploadState: next }
       })
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         uploadState: {
           ...s.uploadState,
@@ -481,9 +487,12 @@ export const useWorkspaceIdeStore = create((set, get) => ({
   refreshChanges: async () => {
     const root = get().rootPath
     if (!root) return
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     set(s => ({ changes: { ...s.changes, loading: true, error: null } }))
     try {
-      const data = await workspaceApi.gitStatus()
+      const data = await fs.gitStatus()
+      if (workspaceKey !== get().workspaceKey) return
       set({
         changes: {
           loading: false,
@@ -499,6 +508,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       const openDiffs = get().openDiffs
       for (const p of openDiffs) get()._loadDiff(p)
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         changes: {
           ...s.changes,
@@ -536,6 +546,8 @@ export const useWorkspaceIdeStore = create((set, get) => ({
   fileContents: {},
 
   openFile: async filePath => {
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     set(s => ({
       openFiles: s.openFiles.includes(filePath)
         ? s.openFiles
@@ -549,7 +561,8 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       fileContents: { ...s.fileContents, [filePath]: { loading: true } },
     }))
     try {
-      const data = await getFileForIde(filePath)
+      const data = await fs.getFile(filePath)
+      if (workspaceKey !== get().workspaceKey) return
       // Always seed `draft` with the loaded content so the editor is
       // immediately writable for non-binary, non-truncated files. `dirty`
       // stays false until the user actually changes something.
@@ -565,6 +578,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
         },
       }))
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         fileContents: {
           ...s.fileContents,
@@ -640,6 +654,8 @@ export const useWorkspaceIdeStore = create((set, get) => ({
   setActiveDiff: relPath => set({ activeDiff: relPath, activeKind: 'diff' }),
 
   _loadDiff: async relPath => {
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
     set(s => ({
       diffs: {
         ...s.diffs,
@@ -647,7 +663,8 @@ export const useWorkspaceIdeStore = create((set, get) => ({
       },
     }))
     try {
-      const data = await workspaceApi.gitDiff(relPath)
+      const data = await fs.gitDiff(relPath)
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         diffs: {
           ...s.diffs,
@@ -655,6 +672,7 @@ export const useWorkspaceIdeStore = create((set, get) => ({
         },
       }))
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         diffs: {
           ...s.diffs,
@@ -692,20 +710,31 @@ export const useWorkspaceIdeStore = create((set, get) => ({
     if (!filePath) return
     const cur = get().fileContents[filePath]
     if (!cur || !cur.dirty) return
+    const workspaceKey = get().workspaceKey
+    const fs = ideFs()
+    const savingDraft = cur.draft
     try {
-      const data = await workspaceApi.saveFile(filePath, cur.draft, cur.mtimeMs)
-      set(s => ({
-        fileContents: {
-          ...s.fileContents,
-          [filePath]: {
-            ...data,
-            loading: false,
-            draft: data.content,
-            dirty: false,
+      const data = await fs.saveFile(filePath, savingDraft, cur.mtimeMs)
+      if (workspaceKey !== get().workspaceKey) return
+      set(s => {
+        const current = s.fileContents[filePath]
+        if (!current) return s
+        const unchanged = current.draft === savingDraft
+        return {
+          fileContents: {
+            ...s.fileContents,
+            [filePath]: {
+              ...current,
+              ...data,
+              loading: false,
+              draft: unchanged ? data.content : current.draft,
+              dirty: !unchanged,
+            },
           },
-        },
-      }))
+        }
+      })
     } catch (e) {
+      if (workspaceKey !== get().workspaceKey) return
       set(s => ({
         fileContents: {
           ...s.fileContents,

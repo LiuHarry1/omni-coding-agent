@@ -22,6 +22,7 @@ import {
   resolveAgentNodeExecPath,
   resolveDesktopDataRoot,
   resolveDefaultDesktopWorkspace,
+  selectDesktopAgentPort,
   assertSafeDesktopDataRoot,
 } from './agent-launch.mjs'
 
@@ -202,19 +203,44 @@ function stopAgent() {
   })
 }
 
-function waitForHealth(timeoutMs = 45_000) {
+function waitForDesktopAgent(timeoutMs = 45_000) {
   const deadline = Date.now() + timeoutMs
-  const url = `${getAgentUrl()}/health`
+  const url = `${getAgentUrl()}/capabilities`
 
   return new Promise((resolve, reject) => {
     const attempt = () => {
       const req = http.get(url, res => {
-        res.resume()
-        if (res.statusCode === 200) {
-          resolve()
+        if (res.statusCode !== 200) {
+          res.resume()
+          schedule()
           return
         }
-        schedule()
+        res.setEncoding('utf8')
+        let body = ''
+        res.on('data', chunk => {
+          body += chunk
+        })
+        res.on('end', () => {
+          try {
+            const capabilities = JSON.parse(body)
+            if (capabilities.profile === 'desktop') {
+              resolve()
+              return
+            }
+            reject(
+              new Error(
+                `Expected a desktop agent at ${getAgentUrl()}, but found ` +
+                  `${JSON.stringify(capabilities.profile)}.`,
+              ),
+            )
+          } catch (error) {
+            if (error instanceof SyntaxError) {
+              schedule()
+            } else {
+              reject(error)
+            }
+          }
+        })
       })
       req.on('error', schedule)
       req.setTimeout(2_000, () => {
@@ -225,7 +251,7 @@ function waitForHealth(timeoutMs = 45_000) {
 
     const schedule = () => {
       if (Date.now() >= deadline) {
-        reject(new Error(`Agent did not become healthy at ${url}`))
+        reject(new Error(`Desktop agent did not become ready at ${url}`))
         return
       }
       setTimeout(attempt, 300)
@@ -293,18 +319,35 @@ if (!gotLock) {
   })
 
   app.whenReady().then(async () => {
-    agentPort = Number.parseInt(process.env.PORT || String(DEFAULT_PORT), 10)
+    const configuredPort = Number.parseInt(
+      process.env.BAIZE_DESKTOP_PORT ||
+        process.env.PORT ||
+        String(DEFAULT_PORT),
+      10,
+    )
+    const preferredPort =
+      Number.isInteger(configuredPort) &&
+      configuredPort > 0 &&
+      configuredPort <= 65_535
+        ? configuredPort
+        : DEFAULT_PORT
+    agentPort = await selectDesktopAgentPort(preferredPort)
+    if (agentPort !== preferredPort) {
+      process.stderr.write(
+        `[desktop] port ${preferredPort} is unavailable; using ${agentPort}\n`,
+      )
+    }
 
     await ensureWebBuild()
     startAgent()
 
     try {
-      await waitForHealth()
+      await waitForDesktopAgent()
     } catch (err) {
       await stopAgent()
       dialog.showErrorBox(
         'Failed to start',
-        `${err.message}\n\nIf port ${agentPort} is in use, free the port or set PORT.`,
+        `${err.message}\n\nSee log:\n${getAgentLogPath()}`,
       )
       app.quit()
       return
@@ -397,7 +440,7 @@ ipcMain.handle('factory-reset', async (_event, confirmation) => {
     mainWindow?.setEnabled?.(true)
     if (!agentProc) {
       startAgent()
-      await waitForHealth().catch(() => {})
+      await waitForDesktopAgent().catch(() => {})
     }
     throw err
   }

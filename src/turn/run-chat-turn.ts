@@ -20,8 +20,8 @@ import {
   resolveSettings,
   resolveAutoMemoryConfig,
 } from '../core/settings-manager.js'
-import { getDefaultWorkspace } from '../core/workspace.js'
 import { isRemoteWorkspace } from '../execution/index.js'
+import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
 import { generateSessionTitle } from '../services/sessionTitle.js'
 import {
   setSessionTitle,
@@ -239,10 +239,8 @@ export async function runChatTurn(
   } = input
   const turnStartTime = Date.now()
 
-  const settingsCwd = isRemoteWorkspace(session.workspace)
-    ? getDefaultWorkspace()
-    : cwd
-  const resolvedSettings = resolveSettings(settingsCwd)
+  const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
+  const resolvedSettings = resolveSettings(turnScope.settingsCwd)
   const models = createModelRegistry(resolvedSettings.config.models)
   const provider = models.provider('large')
   const wire = createWireEmitter(transport, session.id)
@@ -343,7 +341,7 @@ export async function runChatTurn(
       message,
       cwd,
       session,
-      registry: defaultRegistry,
+      registry: defaultRegistry.fork(),
       config: resolvedSettings.config,
       provider,
       models,
@@ -370,6 +368,10 @@ export async function runChatTurn(
       config: resolvedSettings.config,
       wantsStream: true,
       sessionId: session.id,
+      activeAgents: prepared.toolUseContext.agentDefinitions!.activeAgents,
+      registry: prepared.toolContext.registry,
+      permissionContext: prepared.toolContext.permissionContext,
+      execution: prepared.toolContext.execution,
     })
     unsubTelemetry?.()
     void flushUsage()

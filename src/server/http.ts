@@ -50,29 +50,60 @@ export function sendJSON(
   res.end(JSON.stringify(data))
 }
 
-/**
- * Comma-separated origin allowlist from `ALLOWED_ORIGINS`. When unset we
- * fall back to `*` (the previous behavior — fine for same-origin and local
- * dev). Once the frontend is deployed on a different origin, set e.g.
- * `ALLOWED_ORIGINS=https://app.example.com` so the browser allows the
- * cross-origin (and credentialed) requests only from known frontends.
- */
-const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? '')
-  .split(',')
-  .map(o => o.trim())
-  .filter(Boolean)
+function envEnabled(name: string): boolean {
+  return /^(?:1|true|yes|on)$/i.test(process.env[name]?.trim() ?? '')
+}
+
+function configuredOrigins(): string[] {
+  return (process.env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean)
+}
+
+function isLoopbackOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname
+      .toLowerCase()
+      .replace(/^\[|\]$/g, '')
+    return (
+      hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1'
+    )
+  } catch {
+    return false
+  }
+}
+
+function corsOrigin(req?: IncomingMessage): string | null {
+  const origin = req?.headers.origin
+  if (envEnabled('BAIZE_ALLOW_ANY_ORIGIN')) return '*'
+  if (!origin) return null
+
+  const configured = configuredOrigins()
+  if (configured.includes(origin)) return origin
+
+  try {
+    const requestHost = req?.headers.host
+    if (requestHost && new URL(origin).host === requestHost) return origin
+  } catch {
+    return null
+  }
+
+  const authEnabled = envEnabled('AUTH_ENABLED')
+  return !authEnabled && configured.length === 0 && isLoopbackOrigin(origin)
+    ? origin
+    : null
+}
 
 export function setCORS(res: ServerResponse, req?: IncomingMessage): void {
-  if (allowedOrigins.length === 0) {
-    res.setHeader('Access-Control-Allow-Origin', '*')
-  } else {
-    const origin = req?.headers.origin
-    if (origin && allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin)
+  const allowedOrigin = corsOrigin(req)
+  if (allowedOrigin) {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigin)
+    if (allowedOrigin !== '*') {
       res.setHeader('Access-Control-Allow-Credentials', 'true')
     }
-    // A specific allowlist varies the response by Origin, so caches must
-    // key on it; without this a cached `*`-less response could leak.
+  }
+  if (allowedOrigin !== '*') {
     res.setHeader('Vary', 'Origin')
   }
   res.setHeader(
@@ -89,7 +120,7 @@ export function setCORS(res: ServerResponse, req?: IncomingMessage): void {
   )
   // Chrome Private / Local Network Access preflight (split-origin :8090 → :4567).
   const pna = req?.headers['access-control-request-private-network']
-  if (pna === 'true') {
+  if (pna === 'true' && allowedOrigin) {
     res.setHeader('Access-Control-Allow-Private-Network', 'true')
   }
 }

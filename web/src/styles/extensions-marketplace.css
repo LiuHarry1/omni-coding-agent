@@ -1,346 +1,124 @@
-/* ── Workspace panel (agents / skills / plugins browser) ── */
-.ws-panel-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1200;
-  background: rgba(0, 0, 0, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.ws-panel {
-  width: min(520px, 100%);
-  max-height: min(80vh, 680px);
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35);
-  overflow: hidden;
-}
-
-.ws-panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 16px 18px 12px;
-  flex-shrink: 0;
-}
-
-.ws-panel-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.ws-panel-sub {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-
-.ws-panel-cwd {
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.ws-panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.ws-panel-close {
-  font-size: 20px;
-  line-height: 1;
-  padding: 4px 8px;
-}
-
+/* Marketplace catalog shared by every runtime profile. */
 .ws-text-btn {
+  min-height: 34px;
+  padding: 5px 11px;
+  color: var(--text-muted);
   background: none;
   border: 1px solid transparent;
-  color: var(--text-muted);
-  font-size: 12px;
-  padding: 5px 10px;
   border-radius: 6px;
-  cursor: pointer;
   font-family: var(--font-sans);
-  transition: all 0.15s;
+  font-size: 12px;
+  cursor: pointer;
 }
+
 .ws-text-btn:hover:not(:disabled) {
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border-color: var(--border);
 }
-.ws-text-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
+
 .ws-text-btn.is-danger:hover:not(:disabled) {
   color: var(--red);
-  background: rgba(248, 81, 73, 0.08);
   border-color: transparent;
-}
-[data-theme='light'] .ws-text-btn {
-  color: var(--text-secondary);
-}
-[data-theme='light'] .ws-text-btn.is-danger:hover:not(:disabled) {
-  background: rgba(207, 34, 46, 0.08);
-}
-
-.ws-panel-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--border);
-  flex-shrink: 0;
-  overflow-x: auto;
-}
-
-.ws-panel-tab {
-  background: none;
-  border: none;
-  border-bottom: 2px solid transparent;
-  margin-bottom: -1px;
-  padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: color 0.15s;
-}
-
-.ws-panel-tab:hover {
-  color: var(--text-primary);
-}
-
-.ws-panel-tab--active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-
-.ws-panel-body {
-  padding: 12px 18px 18px;
-  overflow-y: auto;
-  flex: 1;
+  background: color-mix(in srgb, var(--red) 8%, transparent);
 }
 
 .ws-panel-error {
-  padding: 10px 12px;
-  border-radius: 8px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.35);
-  color: var(--red);
-  font-size: 13px;
   margin-bottom: 12px;
+  padding: 11px 13px;
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 35%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--red) 12%, transparent);
+  font-size: 12px;
 }
 
 .ws-panel-empty {
-  color: var(--text-muted);
-  font-size: 13px;
   margin: 8px 0;
-}
-
-.ws-panel-group {
-  margin-bottom: 14px;
-}
-
-.ws-panel-group-title {
-  margin: 0 0 6px;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
   color: var(--text-muted);
+  font-size: 12px;
 }
 
 .ws-panel-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .ws-panel-item {
-  padding: 8px 10px;
-  border-radius: 8px;
+  padding: 11px 12px;
   border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--bg-tertiary);
-}
-
-.ws-panel-item--muted {
-  opacity: 0.55;
 }
 
 .ws-panel-item-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
 .ws-panel-item-name {
+  color: var(--accent);
   font-family: var(--font-mono);
   font-size: 13px;
   font-weight: 600;
-  color: var(--accent);
 }
 
 .ws-panel-item-meta {
   margin: 4px 0 0;
-  font-family: var(--font-mono);
-  font-size: 10px;
   color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
 }
 
 .ws-panel-item-desc-short {
   margin: 4px 0 0;
-  font-size: 11px;
   color: var(--text-secondary);
+  font-size: 12px;
   line-height: 1.4;
 }
 
 .ws-badge {
-  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 9.5px;
   font-weight: 600;
-  text-transform: uppercase;
   letter-spacing: 0.03em;
-  padding: 2px 6px;
-  border-radius: 4px;
+  text-transform: uppercase;
 }
 
 .ws-badge--active {
-  background: rgba(34, 197, 94, 0.15);
   color: #22c55e;
+  background: rgba(34, 197, 94, 0.15);
 }
 
 .ws-badge--shadow {
-  background: rgba(148, 163, 184, 0.15);
   color: var(--text-muted);
+  background: rgba(148, 163, 184, 0.15);
 }
 
 .ws-badge--type {
-  background: rgba(99, 102, 241, 0.12);
   color: var(--accent);
-  text-transform: none;
+  background: rgba(99, 102, 241, 0.12);
   letter-spacing: 0;
+  text-transform: none;
 }
 
 .ws-badge--error {
-  background: rgba(248, 81, 73, 0.15);
   color: #f85149;
-}
-
-/* ── Marketplace ─────────────────────────────── */
-.marketplace-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 1250;
-  display: grid;
-  place-items: center;
-  padding: 28px;
-  background: rgba(8, 11, 18, 0.58);
-  backdrop-filter: blur(5px);
-  animation: marketplace-fade 140ms ease-out;
-}
-
-.marketplace-panel {
-  width: min(920px, 100%);
-  height: min(760px, 86vh);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--bg-secondary);
-  border: 1px solid color-mix(in srgb, var(--border) 80%, white 20%);
-  border-radius: 14px;
-  box-shadow:
-    0 28px 80px rgba(0, 0, 0, 0.38),
-    0 1px 0 rgba(255, 255, 255, 0.04) inset;
-  animation: marketplace-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-.marketplace-panel-head {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-  padding: 18px 20px;
-  border-bottom: 1px solid var(--border);
-  background:
-    linear-gradient(
-      110deg,
-      color-mix(in srgb, var(--accent) 8%, transparent),
-      transparent 46%
-    ),
-    var(--bg-secondary);
-}
-
-.marketplace-title-mark {
-  width: 38px;
-  height: 38px;
-  display: grid;
-  place-items: center;
-  flex: 0 0 auto;
-  color: var(--accent);
-  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--border));
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
-}
-
-.marketplace-panel-head h2 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: 18px;
-  font-weight: 720;
-  letter-spacing: -0.025em;
-}
-
-.marketplace-panel-head p {
-  margin: 3px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.marketplace-close {
-  width: 30px;
-  height: 30px;
-  margin-left: auto;
-  padding: 0;
-  color: var(--text-muted);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  font-size: 20px;
-  line-height: 1;
-  cursor: pointer;
-}
-
-.marketplace-close:hover {
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border-color: var(--border);
-}
-
-.marketplace-panel-body {
-  min-height: 0;
-  flex: 1;
-  overflow-y: auto;
-  padding: 16px 20px 18px;
+  background: rgba(248, 81, 73, 0.15);
 }
 
 .ws-marketplace {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .ws-marketplace-toolbar,
@@ -353,8 +131,8 @@
 }
 
 .ws-marketplace-toolbar {
+  min-height: 38px;
   flex-wrap: wrap;
-  min-height: 34px;
 }
 
 .ws-marketplace-toolbar label {
@@ -362,20 +140,20 @@
   align-items: center;
   gap: 6px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .ws-marketplace select,
 .ws-marketplace input {
   min-width: 0;
-  height: 34px;
-  padding: 0 10px;
+  height: 38px;
+  padding: 0 11px;
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 7px;
-  font: inherit;
+  border-radius: 8px;
   outline: none;
+  font: inherit;
   transition: border-color 120ms ease;
 }
 
@@ -385,18 +163,21 @@
 }
 
 .ws-marketplace button {
-  min-height: 32px;
-  padding: 0 11px;
+  min-height: 35px;
+  padding: 0 12px;
   color: var(--text-primary);
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .ws-marketplace button:disabled {
-  cursor: not-allowed;
   opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .ws-marketplace-kinds {
@@ -409,10 +190,10 @@
 }
 
 .ws-marketplace-kinds button {
-  min-height: 27px;
-  border: 0;
-  background: transparent;
+  min-height: 30px;
   color: var(--text-muted);
+  background: transparent;
+  border: 0;
 }
 
 .ws-marketplace-kinds button.is-active {
@@ -422,7 +203,7 @@
 }
 
 .ws-marketplace-search {
-  max-width: 560px;
+  max-width: 620px;
 }
 
 .ws-marketplace-search input {
@@ -437,12 +218,95 @@
   font-weight: 650;
 }
 
+.ws-marketplace-state {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.ws-marketplace-state--empty {
+  flex-direction: column;
+  gap: 5px;
+  text-align: center;
+}
+
+.ws-marketplace-state--empty .extensions-blank-state__mark {
+  margin-bottom: 7px;
+}
+
+.ws-marketplace-state--empty strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.ws-marketplace-skeleton {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.ws-marketplace-skeleton__card {
+  min-height: 110px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
+}
+
+.ws-marketplace-skeleton__card span {
+  display: block;
+  height: 9px;
+  margin-top: 10px;
+  border-radius: 999px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--text-muted) 9%, transparent) 20%,
+    color-mix(in srgb, var(--text-muted) 18%, transparent) 42%,
+    color-mix(in srgb, var(--text-muted) 9%, transparent) 64%
+  );
+  background-size: 220% 100%;
+  animation: marketplace-skeleton 1.25s ease-in-out infinite;
+}
+
+.ws-marketplace-skeleton__card .ws-marketplace-skeleton__title {
+  width: 44%;
+  height: 12px;
+  margin-top: 0;
+}
+
+.ws-marketplace-skeleton__card .ws-marketplace-skeleton__meta {
+  width: 30%;
+}
+
+.ws-marketplace-skeleton__card .ws-marketplace-skeleton__line {
+  width: 86%;
+  margin-top: 17px;
+}
+
+.ws-marketplace-skeleton__card .ws-marketplace-skeleton__line.is-short {
+  width: 62%;
+  margin-top: 7px;
+}
+
+@keyframes marketplace-skeleton {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
 .ws-marketplace-login {
-  max-width: 420px;
-  margin: 44px auto;
+  max-width: 440px;
   align-items: stretch;
   flex-direction: column;
-  padding: 24px;
+  margin: 44px auto;
+  padding: 28px;
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-tertiary);
@@ -451,21 +315,22 @@
 .ws-marketplace-login p {
   margin: 0 0 4px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
 .ws-marketplace-list {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px;
+  gap: 12px;
 }
 
 .ws-marketplace-list .ws-panel-item {
   position: relative;
-  min-height: 92px;
-  padding: 11px 104px 11px 12px;
+  min-height: 110px;
+  padding: 14px 112px 14px 14px;
   overflow: hidden;
-  border-radius: 9px;
+  border-radius: 11px;
   background: color-mix(in srgb, var(--bg-tertiary) 78%, transparent);
   transition:
     border-color 120ms ease,
@@ -479,48 +344,46 @@
   transform: translateY(-1px);
 }
 
-.ws-marketplace-card .ws-panel-item-name {
+.ws-marketplace-card .ws-panel-item-name,
+.ws-marketplace-card .ws-panel-item-meta {
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  letter-spacing: -0.01em;
 }
 
-.ws-marketplace-card .ws-panel-item-meta {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.ws-marketplace-card .ws-panel-item-name {
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  letter-spacing: -0.01em;
 }
 
 .ws-marketplace-card .ws-panel-item-desc-short {
   display: -webkit-box;
+  margin-top: 8px;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  margin-top: 6px;
   line-height: 1.35;
 }
 
 .ws-marketplace-actions {
   position: absolute;
-  right: 10px;
-  top: 10px;
+  top: 12px;
+  right: 12px;
   display: flex;
+  align-items: stretch;
   flex-direction: column;
   gap: 4px;
-  align-items: stretch;
 }
 
 .ws-marketplace-actions button {
-  max-width: 88px;
+  max-width: 94px;
   overflow: hidden;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
 }
 
 .ws-marketplace-actions .ws-marketplace-uninstall {
@@ -539,8 +402,8 @@
   justify-content: flex-end;
   margin-top: auto;
   padding: 12px 0 2px;
-  background: linear-gradient(transparent, var(--bg-secondary) 30%);
   color: var(--text-muted);
+  background: linear-gradient(transparent, var(--bg-secondary) 30%);
   font-size: 11px;
 }
 
@@ -553,9 +416,9 @@
 
 .ws-marketplace-page {
   min-width: 54px;
-  text-align: center;
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
+  text-align: center;
 }
 
 .ws-marketplace-result-count {
@@ -564,7 +427,7 @@
 
 .ws-bundle-preview-backdrop {
   position: fixed;
-  z-index: 1100;
+  z-index: 2300;
   inset: 0;
   display: grid;
   place-items: center;
@@ -662,9 +525,9 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-secondary);
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
 }
 
 .ws-bundle-file-paths .ws-bundle-file-target {
@@ -705,93 +568,23 @@
   font-weight: 650;
 }
 
-@keyframes marketplace-fade {
-  from {
-    opacity: 0;
-  }
-}
-
-@keyframes marketplace-rise {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.99);
-  }
-}
-
 @media (max-width: 720px) {
-  .marketplace-modal {
-    padding: 10px;
+  .ws-marketplace-toolbar label {
+    width: 100%;
   }
 
-  .marketplace-panel {
-    height: min(840px, 94vh);
+  .ws-marketplace-toolbar label select {
+    flex: 1;
   }
 
-  .marketplace-panel-body {
-    padding: 12px;
-  }
-
-  .ws-marketplace-list {
+  .ws-marketplace-list,
+  .ws-marketplace-skeleton {
     grid-template-columns: 1fr;
   }
+}
 
-  .marketplace-trigger span {
-    display: none;
+@media (prefers-reduced-motion: reduce) {
+  .ws-marketplace-skeleton__card span {
+    animation: none;
   }
-}
-
-/* ── MCP tab ── */
-.ws-mcp-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-top: 6px;
-}
-
-.ws-mcp-tool {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 1px 6px;
-  white-space: nowrap;
-}
-
-.ws-mcp-error {
-  color: #f85149;
-}
-
-.ws-lsp-summary {
-  margin: 0 0 10px;
-}
-
-.ws-panel-warnings {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.ws-panel-warn-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  font-size: 11px;
-}
-
-.ws-panel-warn-list li {
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.ws-panel-warn-path {
-  display: block;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  word-break: break-all;
-}
-
-.ws-panel-warn-msg {
-  color: var(--red);
 }

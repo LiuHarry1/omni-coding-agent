@@ -111,6 +111,27 @@ export class RuntimeBroker {
     await rt.close().catch(() => {})
   }
 
+  /** Close cached and currently-opening runtimes for one environment. */
+  async closeEnvironment(environmentId: string): Promise<void> {
+    const prefix = `${environmentId}::`
+    const closeCached = async () => {
+      const matches = [...this.runtimes].filter(([key]) =>
+        key.startsWith(prefix),
+      )
+      for (const [key, runtime] of matches) {
+        this.runtimes.delete(key)
+        await runtime.close().catch(() => {})
+      }
+    }
+
+    await closeCached()
+    const opening = [...this.opening]
+      .filter(([key]) => key.startsWith(prefix))
+      .map(([, promise]) => promise)
+    if (opening.length > 0) await Promise.allSettled(opening)
+    await closeCached()
+  }
+
   async closeAll(): Promise<void> {
     const all = [...this.runtimes.values()]
     this.runtimes.clear()

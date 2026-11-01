@@ -4,7 +4,7 @@ import {
   type FireResult,
   type ScheduledTask,
 } from './types.js'
-import { isScheduledTasksEnabled } from './settings.js'
+import { isScheduledTaskEnabled } from './settings.js'
 import { readCronTasks } from './store.js'
 
 async function fireScheduledTaskLazy(
@@ -55,7 +55,7 @@ export function createCronScheduler(
     const all = readCronTasks()
     if (all.length === 0) return
 
-    const tasks = all.filter(t => isScheduledTasksEnabled(t.cwd))
+    const tasks = all.filter(isScheduledTaskEnabled)
     let nextAt = Infinity
     for (const t of tasks) {
       if (inFlight.has(t.id)) continue
@@ -83,7 +83,7 @@ export function createCronScheduler(
       t =>
         now >= t.nextRunAtMs &&
         !inFlight.has(t.id) &&
-        isScheduledTasksEnabled(t.cwd),
+        isScheduledTaskEnabled(t),
     )
 
     const bySession = new Map<string, ScheduledTask[]>()

@@ -99,7 +99,7 @@ export function createDurableRun(
   if (persisted) {
     throw new RunAlreadyActiveError(input.sessionId, persisted.runId)
   }
-  if (!tryBeginTurn(input.sessionId)) {
+  if (!tryBeginTurn(input.sessionId, input.agentHome)) {
     throw new RunAlreadyActiveError(
       input.sessionId,
       activeBySession.get(input.sessionId),
@@ -256,6 +256,13 @@ export function getActiveRunForSession(
   return findActiveRunStateForSession(sessionId, agentHome)
 }
 
+/** Non-terminal Runs owned by this process. */
+export function listActiveDurableRuns(): DurableRunState[] {
+  return [...runtimes.values()]
+    .map(runtime => runtime.state)
+    .filter(state => !isTerminalRunStatus(state.status))
+}
+
 export function attachDurableRunStream(
   runId: string,
   res: ServerResponse,
@@ -342,7 +349,7 @@ export function prepareDurableRunOpening(
 
 export function adoptInterruptedRun(state: DurableRunState): boolean {
   if (isTerminalRunStatus(state.status)) return false
-  if (!tryBeginTurn(state.sessionId)) return false
+  if (!tryBeginTurn(state.sessionId, state.agentHome)) return false
   const runtime = runtimeForState(state)
   activeBySession.set(state.sessionId, state.runId)
   persistStatus(runtime.state, 'recovering', {

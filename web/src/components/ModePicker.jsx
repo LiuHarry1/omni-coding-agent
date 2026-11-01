@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
+import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
 
 const MODE_META = {
   agent: { id: 'agent', label: 'Agent', desc: 'Edit and run commands' },
@@ -13,7 +14,7 @@ export default function ModePicker() {
   const setAgentMode = useChatStore(s => s.setAgentMode)
   const setAgentType = useChatStore(s => s.setAgentType)
   const loadAgentPicker = useChatStore(s => s.loadAgentPicker)
-  const workspace = useChatStore(s => s.workspace)
+  const workspaceHandle = useWorkspaceContextStore(s => s.handle)
   const agentPicker = useChatStore(s => s.agentPicker)
   const primaryAgents = useChatStore(s => s.agentPickerPrimaries)
   const loaded = useChatStore(s => s.agentPickerLoaded)
@@ -44,8 +45,8 @@ export default function ModePicker() {
   const hideTip = () => setHovered(null)
 
   useEffect(() => {
-    loadAgentPicker?.(workspace || undefined)
-  }, [workspace, loadAgentPicker])
+    loadAgentPicker?.(workspaceHandle || undefined)
+  }, [workspaceHandle, loadAgentPicker])
 
   const modeRows = useMemo(
     () => modes.map(id => MODE_META[id]).filter(Boolean),

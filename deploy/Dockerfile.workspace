@@ -1,0 +1,55 @@
+# syntax=docker/dockerfile:1
+#
+# WORKSPACE image — the per-workspace container for cloud mode
+# (CLOUD_WORKSPACES=docker). The control plane runs one container per
+# workspace from this image and talks to the baked Worker over
+# `docker exec -i`. User code, shells and git run here, never in the agent.
+#
+# Build from repo root (after `npm run build:worker`):
+#   docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
+#
+# Runtime contract (enforced by the control plane, not this file):
+#   - runs as uid 1000 with all capabilities dropped and no-new-privileges
+#   - only /workspace persists (a named volume per workspace); the repository
+#     is cloned into /workspace/repo. Everything else is reset when an idle
+#     container is removed and recreated from the latest image.
+#   - no secrets in the environment; only variables passed per exec
+
+FROM node:22-bookworm-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    git \
+    less \
+    procps \
+    python3 \
+    python3-venv \
+    python3-pip \
+    python-is-python3 \
+    ripgrep \
+    unzip \
+    zip \
+  && rm -rf /var/lib/apt/lists/*
+
+# The node image's uid 1000 user becomes `agent`, matching `--user 1000:1000`.
+RUN groupmod --new-name agent node \
+  && usermod --login agent --home /home/agent --move-home node \
+  && mkdir -p /workspace \
+  && chown agent:agent /workspace
+
+# Refuse local-file and ext:: transports for every repository by default.
+RUN git config --system protocol.file.allow user \
+  && git config --system protocol.ext.allow never \
+  && git config --system init.defaultBranch main
+
+COPY dist/worker/ /opt/agent/dist/worker/
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    AGENT_ROOT=/opt/agent/dist/worker \
+    HOME=/home/agent
+
+USER agent
+WORKDIR /workspace
+CMD ["sleep", "infinity"]

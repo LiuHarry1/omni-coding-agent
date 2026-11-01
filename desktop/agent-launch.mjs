@@ -2,6 +2,7 @@
  * Desktop agent spawn helpers (mirrors src/execution/worker-paths.ts for Electron).
  */
 import * as fs from 'node:fs'
+import * as net from 'node:net'
 import * as path from 'node:path'
 
 export function agentNativePath(appRoot, slug) {
@@ -79,6 +80,60 @@ export function resolveDesktopDataRoot(homeDir, env = process.env) {
   return path.join(homeDir, resolveAppDirName(env))
 }
 
+function tryDesktopPort(port) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer()
+    server.unref()
+    server.once('error', reject)
+    server.listen(
+      {
+        host: '127.0.0.1',
+        port,
+        exclusive: true,
+      },
+      () => {
+        const address = server.address()
+        const selectedPort =
+          address && typeof address !== 'string' ? address.port : null
+        server.close(error => {
+          if (error) {
+            reject(error)
+          } else if (selectedPort == null) {
+            reject(new Error('Desktop agent port could not be determined'))
+          } else {
+            resolve(selectedPort)
+          }
+        })
+      },
+    )
+  })
+}
+
+/**
+ * Prefer the conventional port, but fall back to an OS-assigned loopback port
+ * when another local/cloud agent already owns it.
+ */
+export async function selectDesktopAgentPort(preferredPort = 4567) {
+  if (
+    Number.isInteger(preferredPort) &&
+    preferredPort > 0 &&
+    preferredPort <= 65_535
+  ) {
+    try {
+      return await tryDesktopPort(preferredPort)
+    } catch (error) {
+      if (
+        error?.code !== 'EADDRINUSE' &&
+        error?.code !== 'EACCES' &&
+        error?.code !== 'EPERM'
+      ) {
+        throw error
+      }
+    }
+  }
+  return tryDesktopPort(0)
+}
+
 /** Return the trusted app-data root, rejecting roots and symlink escapes. */
 export function assertSafeDesktopDataRoot(target, homeDir) {
   if (!target || !homeDir) throw new Error('Desktop data root is unavailable')
@@ -111,7 +166,14 @@ export function buildAgentSpawnEnv(
     ...baseEnv,
     PORT: String(port),
     AGENT_ROOT: appRoot,
+    AUTH_ENABLED: 'false',
+    BAIZE_RUNTIME_PROFILE: 'desktop',
+    CLOUD_WORKSPACES: '',
+    HOST: '127.0.0.1',
+    SERVE_STATIC: '1',
   }
+  // The Electron shell is a desktop trust boundary. Deployment variables from
+  // a cloud-dev shell or .env must never turn its child into a cloud runtime.
   // Packaged desktop owns this reserved variable. Never accept an inherited
   // path in that mode; only expose the file under Electron's resourcesPath.
   if (packaged) {

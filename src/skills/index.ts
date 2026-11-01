@@ -90,6 +90,8 @@ export interface RegisterSkillsOptions {
    * priority, so a disk skill (`.ai-agent/skills/`) with the same name wins.
    */
   pluginSkills?: readonly SkillDefinition[]
+  /** Already merged skills from the turn's slash registry. */
+  preloadedSkills?: readonly SkillDefinition[]
   /**
    * File paths to evaluate `paths:` frontmatter against. Skills whose
    * `paths` patterns match at least one of these become active for this
@@ -104,6 +106,14 @@ export interface RegisterSkillsOptions {
    * Skills WITHOUT `paths:` are always active regardless of this option.
    */
   candidateFiles?: readonly string[]
+  /** Rewrites each project-scope disk skill before registration. */
+  mapProjectSkill?: (skill: SkillDefinition) => SkillDefinition
+  /** Rewrites/materializes the final merged skill set before filtering. */
+  transformSkills?: (
+    skills: SkillDefinition[],
+  ) => SkillDefinition[] | Promise<SkillDefinition[]>
+  /** Workspace cwd used only for `paths:` matching. Defaults to `cwd`. */
+  filterCwd?: string
 }
 
 /**
@@ -131,10 +141,29 @@ export async function registerSkills(
   activeSkills: SkillDefinition[]
   errors: Array<{ filePath: string; error: string }>
 }> {
-  const { skills: diskSkills, errors } = await loadSkillsFromDisk(cwd)
-  // plugin skills first (lowest priority) → disk skills override on collision.
-  const skills = mergeSkillsByName(options.pluginSkills ?? [], diskSkills)
-  const activeSkills = filterSkillsByPaths(skills, options.candidateFiles, cwd)
+  let errors: Array<{ filePath: string; error: string }>
+  let mergedSkills: SkillDefinition[]
+  if (options.preloadedSkills) {
+    errors = []
+    mergedSkills = [...options.preloadedSkills]
+  } else {
+    const loaded = await loadSkillsFromDisk(cwd)
+    errors = loaded.errors
+    const mapProject = options.mapProjectSkill
+    const diskSkills = mapProject
+      ? loaded.skills.map(s => (s.source === 'project' ? mapProject(s) : s))
+      : loaded.skills
+    // Plugin skills first (lowest priority) → disk skills override on collision.
+    mergedSkills = mergeSkillsByName(options.pluginSkills ?? [], diskSkills)
+  }
+  const skills = options.transformSkills
+    ? await options.transformSkills(mergedSkills)
+    : mergedSkills
+  const activeSkills = filterSkillsByPaths(
+    skills,
+    options.candidateFiles,
+    options.filterCwd ?? cwd,
+  )
 
   if (activeSkills.length > 0) {
     registry.register(createSkillTool(activeSkills, forkableAgents))

@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
     "mermaid": "^11.15.0",
     "react": "^19.0.0",
     "react-diff-viewer-continued": "^4.2.0",
@@ -15,6 +16,7 @@
     "react-markdown": "^9.0.3",
     "rehype-highlight": "^7.0.2",
     "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.1",
     "zustand": "^5.0.3"
   },
   "devDependencies": {

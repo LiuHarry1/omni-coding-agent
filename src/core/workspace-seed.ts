@@ -128,7 +128,6 @@ export function seedUserWorkspaceIfNeeded(userWorkspace: string): boolean {
 
   const raw = process.env.WORKSPACE_SEED_DIR
   if (raw != null && raw.trim() === '') {
-    writeSeedMarker(userWorkspace, '')
     return false
   }
 

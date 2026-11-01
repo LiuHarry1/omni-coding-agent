@@ -130,6 +130,8 @@ export interface SettingsSource {
 
 export interface ResolvedSettings {
   config: AppConfig
+  /** Winning settings-file scope for each merged MCP server. */
+  mcpSources: Record<string, SettingsScope>
   sources: SettingsSource[]
   validationErrors: ValidationError[]
   userDir: string
@@ -144,6 +146,36 @@ export interface ResolvedSettings {
 export interface EffectiveSettings extends ResolvedSettings {
   /** Plugin MCP merged with settings MCP (settings win on name collision). */
   effectiveMcpServers: Record<string, MCPServerConfig>
+  /** Safe ownership/removal metadata for every effective MCP server. */
+  mcpProvenance: Record<string, MCPServerProvenance>
+}
+
+export interface MCPServerProvenance {
+  configuredBy: SettingsScope | 'plugin'
+  writable: boolean
+  writableScope?: WritableSettingsScope
+}
+
+export function validateMCPRemoval(
+  provenance: Record<string, MCPServerProvenance>,
+  name: string,
+  scope: WritableSettingsScope,
+): { status: 404 | 409; error: string } | null {
+  const ownership = provenance[name]
+  if (!ownership) return { status: 404, error: 'MCP server not found' }
+  if (!ownership.writable || !ownership.writableScope) {
+    return {
+      status: 409,
+      error: `MCP server '${name}' is provided by ${ownership.configuredBy} and is read-only`,
+    }
+  }
+  if (ownership.writableScope !== scope) {
+    return {
+      status: 409,
+      error: `MCP server '${name}' belongs to ${ownership.writableScope} scope, not ${scope}`,
+    }
+  }
+  return null
 }
 
 type PartialAppConfig = SettingsFileJson
@@ -717,6 +749,7 @@ function applySettingsSource(
   config: AppConfig,
   source: SettingsSource,
   validationErrors: ValidationError[],
+  mcpSources: Record<string, SettingsScope>,
 ): void {
   source.exists = fileMtimeMs(source.path) > 0
   const {
@@ -746,6 +779,11 @@ function applySettingsSource(
   if (source.scope !== 'managed' && isAuthDeployment()) {
     toApply = stripUntrustedMarketplaces(toApply, source.path)
   }
+  if (toApply.mcpServers && typeof toApply.mcpServers === 'object') {
+    for (const name of Object.keys(toApply.mcpServers)) {
+      mcpSources[name] = source.scope
+    }
+  }
   applyLayer(config, toApply)
   source.applied = true
   console.log(`[settings] Loaded ${source.scope} settings from ${source.path}`)
@@ -755,6 +793,7 @@ function resolveSettingsFromDisk(cwd: string): ResolvedSettings {
   const paths = resolveSettingsPaths(cwd)
   const config = cloneDefaults()
   const validationErrors: ValidationError[] = []
+  const mcpSources: Record<string, SettingsScope> = {}
   // Merge order: user → project → local → flag → policy(managed last).
   // We have no flag layer; managed is policySettings.
   // SSO: cwd === agent home → userPath === projectPath; apply once as user
@@ -783,7 +822,7 @@ function resolveSettingsFromDisk(cwd: string): ResolvedSettings {
   })
 
   for (const source of sources) {
-    applySettingsSource(config, source, validationErrors)
+    applySettingsSource(config, source, validationErrors, mcpSources)
   }
 
   // Managed / policySettings — loadManagedFileSettings then one apply.
@@ -797,6 +836,14 @@ function resolveSettingsFromDisk(cwd: string): ResolvedSettings {
   }
   sources.push(managedSource)
   if (managed.settings) {
+    if (
+      managed.settings.mcpServers &&
+      typeof managed.settings.mcpServers === 'object'
+    ) {
+      for (const name of Object.keys(managed.settings.mcpServers)) {
+        mcpSources[name] = 'managed'
+      }
+    }
     applyLayer(config, managed.settings)
     managedSource.applied = true
     console.log(
@@ -809,6 +856,7 @@ function resolveSettingsFromDisk(cwd: string): ResolvedSettings {
 
   return {
     config,
+    mcpSources,
     sources,
     validationErrors,
     ...paths,
@@ -849,12 +897,30 @@ export async function resolveEffectiveSettings(
 ): Promise<EffectiveSettings> {
   const resolved = resolveSettings(cwd)
   const plugins = await loadPlugins(cwd)
+  const mcpProvenance: Record<string, MCPServerProvenance> = Object.fromEntries(
+    Object.keys(plugins.mcpServers).map(name => [
+      name,
+      { configuredBy: 'plugin', writable: false },
+    ]),
+  )
+  for (const [name, configuredBy] of Object.entries(resolved.mcpSources)) {
+    const writable =
+      configuredBy === 'user' ||
+      configuredBy === 'project' ||
+      configuredBy === 'local'
+    mcpProvenance[name] = {
+      configuredBy,
+      writable,
+      ...(writable ? { writableScope: configuredBy } : {}),
+    }
+  }
   return {
     ...resolved,
     effectiveMcpServers: mergeMCPServers(
       plugins.mcpServers,
       resolved.config.mcpServers,
     ),
+    mcpProvenance,
   }
 }
 
@@ -867,13 +933,16 @@ function maskProfile<T extends { apiKey?: string }>(profile: T): T {
   return { ...profile, apiKey: maskApiKey(profile.apiKey) }
 }
 
-export function getSafeSettings(resolved: ResolvedSettings): AppConfig {
+export function getSafeSettings(
+  resolved: ResolvedSettings,
+): Omit<AppConfig, 'mcpServers'> {
   const copy = structuredClone(resolved.config)
   copy.models = {
     large: maskProfile(copy.models.large),
     medium: maskProfile(copy.models.medium),
     small: maskProfile(copy.models.small),
   }
+  delete (copy as Partial<AppConfig>).mcpServers
   return copy
 }
 

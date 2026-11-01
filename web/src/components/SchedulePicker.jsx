@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { agentApi } from '../lib/api/agent.js'
 import { useChatStore } from '../stores/chat-store.js'
+import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -67,12 +68,12 @@ function resolveOnceAt(chipId, customDate, customTime) {
 }
 
 export default function SchedulePicker() {
-  const workspace = useChatStore(s => s.workspace)
+  const workspace = useWorkspaceContextStore(s => s.cwd)
+  const workspaceHandle = useWorkspaceContextStore(s => s.handle)
   const currentSessionId = useChatStore(s => s.currentSessionId)
   const switchSession = useChatStore(s => s.switchSession)
   const refreshSessions = useChatStore(s => s.refreshSessions)
   const setLiveNeeded = useChatStore(s => s.setLiveNeeded)
-  const workspaceHandle = useChatStore(s => s.workspaceHandle)
   const agentType = useChatStore(s => s.agentType)
   const agentMode = useChatStore(s => s.agentMode)
 

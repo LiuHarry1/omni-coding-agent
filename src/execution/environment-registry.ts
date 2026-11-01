@@ -47,6 +47,14 @@ export class EnvironmentRegistry {
       return local.resolve(trimmed)
     }
 
+    // Never fall through to other providers: `cloud:<id>` would otherwise
+    // parse as an SSH host alias.
+    if (trimmed.startsWith('cloud:')) {
+      const cloud = this.providers.get('cloud')
+      if (!cloud) throw new Error('Cloud workspaces are not enabled')
+      return cloud.resolve(trimmed)
+    }
+
     // Absolute / relative filesystem paths → local
     if (
       trimmed.startsWith('/') ||
@@ -140,6 +148,15 @@ export class EnvironmentRegistry {
     if (this.envConnection.get(conn.env.id) === connectionId) {
       this.envConnection.delete(conn.env.id)
     }
+  }
+
+  /** Close every cached connection for one environment id. */
+  async disconnectEnvironment(environmentId: EnvironmentId): Promise<void> {
+    const ids = [...this.connections]
+      .filter(([, connection]) => connection.env.id === environmentId)
+      .map(([id]) => id)
+    for (const id of ids) await this.disconnect(id)
+    this.envConnection.delete(environmentId)
   }
 
   /** Test helper / unique connection ids. */

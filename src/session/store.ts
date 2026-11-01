@@ -77,17 +77,25 @@ function ensureProjectDir(loc: SessionLocation): void {
 
 // ── In-flight turn mutex ────────────────────────
 
-const activeTurns = new Set<string>()
+const activeTurns = new Map<string, string>()
 
 /** Returns false when a turn is already running for this session. */
-export function tryBeginTurn(sessionId: string): boolean {
+export function tryBeginTurn(sessionId: string, agentHome?: string): boolean {
   if (activeTurns.has(sessionId)) return false
-  activeTurns.add(sessionId)
+  activeTurns.set(sessionId, resolveAgentHome(agentHome))
   return true
 }
 
 export function endTurn(sessionId: string): void {
   activeTurns.delete(sessionId)
+}
+
+export function listActiveTurnSessionIds(): string[] {
+  return [...activeTurns.keys()]
+}
+
+export function getActiveTurnAgentHome(sessionId: string): string | undefined {
+  return activeTurns.get(sessionId)
 }
 
 export type CreateSessionOptions = {

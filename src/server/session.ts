@@ -9,6 +9,8 @@ export {
   getToolResultFilePath,
   tryBeginTurn,
   endTurn,
+  listActiveTurnSessionIds,
+  getActiveTurnAgentHome,
   createSession,
   getSession,
   setSessionTitle,

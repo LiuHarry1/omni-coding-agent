@@ -3,6 +3,8 @@
  */
 import { resolveSettings } from './settings-manager.js'
 import { loadWorkspaceContributions } from './workspace-load.js'
+import type { WorkspaceHandle } from '../execution/types.js'
+import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
 import {
   isAgentTypeAllowedByPicker,
   isModeAllowedByPicker,
@@ -15,12 +17,29 @@ import {
   type ExternalMode,
 } from './permission-mode.js'
 
-export async function loadResolvedAgentPicker(
-  cwd: string,
+export async function loadAgentPickerWorkspace(
+  workspace: WorkspaceHandle | undefined,
+  toolCwd: string,
+) {
+  const scope = resolveTurnWorkspaceScope(workspace, toolCwd)
+  const settings = resolveSettings(scope.settingsCwd)
+  const contributions = await loadWorkspaceContributions(scope.extensionCwd)
+  return {
+    picker: resolveAgentPicker(
+      settings.config.agents,
+      contributions.agents.activeAgents,
+    ),
+    contributions,
+    scope,
+  }
+}
+
+export async function loadResolvedAgentPickerForWorkspace(
+  workspace: WorkspaceHandle | undefined,
+  toolCwd: string,
 ): Promise<ResolvedAgentPicker> {
-  const settings = resolveSettings(cwd)
-  const { agents } = await loadWorkspaceContributions(cwd)
-  return resolveAgentPicker(settings.config.agents, agents.activeAgents)
+  const { picker } = await loadAgentPickerWorkspace(workspace, toolCwd)
+  return picker
 }
 
 /** Apply picker defaults onto a freshly created session. */

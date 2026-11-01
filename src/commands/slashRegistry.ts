@@ -111,23 +111,37 @@ function skillArgumentHint(skill: SkillDefinition): string | undefined {
  * dispatcher needs both: the merged map for "what name resolves to what",
  * and the originals for `/help` source attribution if we ever add it.
  */
-export async function loadSlashRegistry(cwd: string): Promise<{
+export async function loadSlashRegistry(
+  cwd: string,
+  opts: {
+    mapProjectSkill?: (skill: SkillDefinition) => SkillDefinition
+    transformSkills?: (
+      skills: SkillDefinition[],
+    ) => SkillDefinition[] | Promise<SkillDefinition[]>
+  } = {},
+): Promise<{
   entries: SlashEntry[]
   commands: SlashCommand[]
   skills: SkillDefinition[]
 }> {
-  const [commandFiles, { skills: diskSkills }, contributions] =
-    await Promise.all([
-      loadMarkdownConfigs('commands', cwd),
-      loadSkillsFromDisk(cwd),
-      loadPlugins(cwd),
-    ])
+  const [commandFiles, loaded, contributions] = await Promise.all([
+    loadMarkdownConfigs('commands', cwd),
+    loadSkillsFromDisk(cwd),
+    loadPlugins(cwd),
+  ])
+  const mapProject = opts.mapProjectSkill
+  const diskSkills = mapProject
+    ? loaded.skills.map(s => (s.source === 'project' ? mapProject(s) : s))
+    : loaded.skills
   // Plugin lowest; managed (policy) highest via sourceRank / mergeSkillsByName.
   const commands = mergeCommands([
     ...contributions.commandFiles,
     ...commandFiles,
   ]).commands
-  const skills = mergeSkillsByName(contributions.skills, diskSkills)
+  const mergedSkills = mergeSkillsByName(contributions.skills, diskSkills)
+  const skills = opts.transformSkills
+    ? await opts.transformSkills(mergedSkills)
+    : mergedSkills
 
   const byName = new Map<string, SlashEntry>()
 
@@ -178,6 +192,9 @@ export interface PublicSlashEntry {
   kind: SlashEntry['kind']
   argumentHint?: string
   context?: SkillDefinition['context']
+  source:
+    'built-in' | import('../utils/markdownConfigLoader.js').ExtensionSource
+  filePath?: string
 }
 
 export function toPublicEntry(e: SlashEntry): PublicSlashEntry {
@@ -188,6 +205,8 @@ export function toPublicEntry(e: SlashEntry): PublicSlashEntry {
       kind: e.kind,
       argumentHint: e.argumentHint,
       context: e.context,
+      source: e.def.source,
+      filePath: e.def.filePath,
     }
   }
   if (e.kind === 'command') {
@@ -196,9 +215,16 @@ export function toPublicEntry(e: SlashEntry): PublicSlashEntry {
       description: e.description,
       kind: e.kind,
       argumentHint: e.argumentHint,
+      source: e.def.source,
+      filePath: e.def.filePath,
     }
   }
-  return { name: e.name, description: e.description, kind: e.kind }
+  return {
+    name: e.name,
+    description: e.description,
+    kind: e.kind,
+    source: 'built-in',
+  }
 }
 
 export function lookupSlash(

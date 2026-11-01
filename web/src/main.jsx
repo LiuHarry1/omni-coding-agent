@@ -4,6 +4,7 @@ import { ensureAuth } from './lib/auth.js'
 import { APP_NAME } from './lib/brand.js'
 import hljsDarkUrl from 'highlight.js/styles/github-dark.min.css?url'
 import hljsLightUrl from 'highlight.js/styles/github.min.css?url'
+import '@fontsource-variable/inter'
 import './styles/index.css'
 
 document.title = APP_NAME

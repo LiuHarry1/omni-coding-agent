@@ -7,8 +7,8 @@
  *
  *   1. Load the SKILL.md body (lazy, via `skill.loadBody()`).
  *   2. Run `$ARGUMENTS` / `$1` / `$name` substitution.
- *   3. Run inline `!`shell`` + `@file` directive expansion.
- *   4. Replace `${SKILL_DIR}` with the skill folder path.
+ *   3. Replace `${SKILL_DIR}` with the skill folder path.
+ *   4. Run inline `!`shell`` + `@file` directive expansion.
  *   5. Prepend the `Base directory for this skill: …` preamble.
  *
  * Keeping this in one place means HTTP callers see byte-for-byte the same
@@ -17,7 +17,10 @@
  */
 
 import { substituteArguments } from '../commands/argumentSubstitution.js'
-import { expandInlineDirectives } from '../commands/promptExpansion.js'
+import {
+  expandInlineDirectives,
+  type DirectiveRuntime,
+} from '../commands/promptExpansion.js'
 import type { SkillDefinition } from './types.js'
 
 export interface ExpandedSkill {
@@ -49,6 +52,7 @@ export async function expandSkillBody(
   skill: SkillDefinition,
   rawArgs: string,
   cwd: string,
+  directiveRuntime?: DirectiveRuntime,
 ): Promise<ExpandedSkill> {
   let body: string
   try {
@@ -66,21 +70,25 @@ export async function expandSkillBody(
     )
   }
 
-  const substituted = substituteArguments(body, rawArgs, skill.argumentNames)
-  let expanded = await expandInlineDirectives(substituted, cwd)
-
   // `${SKILL_DIR}` → skill folder. Normalize backslashes on Windows so
   // shell snippets don't treat them as escape sequences.
-  if (skill.baseDir) {
-    const dir =
-      process.platform === 'win32'
-        ? skill.baseDir.replace(/\\/g, '/')
-        : skill.baseDir
-    expanded = expanded.replace(/\$\{SKILL_DIR\}/g, dir)
-  }
+  const effectiveBaseDir = skill.runtimeBaseDir ?? skill.baseDir
+  const directiveBaseDir =
+    effectiveBaseDir && process.platform === 'win32'
+      ? effectiveBaseDir.replace(/\\/g, '/')
+      : effectiveBaseDir
+  const withSkillDir = directiveBaseDir
+    ? body.replace(/\$\{SKILL_DIR\}/g, directiveBaseDir)
+    : body
+  const expanded = skill.untrustedBody
+    ? substituteArguments(withSkillDir, rawArgs, skill.argumentNames)
+    : await expandInlineDirectives(withSkillDir, cwd, directiveRuntime, {
+        rawArgs,
+        argumentNames: skill.argumentNames,
+      })
 
-  const preamble = skill.baseDir
-    ? `Base directory for this skill: ${skill.baseDir}\n\n`
+  const preamble = effectiveBaseDir
+    ? `Base directory for this skill: ${effectiveBaseDir}\n\n`
     : ''
 
   return { preamble, expanded, combined: preamble + expanded }

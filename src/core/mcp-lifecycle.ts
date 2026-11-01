@@ -1,7 +1,9 @@
 import * as crypto from 'crypto'
 import * as path from 'path'
 import { MCPManager } from './mcp-manager.js'
+import { filterHttpMCPServers } from './mcp-policy.js'
 import type { MCPServerConfig } from './types.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 
 interface ManagedMCPPoolEntry {
   manager: MCPManager
@@ -62,7 +64,17 @@ export async function getMCPManagerForServers(
   servers: Record<string, MCPServerConfig>,
 ): Promise<MCPManager> {
   sweepIdleManagers()
-  const key = poolKey(cwd, servers)
+  let effectiveServers = servers
+  if (isCloudWorkspacesEnabled()) {
+    const filtered = filterHttpMCPServers(servers)
+    effectiveServers = filtered.servers
+    if (filtered.dropped.length > 0) {
+      console.warn(
+        `[mcp] cloud runtime rejected non-HTTP servers: ${filtered.dropped.join(', ')}`,
+      )
+    }
+  }
+  const key = poolKey(cwd, effectiveServers)
   const existing = managers.get(key)
   if (existing) {
     existing.lastUsed = Date.now()
@@ -70,7 +82,7 @@ export async function getMCPManagerForServers(
   }
 
   const manager = new MCPManager()
-  for (const [name, config] of Object.entries(servers)) {
+  for (const [name, config] of Object.entries(effectiveServers)) {
     await manager.addServer(name, config)
   }
   managers.set(key, { manager, lastUsed: Date.now(), cwd: path.resolve(cwd) })

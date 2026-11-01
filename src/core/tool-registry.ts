@@ -18,6 +18,17 @@ export interface SplitTools {
 export class ToolRegistry implements IToolRegistry {
   #tools = new Map<string, ToolDefinition>()
 
+  /**
+   * Snapshot the current definitions into an independent registry.
+   * Per-turn Agents, Skills and dynamic tools may safely replace entries on
+   * the fork without mutating the process-wide built-in/plugin registry.
+   */
+  fork(): ToolRegistry {
+    const fork = new ToolRegistry()
+    fork.#tools = new Map(this.#tools)
+    return fork
+  }
+
   register(def: ToolDefinition): void {
     this.#tools.set(def.name, def)
   }

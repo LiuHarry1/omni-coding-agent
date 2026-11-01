@@ -35,8 +35,9 @@
 #   ${FRONTEND_ORIGIN}   (login: WEB_USERNAME / WEB_PASSWORD)
 #
 # Prereq images:
+#   npm run build:worker
 #   docker build -f deploy/Dockerfile.agent-base    -t ai-agent-base:latest .
-#   docker build -f deploy/Dockerfile.agent.example -t ai-agent-tenant:latest deploy/tenant-example
+#   docker build -f deploy/Dockerfile.agent-tenant  -t ai-agent-tenant:latest .
 #   docker build -f deploy/Dockerfile.web           -t ai-agent-web:latest .
 # ─────────────────────────────────────────────────────────────────────────
 
@@ -50,6 +51,7 @@ services:
       - "${AGENT_PORT:-4567}:4567"
     environment:
       NODE_ENV: production
+      HOST: "0.0.0.0"
       PORT: "4567"
       WORKSPACE: /workspace
       # Persist ~/.ai-agent/projects (sessions) on the workspaces volume.

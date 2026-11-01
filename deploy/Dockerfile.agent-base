@@ -6,10 +6,11 @@
 # pip deps, and the agent's TypeScript source. It is published once per
 # agent-code release and consumed by thin "tenant" images that COPY in
 # a project-specific `.ai-agent/` directory (config.json, agents,
-# skills, slash commands). See `deploy/Dockerfile.agent.example` for the
+# skills, slash commands). See `deploy/Dockerfile.agent-tenant` for the
 # tenant pattern and `deploy/README.md` for the full workflow.
 #
 # Build from repo root:
+#   npm run build:worker
 #   docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 #
 # Notes for downstream tenant Dockerfiles:
@@ -51,6 +52,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-wqy-zenhei \
   && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI only (no daemon): cloud mode (CLOUD_WORKSPACES=docker) drives
+# per-workspace containers through the host socket mounted by compose.
+COPY --from=docker:27-cli /usr/local/bin/docker /usr/local/bin/docker
 
 # Python 3.11 + venv so the agent's bash tool can invoke python/pip
 # without polluting the system site-packages.

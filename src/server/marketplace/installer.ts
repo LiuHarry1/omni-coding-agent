@@ -4,7 +4,15 @@ import * as crypto from 'crypto'
 import extract from 'extract-zip'
 import matter from 'gray-matter'
 import { getAppDirName } from '../../utils/app-dir.js'
+import {
+  bumpUserConfigGeneration,
+  USER_CONFIG_GENERATION_FILE,
+} from '../../services/user-config-generation.js'
 import { parseAgentFromMarkdown } from '../../tools/AgentTool/mergeAgents.js'
+import {
+  SKILL_ARCHIVE_DOWNLOAD_LIMIT,
+  SKILL_PACKAGE_POLICY,
+} from '../../skills/package-policy.js'
 import { MarketplaceError } from './http.js'
 import type {
   MarketplaceArtifact,
@@ -34,6 +42,22 @@ interface MarketplaceLock {
 const DEFAULT_DOWNLOAD_LIMIT = 10 * 1024 * 1024
 const DEFAULT_EXTRACT_LIMIT = 25 * 1024 * 1024
 const DEFAULT_FILE_LIMIT = 1000
+
+export const SKILL_PACKAGE_LIMITS = {
+  maxDownloadBytes: SKILL_ARCHIVE_DOWNLOAD_LIMIT,
+  maxExtractBytes: SKILL_PACKAGE_POLICY.maxTotalBytes,
+  maxFiles: SKILL_PACKAGE_POLICY.maxFiles,
+  maxDirectories: SKILL_PACKAGE_POLICY.maxDirectories,
+  maxSingleFileBytes: SKILL_PACKAGE_POLICY.maxSingleFileBytes,
+} as const
+
+export interface SkillPackageLimits {
+  maxDownloadBytes?: number
+  maxExtractBytes?: number
+  maxFiles?: number
+  maxDirectories?: number
+  maxSingleFileBytes?: number
+}
 
 function lockPath(cwd: string): string {
   return path.join(cwd, getAppDirName(), 'marketplace-lock.json')
@@ -135,6 +159,13 @@ async function loadMarketplaceLock(
 
 export function readMarketplaceLock(cwd: string): Promise<MarketplaceLock> {
   return loadMarketplaceLock(cwd, { strict: false })
+}
+
+/** Strict lock read for mutations or ownership enforcement. */
+export function readMarketplaceLockStrict(
+  cwd: string,
+): Promise<MarketplaceLock> {
+  return loadMarketplaceLock(cwd, { strict: true })
 }
 
 function expectedEntryPaths(entry: LockEntry): string[] {
@@ -248,6 +279,19 @@ async function walkFiles(
   return output
 }
 
+async function countDirectories(root: string): Promise<number> {
+  let count = 0
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue
+      count++
+      await walk(path.join(dir, entry.name))
+    }
+  }
+  await walk(root)
+  return count
+}
+
 async function hashFile(filePath: string): Promise<string> {
   return crypto
     .createHash('sha256')
@@ -274,6 +318,7 @@ function assertBundleTargetPath(relativePath: string): string {
     lower === '.git' ||
     lower.startsWith('.git/') ||
     lower === `${appDir}/marketplace-lock.json` ||
+    lower === `${appDir}/${USER_CONFIG_GENERATION_FILE}` ||
     lower.startsWith(`${appDir}/.marketplace-tmp/`) ||
     lower.startsWith(`${appDir}/.marketplace-backups/`) ||
     lower.startsWith(`${appDir}/bundles/`)
@@ -603,12 +648,26 @@ async function bundleFileStates(
 async function materializeSkill(
   artifact: Extract<MarketplaceArtifact, { kind: 'skill' }>,
   tempRoot: string,
-  config: MarketplaceProviderConfig,
+  config: MarketplaceProviderConfig & SkillPackageLimits,
 ): Promise<string> {
   const unpack = path.join(tempRoot, 'unpack')
   await fs.mkdir(unpack, { recursive: true })
-  const maxFiles = config.maxFiles ?? DEFAULT_FILE_LIMIT
-  const maxExtractBytes = config.maxExtractBytes ?? DEFAULT_EXTRACT_LIMIT
+  const maxFiles = Math.min(
+    config.maxFiles ?? SKILL_PACKAGE_POLICY.maxFiles,
+    SKILL_PACKAGE_POLICY.maxFiles,
+  )
+  const maxDirectories = Math.min(
+    config.maxDirectories ?? SKILL_PACKAGE_POLICY.maxDirectories,
+    SKILL_PACKAGE_POLICY.maxDirectories,
+  )
+  const maxSingleFileBytes = Math.min(
+    config.maxSingleFileBytes ?? SKILL_PACKAGE_POLICY.maxSingleFileBytes,
+    SKILL_PACKAGE_POLICY.maxSingleFileBytes,
+  )
+  const maxExtractBytes = Math.min(
+    config.maxExtractBytes ?? SKILL_PACKAGE_POLICY.maxTotalBytes,
+    SKILL_PACKAGE_POLICY.maxTotalBytes,
+  )
 
   if (artifact.format === 'files') {
     if (artifact.files.length > maxFiles) {
@@ -618,6 +677,9 @@ async function materializeSkill(
     for (const file of artifact.files) {
       const relative = assertSafeRelativePath(file.path)
       const bytes = Buffer.byteLength(file.contents)
+      if (bytes > maxSingleFileBytes) {
+        throw new MarketplaceError('Skill contains an oversized file', 413)
+      }
       total += bytes
       if (total > maxExtractBytes) {
         throw new MarketplaceError('Skill exceeds extracted size limit', 413)
@@ -638,34 +700,70 @@ async function materializeSkill(
   } else {
     if (
       artifact.bytes.byteLength >
-      (config.maxDownloadBytes ?? DEFAULT_DOWNLOAD_LIMIT)
+      Math.min(
+        config.maxDownloadBytes ?? SKILL_ARCHIVE_DOWNLOAD_LIMIT,
+        SKILL_ARCHIVE_DOWNLOAD_LIMIT,
+      )
     ) {
       throw new MarketplaceError('Skill exceeds download size limit', 413)
     }
     const zipPath = path.join(tempRoot, 'skill.zip')
     await fs.writeFile(zipPath, artifact.bytes)
-    let count = 0
+    let fileCount = 0
+    let directoryCount = 0
     let declaredBytes = 0
-    await extract(zipPath, {
-      dir: unpack,
-      onEntry(entry) {
-        assertSafeRelativePath(entry.fileName)
-        count += 1
-        declaredBytes += entry.uncompressedSize
-        const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff
-        if ((unixMode & 0o170000) === 0o120000) {
-          throw new MarketplaceError('Skill ZIP contains a symbolic link', 400)
-        }
-        if (count > maxFiles || declaredBytes > maxExtractBytes) {
-          throw new MarketplaceError('Skill ZIP exceeds extraction limits', 413)
-        }
-      },
-    })
+    try {
+      await extract(zipPath, {
+        dir: unpack,
+        onEntry(entry) {
+          assertSafeRelativePath(entry.fileName)
+          const directory = entry.fileName.replace(/\\/g, '/').endsWith('/')
+          if (directory) {
+            directoryCount++
+          } else {
+            fileCount++
+            declaredBytes += entry.uncompressedSize
+            if (entry.uncompressedSize > maxSingleFileBytes) {
+              throw new MarketplaceError(
+                'Skill ZIP contains an oversized file',
+                413,
+              )
+            }
+          }
+          const unixMode = (entry.externalFileAttributes >>> 16) & 0xffff
+          if ((unixMode & 0o170000) === 0o120000) {
+            throw new MarketplaceError(
+              'Skill ZIP contains a symbolic link',
+              400,
+            )
+          }
+          if (
+            fileCount > maxFiles ||
+            directoryCount > maxDirectories ||
+            declaredBytes > maxExtractBytes
+          ) {
+            throw new MarketplaceError(
+              'Skill ZIP exceeds extraction limits',
+              413,
+            )
+          }
+        },
+      })
+    } catch (error) {
+      if (error instanceof MarketplaceError) throw error
+      throw new MarketplaceError(
+        'Skill ZIP is invalid or contains an unsafe path',
+        400,
+      )
+    }
   }
 
   const files = await walkFiles(unpack)
+  const directories = await countDirectories(unpack)
   if (
     files.length > maxFiles ||
+    directories > maxDirectories ||
+    files.some(file => file.size > maxSingleFileBytes) ||
     files.reduce((sum, file) => sum + file.size, 0) > maxExtractBytes
   ) {
     throw new MarketplaceError('Skill exceeds extraction limits', 413)
@@ -725,6 +823,40 @@ async function validateStandardSkill(
     name,
     hash: crypto.createHash('sha256').update(raw).digest('hex'),
   }
+}
+
+/**
+ * Shared secure Skill ZIP pipeline for Marketplace and direct user uploads.
+ *
+ * `root` remains inside `tempRoot`; callers must copy it to their final
+ * destination before removing that temporary directory.
+ */
+export async function extractAndValidateSkillZip(
+  bytes: Buffer,
+  tempRoot: string,
+  limits: SkillPackageLimits = {},
+): Promise<{ root: string; name: string; hash: string }> {
+  const root = await materializeSkill(
+    {
+      kind: 'skill',
+      format: 'zip',
+      bytes,
+      item: {
+        providerId: 'user-upload',
+        externalId: 'user-upload',
+        kind: 'skill',
+        name: 'user-upload',
+      },
+    },
+    tempRoot,
+    {
+      id: 'user-upload',
+      type: 'skills-sh',
+      baseURL: 'https://invalid.local',
+      ...limits,
+    },
+  )
+  return { root, ...(await validateStandardSkill(root)) }
 }
 
 function validateAgent(
@@ -1239,6 +1371,10 @@ async function installMarketplaceArtifactLocked(
         key,
     )
     lock.entries.push(entry)
+    // Invalidate extension snapshots before committing the lock. An extra
+    // generation on a later lock-write failure is harmless; the reverse
+    // ordering could commit an install without notifying cloud runtimes.
+    await bumpUserConfigGeneration(path.join(cwd, getAppDirName()))
     await writeMarketplaceLock(cwd, lock)
     // Committed. Old-layout leftovers are best-effort cleanup from here on.
     for (const stale of staleAfterCommit) {
@@ -1290,6 +1426,10 @@ async function uninstallMarketplaceArtifactLocked(
   if (!expectedEntryPaths(entry).includes(entry.path)) {
     throw new MarketplaceError('Installed marketplace path is invalid', 409)
   }
+
+  // Bump before destructive work so a generation-write failure cannot leave a
+  // completed uninstall invisible to runtime caches.
+  await bumpUserConfigGeneration(path.join(cwd, getAppDirName()))
 
   if (entry.kind === 'bundle') {
     for (const file of entry.files ?? []) {

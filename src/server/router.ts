@@ -3,8 +3,14 @@ import * as path from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
 import { createWorkspaceRouter } from './workspace/router.js'
 import { createSkillsApi } from './skills-api.js'
-import { createExecutionRouter } from './routes/execution.js'
+import { canUseEnvironment, createExecutionRouter } from './routes/execution.js'
+import { createCloudWorkspacesRouter } from './routes/cloud-workspaces.js'
+import { createCapabilitiesRouter } from './routes/capabilities.js'
 import { createMarketplaceRouter } from './marketplace/router.js'
+import {
+  createExtensionConfigRouter,
+  createUserConfigRouter,
+} from './user-config/router.js'
 import { getDefaultWorkspace } from '../core/workspace.js'
 import { getCachedSessionLocation } from '../core/session-paths.js'
 import { defaultRegistry } from '../tools.js'
@@ -23,11 +29,11 @@ import {
   setUserHasControl,
   setUserHasControlEverywhere,
 } from '../browser/session-flags.js'
-import { loadWorkspaceContributions } from '../core/workspace-load.js'
 import { findPrimaryAgent } from '../tools/AgentTool/mergeAgents.js'
 import {
   applyPickerDefaultsToSession,
-  loadResolvedAgentPicker,
+  loadAgentPickerWorkspace,
+  loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
 } from '../core/agent-picker-workspace.js'
@@ -52,10 +58,17 @@ import {
   initMcpLifecycle,
   invalidateMCPManagersForCwd,
 } from '../core/mcp-lifecycle.js'
+import {
+  filterHttpMCPServers,
+  getSafeMCPServerMetadata,
+} from '../core/mcp-policy.js'
 import { getLspStatusForCwd } from '../services/lsp/manager.js'
 import { getExecutionPlane } from '../execution/bootstrap.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { WorkerExecutionBackend } from '../execution/worker-execution-backend.js'
+import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
 import { initCodePlugins } from '../core/plugins/index.js'
+import { bumpUserConfigGeneration } from '../services/user-config-generation.js'
 import { handleChat } from './routes/chat.js'
 import { handleScheduledTasks } from './routes/scheduled-tasks.js'
 import {
@@ -78,8 +91,12 @@ import {
   patchSettings,
   resolveEffectiveSettings,
   setMCPServer,
+  validateMCPRemoval,
 } from '../core/settings-manager.js'
-import { resolveSettingsRequestCwd } from './request-cwd.js'
+import {
+  resolveSettingsRequestCwd,
+  resolveStatusWorkspaceHandle,
+} from './request-cwd.js'
 import {
   createSession,
   getSession,
@@ -126,7 +143,11 @@ export function createRouter({ staticDir }: RouterOptions) {
   }
   const skillsApi = createSkillsApi({ runAgent: lazyRunAgent })
   const executionRouter = createExecutionRouter()
+  const cloudWorkspacesRouter = createCloudWorkspacesRouter()
+  const capabilitiesRouter = createCapabilitiesRouter()
   const marketplaceRouter = createMarketplaceRouter()
+  const userConfigRouter = createUserConfigRouter()
+  const extensionConfigRouter = createExtensionConfigRouter()
 
   return async (req: IncomingMessage, res: ServerResponse) => {
     setCORS(res, req)
@@ -180,6 +201,8 @@ export function createRouter({ staticDir }: RouterOptions) {
     return handleProtected()
 
     async function handleProtected() {
+      if (capabilitiesRouter(req, res)) return
+
       if (method === 'GET' && url?.startsWith('/slash-commands')) {
         const query = new URLSearchParams(url.split('?')[1] ?? '')
         const workspace = query.get('workspace')
@@ -257,7 +280,11 @@ export function createRouter({ staticDir }: RouterOptions) {
 
       if (await handleWorkspaceReset(req, res)) return
       if (await handleScheduledTasks(req, res)) return
+      // Before workspaceRouter: its `/workspace` prefix also matches `/workspaces`.
+      if (await cloudWorkspacesRouter(req, res)) return
       if (await workspaceRouter(req, res)) return
+      if (await userConfigRouter(req, res)) return
+      if (await extensionConfigRouter(req, res)) return
       if (await marketplaceRouter(req, res)) return
       if (await skillsApi(req, res)) return
       if (await executionRouter(req, res)) return
@@ -279,7 +306,10 @@ export function createRouter({ staticDir }: RouterOptions) {
             ? path.resolve(workspace)
             : getDefaultWorkspace())
         try {
-          const picker = await loadResolvedAgentPicker(cwd)
+          const picker = await loadResolvedAgentPickerForWorkspace(
+            session.workspace,
+            cwd,
+          )
           applyPickerDefaultsToSession(session, picker)
         } catch (e) {
           console.warn(
@@ -594,8 +624,10 @@ export function createRouter({ staticDir }: RouterOptions) {
           projectDir: effective.projectDir,
           managedDir: ssoMode ? undefined : effective.managedDir,
           settingsPath: effective.projectPath,
-          mcpServers: effective.config.mcpServers,
-          effectiveMcpServers: effective.effectiveMcpServers,
+          mcpMetadata: getSafeMCPServerMetadata(
+            effective.effectiveMcpServers,
+            effective.mcpProvenance,
+          ),
           mcpStatus: await getMCPStatusForCwd(
             cwd,
             effective.effectiveMcpServers,
@@ -643,11 +675,36 @@ export function createRouter({ staticDir }: RouterOptions) {
               sendJSON(res, 400, { error: "Missing 'name' and/or 'config'" })
               return
             }
+            if (
+              isCloudWorkspacesEnabled() &&
+              filterHttpMCPServers({ [name]: config }).dropped.length > 0
+            ) {
+              sendJSON(res, 400, {
+                error:
+                  'Cloud workspaces only support HTTP or SSE MCP servers with an http(s) URL',
+              })
+              return
+            }
             setMCPServer(cwd, scope, name, config)
           } else if (action === 'remove') {
             const name = body.name as string
             if (!name) {
               sendJSON(res, 400, { error: "Missing 'name'" })
+              return
+            }
+            if (typeof body.scope !== 'string') {
+              sendJSON(res, 400, {
+                error: "Removing an MCP server requires its exact 'scope'",
+              })
+              return
+            }
+            const conflict = validateMCPRemoval(
+              resolved.mcpProvenance,
+              name,
+              scope,
+            )
+            if (conflict) {
+              sendJSON(res, conflict.status, { error: conflict.error })
               return
             }
             setMCPServer(cwd, scope, name, null)
@@ -656,11 +713,14 @@ export function createRouter({ staticDir }: RouterOptions) {
             return
           }
 
+          await bumpUserConfigGeneration()
           invalidateMCPManagersForCwd(cwd)
           resolved = await resolveEffectiveSettings(cwd)
           sendJSON(res, 200, {
-            mcpServers: resolved.config.mcpServers,
-            effectiveMcpServers: resolved.effectiveMcpServers,
+            configs: getSafeMCPServerMetadata(
+              resolved.effectiveMcpServers,
+              resolved.mcpProvenance,
+            ),
             mcpStatus: await getMCPStatusForCwd(
               cwd,
               resolved.effectiveMcpServers,
@@ -679,24 +739,52 @@ export function createRouter({ staticDir }: RouterOptions) {
         const effective = await resolveEffectiveSettings(cwd)
         sendJSON(res, 200, {
           servers: await getMCPStatusForCwd(cwd, effective.effectiveMcpServers),
+          configs: getSafeMCPServerMetadata(
+            effective.effectiveMcpServers,
+            effective.mcpProvenance,
+          ),
         })
         return
       }
 
       if (method === 'GET' && url?.startsWith('/lsp')) {
-        const cwd = resolveSettingsRequestCwd(authed, url)
-        const effective = await resolveEffectiveSettings(cwd)
-        let servers = getLspStatusForCwd(cwd, effective.config.lspServers)
-        // Live LSP state lives inside the Worker (not the HTTP process). Prefer
-        // a snapshot from an open runtime for this cwd when available.
+        let handle
         try {
-          const found = getExecutionPlane().runtimes.findByCwd(cwd)
-          if (found) {
+          handle = resolveStatusWorkspaceHandle(authed, url)
+        } catch (error) {
+          sendJSON(res, 400, { error: (error as Error).message })
+          return
+        }
+        if (!canUseEnvironment(authed, handle.environmentId)) {
+          sendJSON(res, 404, { error: 'Environment not found' })
+          return
+        }
+        let settingsCwd: string
+        try {
+          settingsCwd = resolveTurnWorkspaceScope(
+            handle,
+            handle.cwd,
+          ).settingsCwd
+        } catch (error) {
+          sendJSON(res, 500, { error: (error as Error).message })
+          return
+        }
+        const effective = await resolveEffectiveSettings(settingsCwd)
+        let servers = getLspStatusForCwd(
+          settingsCwd,
+          effective.config.lspServers,
+        )
+        // Live LSP state lives inside the Worker (not the HTTP process). Prefer
+        // the exact environment + cwd runtime so identical remote paths cannot
+        // leak status across Cloud workspaces or SSH hosts.
+        try {
+          const runtime = getExecutionPlane().runtimes.get(handle)
+          if (runtime) {
             const backend = new WorkerExecutionBackend(
-              found.handle.environmentId,
-              found.runtime,
-              found.handle.environmentId === 'local' ? 'local' : 'posix',
-              found.handle.cwd,
+              handle.environmentId,
+              runtime,
+              handle.environmentId === 'local' ? 'local' : 'posix',
+              handle.cwd,
               effective.config.lspServers,
             )
             try {
@@ -720,7 +808,8 @@ export function createRouter({ staticDir }: RouterOptions) {
           // Keep control-plane peek / configured stopped rows.
         }
         sendJSON(res, 200, {
-          workspace: cwd,
+          workspace: handle.cwd,
+          environmentId: handle.environmentId,
           servers,
           runningCount: servers.filter(s => s.state === 'running').length,
         })
@@ -787,6 +876,7 @@ export function createRouter({ staticDir }: RouterOptions) {
           }
 
           const cwd =
+            session.workspace?.cwd ??
             authed.userWorkspace ??
             (workspace && fs.existsSync(workspace)
               ? path.resolve(workspace)
@@ -794,7 +884,10 @@ export function createRouter({ staticDir }: RouterOptions) {
 
           const from = session.permissionMode.mode
           if (from !== mode) {
-            const picker = await loadResolvedAgentPicker(cwd)
+            const picker = await loadResolvedAgentPickerForWorkspace(
+              session.workspace,
+              cwd,
+            )
             const modeErr = pickerModeError(picker, mode)
             if (modeErr) {
               sendJSON(res, 400, { error: modeErr })
@@ -856,6 +949,7 @@ export function createRouter({ staticDir }: RouterOptions) {
           }
 
           const cwd =
+            session.workspace?.cwd ??
             authed.userWorkspace ??
             (workspace && fs.existsSync(workspace)
               ? path.resolve(workspace)
@@ -868,9 +962,15 @@ export function createRouter({ staticDir }: RouterOptions) {
               ? null
               : (agentTypeRaw as string)
 
+          const pickerWorkspace = await loadAgentPickerWorkspace(
+            session.workspace,
+            cwd,
+          )
           if (nextType !== null) {
-            const { agents } = await loadWorkspaceContributions(cwd)
-            const profile = findPrimaryAgent(agents.activeAgents, nextType)
+            const profile = findPrimaryAgent(
+              pickerWorkspace.contributions.agents.activeAgents,
+              nextType,
+            )
             if (!profile) {
               sendJSON(res, 400, {
                 error: `Unknown or non-primary agentType '${nextType}'`,
@@ -879,7 +979,7 @@ export function createRouter({ staticDir }: RouterOptions) {
             }
           }
 
-          const picker = await loadResolvedAgentPicker(cwd)
+          const picker = pickerWorkspace.picker
           const typeErr = pickerAgentTypeError(picker, nextType)
           if (typeErr) {
             sendJSON(res, 400, { error: typeErr })

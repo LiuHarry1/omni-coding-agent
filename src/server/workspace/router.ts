@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { resolvePath } from './path-safety.js'
+import { containsGitMetadataPath, resolvePath } from './path-safety.js'
 import {
   listDir,
   readFile,
@@ -10,7 +10,7 @@ import {
   searchFiles,
   FsOpError,
 } from './fs-ops.js'
-import { gitStatus, gitDiff } from './git.js'
+import { gitStatus, gitDiff, normalizeGitRelativePath } from './git.js'
 import { handleUpload, handleDownload } from './transfer.js'
 import { getPreviewBaseUrl, handlePreview } from './preview.js'
 import { isPathInWorkspace } from '../../core/workspace.js'
@@ -18,6 +18,7 @@ import {
   assertAccessibleResolved,
   createFilesystemPermissionContext,
 } from '../../utils/permissions/filesystem.js'
+import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
 
 /**
  * Self-contained workspace HTTP module.
@@ -118,6 +119,12 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions) {
     const policy = createFilesystemPermissionContext(root)
     const enforceDontAsk = Boolean(pinned) || policy.mode === 'dontAsk'
     const safe = (input: string, access: 'read' | 'write' = 'read'): string => {
+      if (access === 'write' && containsGitMetadataPath(input)) {
+        throw new FsOpError(
+          'EACCES',
+          'Git metadata must be changed through Git, not the file API',
+        )
+      }
       const abs = resolvePath(input, root)
       if (enforceDontAsk) {
         try {
@@ -250,6 +257,12 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions) {
 
       // GET /workspace/git/status
       if (method === 'GET' && url === '/workspace/git/status') {
+        if (isCloudWorkspacesEnabled()) {
+          throw new FsOpError(
+            'EACCES',
+            'Use the selected Cloud workspace Git endpoint',
+          )
+        }
         sendJSON(res, 200, await gitStatus(root))
         return true
       }
@@ -262,7 +275,22 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions) {
           sendJSON(res, 400, { error: "Missing 'path'" })
           return true
         }
-        sendJSON(res, 200, await gitDiff(root, p))
+        if (isCloudWorkspacesEnabled()) {
+          throw new FsOpError(
+            'EACCES',
+            'Use the selected Cloud workspace Git endpoint',
+          )
+        }
+        let relative: string
+        try {
+          relative = normalizeGitRelativePath(p)
+        } catch (error) {
+          throw new FsOpError(
+            'EACCES',
+            error instanceof Error ? error.message : 'Invalid Git path',
+          )
+        }
+        sendJSON(res, 200, await gitDiff(root, relative))
         return true
       }
 

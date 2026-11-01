@@ -56,6 +56,47 @@ export function withAuth(options = {}) {
   return { ...options, headers: { ...(options.headers || {}), ...auth } }
 }
 
+/**
+ * POST a FormData body. Uses XHR (not fetch) so callers get upload progress —
+ * fetch has no upload-progress event.
+ *
+ * @param {string} path
+ * @param {FormData} form
+ * @param {(pct:number)=>void} [onProgress]  0–100.
+ */
+export function postForm(path, form, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', apiUrl(path))
+    const auth = authHeader()
+    if (auth.Authorization)
+      xhr.setRequestHeader('Authorization', auth.Authorization)
+    xhr.upload.onprogress = e => {
+      if (onProgress && e.lengthComputable) {
+        onProgress(Math.round((e.loaded / e.total) * 100))
+      }
+    }
+    xhr.onload = () => {
+      if (xhr.status === 401) handleUnauthorized()
+      let body = null
+      try {
+        body = JSON.parse(xhr.responseText)
+      } catch {}
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body ?? {})
+      } else {
+        const err = new Error(
+          `HTTP ${xhr.status}${body?.error ? `: ${body.error}` : ''}`,
+        )
+        err.status = xhr.status
+        reject(err)
+      }
+    }
+    xhr.onerror = () => reject(new Error('Upload failed (network error)'))
+    xhr.send(form)
+  })
+}
+
 export async function fetchJSON(path, options) {
   const res = await fetch(apiUrl(path), withAuth(options))
   if (res.status === 401) {

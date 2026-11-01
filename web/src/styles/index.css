@@ -6,6 +6,9 @@
 @import './bg-terminals.css';
 @import './input.css';
 @import './workspace-ide.css';
-@import './workspace-panel.css';
+@import './extensions-hub.css';
+@import './extensions-editor.css';
+@import './extensions-marketplace.css';
+@import './workspace-hub.css';
 @import './file-tree.css';
 @import './editor.css';

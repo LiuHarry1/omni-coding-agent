@@ -1,19 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Baize</title>
-  <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
-  <!-- Runtime config must load before the Vite module bundle (prod injects
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Baize</title>
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <!-- Runtime config must load before the Vite module bundle (prod injects
        <script type="module"> into head). -->
-  <script src="%BASE_URL%app-config.js"></script>
-  <!-- Fonts are intentionally not loaded from Google Fonts. CSS uses
-       system-font fallbacks (Inter → -apple-system → sans-serif;
-       JetBrains Mono → SF Mono → Fira Code → monospace). -->
-</head>
-<body>
-  <div id="root"></div>
-  <script type="module" src="/src/main.jsx"></script>
-</body>
+    <script src="%BASE_URL%app-config.js"></script>
+    <!-- Inter is bundled locally by Vite; no external font service is used. -->
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
 </html>

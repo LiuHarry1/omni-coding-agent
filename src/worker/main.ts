@@ -327,7 +327,20 @@ async function handle(msg: RuntimeClientMessage): Promise<void> {
   }
 }
 
+/**
+ * stdout carries only NDJSON protocol frames. Shared modules (LSP, tools)
+ * log with console.log; one such line would break the Control Plane parser
+ * and drop the channel, so all console output goes to stderr.
+ */
+function routeConsoleToStderr(): void {
+  const toStderr = (...args: unknown[]) => console.error(...args)
+  console.log = toStderr
+  console.info = toStderr
+  console.debug = toStderr
+}
+
 export function runWorkerStdio(): void {
+  routeConsoleToStderr()
   const rl = createInterface({ input: process.stdin, crlfDelay: Infinity })
   rl.on('line', line => {
     if (shuttingDown) return

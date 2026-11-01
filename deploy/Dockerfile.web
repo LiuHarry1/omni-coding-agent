@@ -2,7 +2,7 @@
 #
 # Frontend image: builds the Vite UI, then serves it as a STATIC site from
 # nginx (no reverse proxy — the SPA calls the agent cross-origin via API_BASE).
-# Pair with deploy/Dockerfile.agent via deploy/docker-compose.admin.yml or
+# Pair with deploy/Dockerfile.agent-tenant via deploy/docker-compose.admin.yml or
 # deploy/docker-compose.sso.yml.
 #
 # Build from repo root:

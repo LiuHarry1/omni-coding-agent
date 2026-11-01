@@ -1,5 +1,12 @@
 import type { IncomingMessage, ServerResponse } from 'http'
-import { createSession, getSession, canAccessSession } from '../session.js'
+import {
+  createSession,
+  getSession,
+  canAccessSession,
+  setSessionWorkspace,
+} from '../session.js'
+import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
+import { resolveCloudSessionBinding } from './cloud-workspaces.js'
 import { readBody, sendJSON, wantsStreamingResponse } from '../http.js'
 import { sessionToUIMessages } from '../session-ui.js'
 import { resolveRequestCwd } from '../request-cwd.js'
@@ -28,7 +35,7 @@ import { loadWorkspaceContributions } from '../../core/workspace-load.js'
 import { findPrimaryAgent } from '../../tools/AgentTool/mergeAgents.js'
 import {
   applyPickerDefaultsToSession,
-  loadResolvedAgentPicker,
+  loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
 } from '../../core/agent-picker-workspace.js'
@@ -141,6 +148,43 @@ export async function handleChat(
     }
   }
 
+  const cloud = getCloudWorkspaceManager()
+  if (cloud) {
+    if (!session) session = createSession(requesterEmail)
+    const binding = await resolveCloudSessionBinding(
+      req,
+      cloud,
+      session,
+      environmentId,
+    )
+    if (!binding.ok) {
+      sendJSON(res, binding.status, {
+        error: binding.error,
+        session_id: session.id,
+      })
+      return
+    }
+    if (
+      session.workspace?.environmentId !== binding.handle.environmentId ||
+      session.workspace?.cwd !== binding.handle.cwd
+    ) {
+      setSessionWorkspace(session.id, binding.handle)
+    }
+    await handleChatRequest(req, res, runAgent, session, {
+      message,
+      images,
+      attachments: Array.isArray(attachments)
+        ? attachments.filter(isChatAttachmentRef)
+        : undefined,
+      mode,
+      agentType: agentType === undefined ? undefined : agentType,
+      wantsStream,
+      cwd: binding.handle.cwd,
+      requesterEmail,
+    })
+    return
+  }
+
   // Resolve cwd from Session.workspace handle when present; else legacy path.
   let cwd: string
   if ((req as AuthedRequest).userWorkspace) {
@@ -186,7 +230,6 @@ export async function handleChat(
       session.workspace.environmentId !== envId ||
       normalizeWorkspacePath(session.workspace.cwd) !== normalizedCwd
     ) {
-      const { setSessionWorkspace } = await import('../session.js')
       setSessionWorkspace(session.id, {
         environmentId: envId,
         cwd: normalizedCwd,
@@ -247,7 +290,10 @@ async function handleChatRequest(
     session.agentType = null
   }
 
-  const picker = await loadResolvedAgentPicker(cwd)
+  const picker = await loadResolvedAgentPickerForWorkspace(
+    session.workspace,
+    cwd,
+  )
   const isFreshSession = session.messages.length === 0
 
   // New session with no client override → workspace picker defaults.

@@ -19,16 +19,16 @@ import {
   pluginErrorMessage,
   pluginErrorSource,
 } from '../../core/plugins/index.js'
-import { loadAllAgentRules } from '../rules-loader.js'
+import { loadAllAgentRules, loadUserAgentRules } from '../rules-loader.js'
 import { buildConcurrencyPolicy } from '../../core/concurrency-policy.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../../constants/tool_names.js'
 import { getPlanFilePath } from '../plans.js'
 import type { ReadFileState } from '../read/types.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
 import {
-  isRemoteWorkspace,
+  getExecutionPlane,
   resolveExecutionBackend,
 } from '../../execution/index.js'
+import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
 import type {
   AgentDefinition,
   AnyTool,
@@ -62,6 +62,20 @@ import { assembleToolPool } from '../../tools/assembleToolPool.js'
 import { isBrowserEnabledForMainThread } from '../../browser/enablement.js'
 import { warmExtensionRelay } from '../../browser/manager.js'
 import { profileSpan } from '../startupProfiler.js'
+import { loadSlashRegistry } from '../../commands/slashRegistry.js'
+import type { DirectiveRuntime } from '../../commands/promptExpansion.js'
+import type { SkillDefinition } from '../../skills/types.js'
+import {
+  canMapMaterializedSkills,
+  mapMaterializedSkills,
+  materializeCloudSkills,
+  requireShellFsPort,
+  type CloudSkillMaterialization,
+} from '../../services/cloud-workspaces/skill-materializer.js'
+import {
+  filterCloudMCPServers,
+  resolveTurnWorkspaceScope,
+} from '../../services/cloud-workspaces/turn-scope.js'
 
 export type ForkSkillSlashResult = {
   kind: 'run'
@@ -81,10 +95,17 @@ export interface SlashResolution {
   modeChanged?: boolean
 }
 
+export interface ResolveSlashCommandOptions {
+  preloaded?: { entries: SlashEntry[] }
+  extensionCwd?: string
+  directiveRuntime?: DirectiveRuntime
+}
+
 export async function resolveSlashCommand(
   message: string,
   cwd: string,
   session?: Session,
+  options: ResolveSlashCommandOptions = {},
 ): Promise<SlashResolution> {
   if (session) {
     const planSlash = resolvePlanSlash(message, session, cwd)
@@ -100,7 +121,15 @@ export async function resolveSlashCommand(
     }
   }
 
-  const slashResult = await dispatchSlashCommand(message, { cwd })
+  const slashResult = await dispatchSlashCommand(
+    message,
+    {
+      cwd,
+      extensionCwd: options.extensionCwd,
+      directiveRuntime: options.directiveRuntime,
+    },
+    options.preloaded,
+  )
   let effectiveMessage = message
   let immediateReply: string | null = null
   let forkSkill: SlashResolution['forkSkill'] = null
@@ -205,14 +234,118 @@ export async function prepareChatTurn(
     runAgent,
   } = input
 
-  const slash = await resolveSlashCommand(message, cwd, session)
+  const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
+  const cloudWorkspaceId = turnScope.cloudWorkspaceId
+  const cloudSession = cloudWorkspaceId !== null
+  const remote = turnScope.remote
+  const extensionCwd = turnScope.extensionCwd
+  if (isCloudWorkspacesEnabled() && !cloudSession) {
+    throw new Error(
+      'This chat is not bound to a cloud workspace. Start a new chat in a workspace.',
+    )
+  }
+
+  // Resolve once before any slash/Skill expansion. Remote failure must never
+  // make directives fall back to control-plane shell or filesystem access.
+  let execution
+  try {
+    execution = await profileSpan('turn_execution_backend', () =>
+      resolveExecutionBackend(session, config.lspServers),
+    )
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.warn(`[server] execution backend resolve failed:`, msg)
+    if (remote) {
+      throw new Error(
+        `Remote execution backend unavailable (${session.workspace?.environmentId}): ${msg}. ` +
+          `Shell/file tools cannot fall back to the local machine.`,
+        { cause: err },
+      )
+    }
+    execution = undefined
+  }
+  const directiveRuntime = remote ? execution : undefined
+
+  let cloudSkillSnapshot: CloudSkillMaterialization | undefined
+  const cloudSkillWarnings = new Map<string, string>()
+  const applyCloudSkillSnapshot = (
+    skills: SkillDefinition[],
+    snapshot: CloudSkillMaterialization,
+  ): SkillDefinition[] => {
+    const skipped = new Set(snapshot.skipped.map(item => item.name))
+    for (const item of snapshot.skipped) {
+      cloudSkillWarnings.set(item.name, item.error)
+      console.warn(`[skills] skipped cloud skill "${item.name}": ${item.error}`)
+    }
+    return mapMaterializedSkills(
+      skills.filter(skill => !skipped.has(skill.name)),
+      snapshot.runtimeBaseDirs,
+    )
+  }
+  const transformCloudSkills = cloudSession
+    ? async (skills: SkillDefinition[]): Promise<SkillDefinition[]> => {
+        const packageSkills = skills.filter(
+          skill =>
+            (skill.source === 'user' || skill.source === 'plugin') &&
+            skill.baseDir,
+        )
+        if (
+          cloudSkillSnapshot &&
+          canMapMaterializedSkills(
+            packageSkills.filter(
+              skill =>
+                !cloudSkillSnapshot!.skipped.some(
+                  item => item.name === skill.name,
+                ),
+            ),
+            cloudSkillSnapshot.runtimeBaseDirs,
+          )
+        ) {
+          return applyCloudSkillSnapshot(skills, cloudSkillSnapshot)
+        }
+        if (packageSkills.length === 0) return skills
+        if (
+          !session.workspace ||
+          !cloudWorkspaceId ||
+          !turnScope.extensionRoot
+        ) {
+          throw new Error('Cloud skill materialization has no workspace')
+        }
+        const port = requireShellFsPort(
+          await getExecutionPlane().workspaces.ensureFs(
+            session.workspace.environmentId,
+          ),
+        )
+        cloudSkillSnapshot = await profileSpan(
+          'turn_cloud_skill_materialize',
+          () =>
+            materializeCloudSkills({
+              workspaceId: cloudWorkspaceId,
+              skills: packageSkills,
+              port,
+              sourceRoot: turnScope.extensionRoot,
+            }),
+        )
+        return applyCloudSkillSnapshot(skills, cloudSkillSnapshot)
+      }
+    : undefined
+
+  const preloadedSlash =
+    cloudSession && message.trimStart().startsWith('/')
+      ? await loadSlashRegistry(extensionCwd, {
+          transformSkills: transformCloudSkills,
+        })
+      : undefined
+  const slash = await resolveSlashCommand(message, cwd, session, {
+    preloaded: preloadedSlash,
+    extensionCwd,
+    directiveRuntime,
+  })
 
   // Plugins/skills/MCP load from a local tree. Remote sessions still use the
   // Control Plane machine's default workspace for that — tools use remote cwd.
-  const remote = isRemoteWorkspace(session.workspace)
-  const pluginCwd = remote ? getDefaultWorkspace() : cwd
-
-  const plugins = await loadPlugins(pluginCwd)
+  // Cloud sessions use only the request-scoped tenant home.
+  const plugins = await loadPlugins(extensionCwd)
   if (plugins.plugins.length > 0) {
     console.log(
       `[server] plugins=[${plugins.plugins.map(p => p.name).join(', ')}] ` +
@@ -223,31 +356,50 @@ export async function prepareChatTurn(
   for (const e of plugins.errors) {
     console.warn(`[plugins] ${pluginErrorSource(e)}: ${pluginErrorMessage(e)}`)
   }
-  const mcpServers = mergeMCPServers(plugins.mcpServers, config.mcpServers)
-  const mcpManager = await getMCPManagerForServers(pluginCwd, mcpServers)
-
   const { activeAgents } = await registerSubagents(
     registry,
-    pluginCwd,
+    extensionCwd,
     plugins.agentFiles,
   )
   const candidateFiles = extractFilePathCandidates(slash.effectiveMessage)
   const { activeSkills, allSkills } = await registerSkills(
     registry,
-    pluginCwd,
+    extensionCwd,
     activeAgents,
-    { candidateFiles, pluginSkills: plugins.skills },
+    {
+      candidateFiles,
+      pluginSkills: preloadedSlash ? undefined : plugins.skills,
+      preloadedSkills: preloadedSlash?.skills,
+      transformSkills: preloadedSlash ? undefined : transformCloudSkills,
+      filterCwd: cloudSession ? cwd : undefined,
+    },
   )
   const conditionalHidden = allSkills.length - activeSkills.length
   console.log(
     `[server] cwd=${cwd}${remote ? ` remote=${session.workspace?.environmentId}` : ''}  agents=[${activeAgents.map(a => a.agentType).join(', ')}]  skills=[${activeSkills.map(s => s.name).join(', ')}]${conditionalHidden > 0 ? `  (+${conditionalHidden} conditional hidden)` : ''}`,
   )
 
-  const projectRulesRaw = remote ? '' : loadAllAgentRules(cwd)
+  let mcpServers = mergeMCPServers(plugins.mcpServers, config.mcpServers)
+  if (cloudSession) {
+    const filtered = filterCloudMCPServers(mcpServers)
+    mcpServers = filtered.servers
+    if (filtered.dropped.length > 0) {
+      console.warn(
+        `[mcp] cloud turn skipped non-HTTP servers: ${filtered.dropped.join(', ')}`,
+      )
+    }
+  }
+  const mcpManager = await getMCPManagerForServers(extensionCwd, mcpServers)
+
+  const projectRulesRaw = cloudSession
+    ? loadUserAgentRules()
+    : remote
+      ? ''
+      : loadAllAgentRules(cwd)
   const autoMemory = resolveAutoMemoryConfig(config)
   const earlyProfile = findPrimaryAgent(activeAgents, session.agentType)
   const memoryBinding = resolveMemoryBinding({
-    cwd: pluginCwd,
+    cwd: extensionCwd,
     config: autoMemory,
     profile: earlyProfile,
     agents: activeAgents,
@@ -272,24 +424,6 @@ export async function prepareChatTurn(
 
   const permOpts = settingsPermissionOpts(config.permissions)
 
-  let execution
-  try {
-    execution = await profileSpan('turn_execution_backend', () =>
-      resolveExecutionBackend(session, config.lspServers),
-    )
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.warn(`[server] execution backend resolve failed:`, msg)
-    if (remote) {
-      throw new Error(
-        `Remote execution backend unavailable (${session.workspace?.environmentId}): ${msg}. ` +
-          `Shell/file tools cannot fall back to the local machine.`,
-        { cause: err },
-      )
-    }
-    execution = undefined
-  }
-
   const toolContext: ToolContext = {
     eventBus,
     wire: noopWireEmitter,
@@ -307,8 +441,10 @@ export async function prepareChatTurn(
     sessionId: session.id,
     session,
     cwd,
+    // Cloud cwd is a POSIX path inside the container, the real boundary; SSH
+    // keeps the local root because a Win32 control plane mangles POSIX paths.
     permissionContext: createFilesystemPermissionContext(
-      remote ? pluginCwd : cwd,
+      remote && !cloudSession ? extensionCwd : cwd,
       {
         extraReadRoots:
           memoryBinding.roots.read.length > 0
@@ -350,6 +486,11 @@ export async function prepareChatTurn(
   }
 
   const reminderParts: string[] = []
+  if (cloudSkillWarnings.size > 0) {
+    reminderParts.push(
+      `Some Skills were skipped because their packages exceed the Cloud limits:\n${[...cloudSkillWarnings].map(([name, error]) => `- ${name}: ${error}`).join('\n')}`,
+    )
+  }
   if (activeSkills.length > 0) {
     reminderParts.push(
       `The following skills are available for use with the Skill tool:\n\n${formatSkillListing(activeSkills)}`,

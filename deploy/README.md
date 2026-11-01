@@ -1,6 +1,6 @@
 # `deploy/` — Docker 部署
 
-三个镜像、两种部署模式。前端(web)和后端(agent)**完全分离**,跑在不同的源上:浏览器从 web 源加载页面,直接跨域调用 agent API。
+三个镜像、两种部署模式。admin 模式让浏览器跨域调用 agent；SSO 模式通过 web nginx 同源代理 agent API，避免浏览器 Local Network Access 限制。
 
 桌面版（Electron）发布模板见 **[`desktop/`](desktop/)**（Browser-only seed + `agents.picker`）。
 
@@ -23,10 +23,13 @@
 
 ```bash
 # 1. base 镜像(含 agent 代码+依赖,慢,代码变了才重建)
+npm run build:worker
 docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 
-# 2. tenant 镜像(FROM base + 你的 .ai-agent/ settings,秒级)
-docker build -f deploy/Dockerfile.agent-tenant --build-arg BASE_TAG=latest -t ai-agent-tenant:latest .
+# 2. tenant 镜像(FROM base + managed policy 与用户 seed,秒级)
+docker build -f deploy/Dockerfile.agent-tenant -t ai-agent-tenant:latest .
+# 私有 registry 可追加:
+#   --build-arg BASE_IMAGE=registry.example.com/ai-agent-base:latest
 
 # 3. web 镜像(vite 构建 → nginx 静态站)
 docker build -f deploy/Dockerfile.web -t ai-agent-web:latest .
@@ -97,7 +100,7 @@ docker compose -f deploy/docker-compose.admin.yml --env-file deploy/.env up -d
 JWT_SECRET=<与 auth-service 签名密钥完全一致>   # 信任锚,必填
 FRONTEND_ORIGIN=https://app.example.com         # web 源(= agent CORS 白名单)
 AGENT_PUBLIC_URL=https://agent.example.com      # 浏览器访问 agent 的地址
-AUTH_PUBLIC_URL=https://auth.example.com        # 浏览器访问 auth-service 的地址
+AUTH_BASE=https://auth.example.com              # 浏览器访问 auth-service 的地址
 WEB_PORT=8090
 AGENT_PORT=4567
 OPENAI_API_KEY=sk-...
@@ -115,6 +118,36 @@ docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env up -d
 还需在**外部 auth-service** 把 `FRONTEND_ORIGIN` 加入 `SSO_ALLOWED_RETURN_ORIGINS` 和 `CORS_ALLOWED_ORIGINS`,否则登录回跳会被拒(400)。
 
 每个用户被锁定到 `/workspace/users/<email>`,首次登录会从 `deploy/workspace-seed/`(打进 tenant 镜像)复制一份初始内容。
+
+### 可选 Cloud Workspace
+
+基础 SSO stack 默认不启用 Cloud Workspace，也不会挂载 `docker.sock`。先构建 worker 和 workspace 镜像，再显式叠加 Cloud override：
+
+```bash
+npm run build:worker
+docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
+
+docker compose -f deploy/docker-compose.sso.yml \
+  -f deploy/docker-compose.sso.cloud.yml \
+  --env-file deploy/.env up -d
+```
+
+可通过 `WORKSPACE_IMAGE`、`WORKSPACE_MEMORY`、`WORKSPACE_CPUS`、`WORKSPACE_IDLE_MINUTES` 等环境变量覆盖默认值。Agent 启动时会检查 Docker daemon 和 workspace 镜像；缺失时会直接给出构建提示。
+
+这里的安全边界面向可信内部用户：用户代码在独立 workspace 容器内执行，保留公网、RFC1918 内网以及内部 HTTP/SSE MCP 访问，以支持 clone、包安装和内部服务；已知云 metadata 地址会被拒绝。Cloud override 会把宿主 `docker.sock` 挂给控制面，因此只能部署在受控主机，不能向不可信用户开放。
+
+已有的 local/legacy 历史会话不会自动绑定到空白 Cloud Workspace；继续使用基础 SSO 模式，或新建 Cloud 会话。这个行为不会删除原会话或文件。
+
+回滚时使用相同的 compose 文件停止 Cloud stack，再只启动基础 SSO stack；不要加 `-v`，已有 workspace volume 会保留：
+
+```bash
+docker compose -f deploy/docker-compose.sso.yml \
+  -f deploy/docker-compose.sso.cloud.yml \
+  --env-file deploy/.env down
+docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env up -d
+```
+
+生产容器显式监听 `0.0.0.0`，浏览器来源仍必须列在 `FRONTEND_ORIGIN` / `ALLOWED_ORIGINS`。本地 `npm run cloud:start` 只监听 `127.0.0.1`。
 
 ### 逻辑 HOME（`AUTH_ENABLED`）
 
@@ -203,5 +236,5 @@ export AGENT_PUBLIC_URL=http://localhost:4567
 | provider 报 401 / 缺 key | `.env` 里没填对应的 `OPENAI_API_KEY` 等。 |
 | 页面空白 | web 镜像构建失败,用 `docker build --no-cache -f deploy/Dockerfile.web -t ai-agent-web:latest .` 重建。 |
 | sso 登录回跳被拒(400) | 把 `FRONTEND_ORIGIN` 加进 auth-service 的 `SSO_ALLOWED_RETURN_ORIGINS` 和 `CORS_ALLOWED_ORIGINS`。 |
-| sso 登录跳到 localhost | 没设 `AUTH_PUBLIC_URL`,改成真实 auth-service 源。 |
+| sso 登录跳到 localhost | 没设 `AUTH_BASE`,改成真实 auth-service 源。 |
 | 日志里中文显示为 `<E4><BD>…` 乱码 | 日志本身是合法 UTF-8,是查看端 locale 不对。SSH/终端里先 `export LANG=C.UTF-8 LESSCHARSET=utf-8` 再看;`docker logs` 输出别经过非 UTF-8 的 pager。容器内已默认 `LANG=C.UTF-8`。 |

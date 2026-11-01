@@ -24,6 +24,7 @@ import {
 import { removeTasksForSessions } from '../../services/cron/store.js'
 import { kickCronScheduler } from '../../services/cron/scheduler.js'
 import { getUsersRoot, type AuthedRequest } from '../auth/identity.js'
+import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
 import { forgetSession, getSession, listSessions } from '../session.js'
 import { readBody, sendJSON } from '../http.js'
 
@@ -94,11 +95,17 @@ async function stopSessionActivity(sessionIds: string[]): Promise<void> {
 export async function resetTenantWorkspace(
   workspace: string,
   ownerEmail: string,
-): Promise<{ sessionsRemoved: number; scheduledTasksRemoved: number }> {
+): Promise<{
+  sessionsRemoved: number
+  scheduledTasksRemoved: number
+  workspacesRemoved: number
+}> {
   assertSafeTenantWorkspace(workspace)
   const sessionIds = listSessions(ownerEmail).map(session => session.id)
 
   await stopSessionActivity(sessionIds)
+  const workspacesRemoved =
+    (await getCloudWorkspaceManager()?.removeAllForOwner(ownerEmail)) ?? 0
 
   const foundRuntime = getExecutionPlane().runtimes.findByCwd(workspace)
   if (foundRuntime) {
@@ -134,7 +141,11 @@ export async function resetTenantWorkspace(
   }
 
   fs.rmSync(quarantine, { recursive: true, force: true })
-  return { sessionsRemoved: sessionIds.length, scheduledTasksRemoved }
+  return {
+    sessionsRemoved: sessionIds.length,
+    scheduledTasksRemoved,
+    workspacesRemoved,
+  }
 }
 
 export async function handleWorkspaceReset(

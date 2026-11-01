@@ -1,9 +1,10 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
+import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
 import ModePicker from './ModePicker.jsx'
 import SchedulePicker from './SchedulePicker.jsx'
 import { agentApi } from '../lib/api/agent.js'
-import { workspaceApi } from '../lib/api/workspace.js'
+import { createEnvironmentFsClient } from '../lib/environment-fs.js'
 import {
   extractCompletionToken,
   extractSearchToken,
@@ -52,7 +53,8 @@ export default function InputArea() {
   const sessionLoading = useChatStore(s => s.sessionLoading)
   const isAwaitingInteraction = useChatStore(s => s.isAwaitingInteraction)
   const stopStreaming = useChatStore(s => s.stopStreaming)
-  const workspace = useChatStore(s => s.workspace)
+  const workspace = useWorkspaceContextStore(s => s.cwd)
+  const workspaceHandle = useWorkspaceContextStore(s => s.handle)
   const agentMode = useChatStore(s => s.agentMode)
   const cycleAgentMode = useChatStore(s => s.cycleAgentMode)
   const textareaRef = useRef(null)
@@ -77,6 +79,13 @@ export default function InputArea() {
   const [atMenuSuppressed, setAtMenuSuppressed] = useState(false)
   const attachmentsRef = useRef(attachments)
   attachmentsRef.current = attachments
+  const workspaceFs = useMemo(
+    () =>
+      createEnvironmentFsClient(
+        workspaceHandle || { environmentId: 'local', cwd: workspace },
+      ),
+    [workspace, workspaceHandle],
+  )
 
   useEffect(() => {
     return () => revokeAttachments(attachmentsRef.current)
@@ -103,7 +112,9 @@ export default function InputArea() {
     let cancelled = false
     ;(async () => {
       try {
-        const data = await agentApi.getAgents(workspace || undefined)
+        const data = await agentApi.getAgents(
+          workspaceHandle || workspace || undefined,
+        )
         if (cancelled) return
         const list = Array.isArray(data.agents) ? data.agents : []
         setSubagentMentions(
@@ -116,7 +127,7 @@ export default function InputArea() {
     return () => {
       cancelled = true
     }
-  }, [workspace])
+  }, [workspace, workspaceHandle])
 
   const syncCursor = useCallback(() => {
     const el = textareaRef.current
@@ -245,7 +256,7 @@ export default function InputArea() {
 
       let fileEntries = []
       try {
-        const data = await workspaceApi.searchFiles(searchToken, workspace)
+        const data = await workspaceFs.searchFiles(searchToken, workspace)
         if (Array.isArray(data.entries)) {
           fileEntries = data.entries.map(e => ({ ...e, kind: 'file' }))
         }
@@ -260,7 +271,7 @@ export default function InputArea() {
       cancelled = true
       clearTimeout(timer)
     }
-  }, [atToken, showSlashMenu, workspace, subagentMentions])
+  }, [atToken, showSlashMenu, workspace, workspaceFs, subagentMentions])
 
   useEffect(() => {
     if (!showSlashMenu && !showAtMenu) return undefined
@@ -545,7 +556,7 @@ export default function InputArea() {
 
       setUploadingDrop(true)
       try {
-        const result = await workspaceApi.uploadFiles(workspace, files)
+        const result = await workspaceFs.uploadFiles(workspace, files)
         const paths = (result.uploaded ?? []).map(u =>
           toWorkspaceRelative(u.path, workspace),
         )
@@ -557,7 +568,7 @@ export default function InputArea() {
         setUploadingDrop(false)
       }
     },
-    [addFiles, workspace, insertAtMentions],
+    [addFiles, workspace, workspaceFs, insertAtMentions],
   )
 
   const handleFileChange = useCallback(

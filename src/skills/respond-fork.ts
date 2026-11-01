@@ -14,10 +14,13 @@ import { registerSubagents } from '../tools/AgentTool/index.js'
 import { defaultRegistry } from '../tools.js'
 import type {
   AppConfig,
+  AgentDefinition,
   IProvider,
+  IToolRegistry,
   ModelRegistry,
   RunAgentFn,
   SSETransport,
+  ToolContext,
 } from '../core/types.js'
 import { createModelRegistry } from '../core/llm/index.js'
 import { runSkillFork } from './run-fork.js'
@@ -39,6 +42,12 @@ export interface RespondSkillForkOptions {
   sseHeaders?: Record<string, string>
   jsonMeta?: Record<string, unknown>
   sessionId?: string
+  /** Reuse the definitions already loaded for this turn. */
+  activeAgents?: readonly AgentDefinition[]
+  /** Reuse the request-scoped registry; direct invocations fork the base. */
+  registry?: IToolRegistry
+  permissionContext?: ToolContext['permissionContext']
+  execution?: ToolContext['execution']
 }
 
 function sendJSON(res: ServerResponse, status: number, data: unknown): void {
@@ -63,10 +72,16 @@ export async function respondSkillFork(
     sseHeaders,
     jsonMeta,
     sessionId = '',
+    activeAgents: activeAgentsOpt,
+    registry: registryOpt,
+    permissionContext,
+    execution,
   } = opts
 
   const models = modelsOpt ?? createModelRegistry(config.models)
-  const { activeAgents } = await registerSubagents(defaultRegistry, cwd)
+  const registry = registryOpt ?? defaultRegistry.fork()
+  const activeAgents =
+    activeAgentsOpt ?? (await registerSubagents(registry, cwd)).activeAgents
   const targetAgentType = skill.agent ?? 'general_purpose'
   const targetAgent = activeAgents.find(a => a.agentType === targetAgentType)
   if (!targetAgent) {
@@ -89,7 +104,7 @@ export async function respondSkillFork(
     combined,
     cwd,
     runAgent,
-    registry: defaultRegistry,
+    registry,
     activeAgents,
     eventBus,
     wire: createWireEmitter({ emit() {} }, sessionId),
@@ -98,10 +113,13 @@ export async function respondSkillFork(
     models,
     compaction: config.compaction,
     sessionId,
-    permissionContext: createFilesystemPermissionContext(
-      cwd,
-      settingsPermissionOpts(config.permissions),
-    ),
+    permissionContext:
+      permissionContext ??
+      createFilesystemPermissionContext(
+        cwd,
+        settingsPermissionOpts(config.permissions),
+      ),
+    execution,
   }
 
   if (wantsStream) {

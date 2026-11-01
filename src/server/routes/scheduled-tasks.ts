@@ -5,7 +5,7 @@ import { readBody, sendJSON } from '../http.js'
 import { resolveRequestCwd } from '../request-cwd.js'
 import {
   applyPickerDefaultsToSession,
-  loadResolvedAgentPicker,
+  loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
 } from '../../core/agent-picker-workspace.js'
@@ -27,6 +27,8 @@ import {
   getSession,
   setSessionWorkspace,
 } from '../session.js'
+import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
+import { resolveCloudSessionBinding } from './cloud-workspaces.js'
 
 function pathnameOf(url: string | undefined): string {
   return (url ?? '').split('?')[0]
@@ -66,16 +68,42 @@ async function ensureSession(
   const requesterEmail = authed.user?.email
   const requesterRole = authed.user?.role
 
+  const cloud = getCloudWorkspaceManager()
+  const bindCloud = async (
+    session: NonNullable<ReturnType<typeof getSession>>,
+  ): Promise<{ ok: false; status: number; error: string } | null> => {
+    if (!cloud) return null
+    const binding = await resolveCloudSessionBinding(
+      req,
+      cloud,
+      session,
+      environmentId,
+    )
+    if (!binding.ok) return binding
+    if (
+      session.workspace?.environmentId !== binding.handle.environmentId ||
+      session.workspace?.cwd !== binding.handle.cwd
+    ) {
+      setSessionWorkspace(session.id, binding.handle)
+    }
+    return null
+  }
+
   if (typeof sessionId === 'string' && sessionId.length > 0) {
     const session = getSession(sessionId)
     if (!session || !canAccessSession(session, requesterEmail, requesterRole)) {
       return { ok: false, status: 404, error: 'Session not found' }
     }
+    const failed = await bindCloud(session)
+    if (failed) return failed
     return { ok: true, session, created: false }
   }
 
   const session = createSession(requesterEmail)
+  const failed = await bindCloud(session)
+  if (failed) return failed
   const cwd =
+    session.workspace?.cwd ??
     authed.userWorkspace ??
     (typeof workspace === 'string' &&
     workspace.length > 0 &&
@@ -83,7 +111,10 @@ async function ensureSession(
       ? path.resolve(workspace)
       : getDefaultWorkspace())
   try {
-    const picker = await loadResolvedAgentPicker(cwd)
+    const picker = await loadResolvedAgentPickerForWorkspace(
+      session.workspace,
+      cwd,
+    )
     applyPickerDefaultsToSession(session, picker)
     if (typeof mode === 'string' && isValidExternalMode(mode)) {
       if (!pickerModeError(picker, mode)) {
@@ -109,7 +140,7 @@ async function ensureSession(
       `[server] apply picker defaults failed: ${(e as Error).message}`,
     )
   }
-  if (!session.workspace) {
+  if (!session.workspace && !cloud) {
     const envId =
       typeof environmentId === 'string' && environmentId.length > 0
         ? environmentId

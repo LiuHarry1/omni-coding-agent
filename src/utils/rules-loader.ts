@@ -581,21 +581,27 @@ export function loadConditionalRulesForPaths(
   return matches
 }
 
-/** Managed → user → project/local (closer project overrides among itself). */
-export function loadAllAgentRules(cwd: string): string {
-  const parts = [
-    loadManagedRules(),
-    loadUserRules(),
-    loadProjectRules(cwd),
-  ].filter(s => s.trim())
-  if (parts.length === 0) return ''
-  let combined = parts.join('\n\n')
+function combineRuleParts(parts: string[]): string {
+  const present = parts.filter(s => s.trim())
+  if (present.length === 0) return ''
+  let combined = present.join('\n\n')
   if (Buffer.byteLength(combined, 'utf-8') > MAX_RULES_BYTES) {
     combined =
       combined.slice(0, MAX_RULES_BYTES) +
       '\n\n[...truncated — combined rules exceeded cap]'
   }
   return combined
+}
+
+/** Managed + request-scoped user rules, without any project traversal. */
+export function loadUserAgentRules(): string {
+  return combineRuleParts([loadManagedRules(), loadUserRules()])
+}
+
+/** Managed → user → project/local (closer project overrides among itself). */
+export function loadAllAgentRules(cwd: string): string {
+  const parts = [loadManagedRules(), loadUserRules(), loadProjectRules(cwd)]
+  return combineRuleParts(parts)
 }
 
 export function hasRulesFile(cwd: string): boolean {

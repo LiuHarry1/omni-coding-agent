@@ -66,8 +66,13 @@ export function substituteArguments(
   template: string,
   rawArgs: string,
   argumentNames: string[],
+  transforms: {
+    token?: (value: string) => string
+    raw?: (value: string, tokens: string[]) => string
+  } = {},
 ): string {
   const tokens = parseArguments(rawArgs)
+  const tokenValue = transforms.token ?? ((value: string) => value)
   let out = template
 
   // 1. Named args. Order matters when one name is a prefix of another —
@@ -77,14 +82,13 @@ export function substituteArguments(
     const name = namesByLength[i]
     if (!name) continue
     const idx = argumentNames.indexOf(name)
-    const value = tokens[idx] ?? ''
+    const value = tokenValue(tokens[idx] ?? '')
     out = out.replace(new RegExp(`\\$${escapeRegex(name)}\\b`, 'g'), value)
   }
 
   // 2. $ARGUMENTS[N]
-  out = out.replace(
-    /\$ARGUMENTS\[(\d+)\]/g,
-    (_, idx) => tokens[Number(idx)] ?? '',
+  out = out.replace(/\$ARGUMENTS\[(\d+)\]/g, (_, idx) =>
+    tokenValue(tokens[Number(idx)] ?? ''),
   )
 
   // 3. $N shorthand. Match only standalone $\d+ to avoid clobbering env-var
@@ -92,11 +96,14 @@ export function substituteArguments(
   // after the digits keeps `$10` intact.
   out = out.replace(/\$(\d+)\b/g, (m, idx) => {
     const n = Number(idx)
-    return Number.isInteger(n) ? (tokens[n] ?? '') : m
+    return Number.isInteger(n) ? tokenValue(tokens[n] ?? '') : m
   })
 
   // 4. $ARGUMENTS (whole string). Must come last — substring of `$ARGUMENTS[N]`.
-  out = out.replace(/\$ARGUMENTS\b/g, rawArgs)
+  out = out.replace(
+    /\$ARGUMENTS\b/g,
+    transforms.raw ? transforms.raw(rawArgs, tokens) : rawArgs,
+  )
 
   return out
 }

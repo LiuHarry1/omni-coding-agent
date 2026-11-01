@@ -62,6 +62,18 @@ Open **http://localhost:5173** in a browser. The frontend development server pro
 
 ---
 
+## Local Cloud Workspace
+
+Docker is required. This command builds the Web UI, worker bundle, and workspace image, then starts the Cloud profile at **http://127.0.0.1:4567**:
+
+```bash
+npm run cloud:start
+```
+
+Local Cloud data is isolated under `~/.ai-agent/cloud-dev`. Reuse existing build outputs with `npm run cloud:start -- --skip-build`, or only build them with `npm run build:cloud`.
+
+---
+
 ## Debug LLM prompt and tool traces
 
 Enable CC-style prompt dumps:
@@ -95,6 +107,7 @@ Electron starts the Coding Agent subprocess automatically and loads `http://127.
 | --------------------------------------------- | ------------------------------------------------------------------ |
 | `npm start`                                   | Start the Coding Agent backend                                     |
 | `npm run dev:web`                             | Start the Web UI development server with hot reload                |
+| `npm run cloud:start`                         | Build and start the local Docker-backed Cloud profile              |
 | `npm run build:web`                           | Build the frontend into `web/dist`                          |
 | `npm run desktop:dev`                         | Start the desktop app                                              |
 | `npm run typecheck`                           | Run TypeScript type checks for `src`, `protocol`, and `sdks/typescript` |

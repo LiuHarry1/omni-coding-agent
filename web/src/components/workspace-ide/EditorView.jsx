@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { useWorkspaceIdeStore } from '../../stores/workspace-ide-store.js'
 import {
-  fetchAuthenticatedBlobUrl,
-  triggerDownload,
-} from '../../lib/api/workspace.js'
+  downloadEntry,
+  entryBlobUrl,
+  useWorkspaceIdeStore,
+} from '../../stores/workspace-ide-store.js'
 import CopyButton from '../CopyButton.jsx'
 import { languageLabel, buildBreadcrumb } from './helpers.js'
 import { DownloadIcon } from './icons.jsx'
@@ -60,7 +60,7 @@ function BinaryView({ filePath, size }) {
     let objectUrl = null
     setImgUrl(null)
     setImgError(null)
-    fetchAuthenticatedBlobUrl(filePath)
+    entryBlobUrl(filePath)
       .then(url => {
         if (revoked) {
           URL.revokeObjectURL(url)
@@ -103,7 +103,11 @@ function BinaryView({ filePath, size }) {
       </div>
       <button
         className='editor-binary-download'
-        onClick={() => triggerDownload(filePath)}
+        onClick={() =>
+          downloadEntry(filePath).catch(e =>
+            window.alert(e.message || 'Download failed'),
+          )
+        }
       >
         <DownloadIcon size={14} />
         Download

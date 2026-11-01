@@ -16,6 +16,7 @@ import {
 } from '../skills/loadSkillsDir.js'
 import type { SkillDefinition } from '../skills/types.js'
 import { seedUserWorkspaceIfNeeded } from './workspace-seed.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 
 export interface WorkspaceContributions {
   plugins: PluginContributions
@@ -36,8 +37,12 @@ export function mapPluginErrors(
 export async function loadWorkspaceContributions(
   cwd: string,
 ): Promise<WorkspaceContributions> {
-  // Desktop / SSO: apply baked WORKSPACE_SEED_DIR once before discovery.
-  seedUserWorkspaceIfNeeded(cwd)
+  // Desktop / non-Cloud SSO: apply the baked seed to the host workspace.
+  // A Cloud cwd (for example /workspace/repo) belongs to the workspace
+  // container and must never be written through the control-plane filesystem.
+  if (!isCloudWorkspacesEnabled()) {
+    seedUserWorkspaceIfNeeded(cwd)
+  }
 
   const plugins = await loadPlugins(cwd)
   const agents = await loadAgentDefinitions(cwd, plugins.agentFiles)

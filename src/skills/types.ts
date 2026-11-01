@@ -36,6 +36,16 @@ export interface SkillDefinition {
    */
   baseDir?: string
   /**
+   * Path to the same package in the active execution environment. The body
+   * and metadata still load from `baseDir` on the control plane.
+   */
+  runtimeBaseDir?: string
+  /**
+   * Body comes from a sandboxed workspace (cloud container). `!cmd` and
+   * `@file` directives would run on the control plane, so they stay literal.
+   */
+  untrustedBody?: boolean
+  /**
    * "inline" — expand body, inject as newMessages + register invokedSkills.
    * "fork"   — run as a subagent with body as system prompt.
    */

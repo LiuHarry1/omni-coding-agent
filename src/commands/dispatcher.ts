@@ -14,8 +14,10 @@
  */
 
 import { expandSkillBody, SkillExpansionError } from '../skills/expand.js'
-import { substituteArguments } from './argumentSubstitution.js'
-import { expandInlineDirectives } from './promptExpansion.js'
+import {
+  expandInlineDirectives,
+  type DirectiveRuntime,
+} from './promptExpansion.js'
 import {
   formatHelp,
   formatPluginsReply,
@@ -55,7 +57,11 @@ export type DispatchResult =
   | { kind: 'unknown'; name: string; available: string[] }
 
 export interface DispatcherDeps {
+  /** Execution-environment cwd used by `!` and `@` directives. */
   cwd: string
+  /** Host cwd used only to discover extensions and render `/plugins`. */
+  extensionCwd?: string
+  directiveRuntime?: DirectiveRuntime
 }
 
 /**
@@ -71,7 +77,8 @@ export async function dispatchSlashCommand(
   if (!parsed) return { kind: 'passthrough' }
 
   const entries =
-    preloaded?.entries ?? (await loadSlashRegistry(deps.cwd)).entries
+    preloaded?.entries ??
+    (await loadSlashRegistry(deps.extensionCwd ?? deps.cwd)).entries
 
   const entry = lookupSlash(entries, parsed.name)
   if (!entry) {
@@ -87,7 +94,10 @@ export async function dispatchSlashCommand(
       return { kind: 'reply', text: formatHelp(entries) }
     }
     if (entry.name === 'plugins') {
-      return { kind: 'reply', text: await formatPluginsReply(deps.cwd) }
+      return {
+        kind: 'reply',
+        text: await formatPluginsReply(deps.extensionCwd ?? deps.cwd),
+      }
     }
     if (entry.name === 'compact') {
       // Manual compaction. Args (if any) steer the summary focus; the actual
@@ -101,18 +111,26 @@ export async function dispatchSlashCommand(
   }
 
   if (entry.kind === 'command') {
-    const substituted = substituteArguments(
+    const expanded = await expandInlineDirectives(
       entry.def.body,
-      parsed.args,
-      entry.def.argumentNames,
+      deps.cwd,
+      deps.directiveRuntime,
+      {
+        rawArgs: parsed.args,
+        argumentNames: entry.def.argumentNames,
+      },
     )
-    const expanded = await expandInlineDirectives(substituted, deps.cwd)
     return { kind: 'run', mode: 'inline', text: expanded, entry }
   }
 
   // entry.kind === "skill"
   try {
-    const { combined } = await expandSkillBody(entry.def, parsed.args, deps.cwd)
+    const { combined } = await expandSkillBody(
+      entry.def,
+      parsed.args,
+      deps.cwd,
+      deps.directiveRuntime,
+    )
 
     // If the skill body doesn't consume $ARGUMENTS / $1 / $name (common for
     // reference-style skills like /pdf), the user's actual request would be

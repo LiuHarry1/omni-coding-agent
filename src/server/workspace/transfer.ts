@@ -58,6 +58,13 @@ const MIME_BY_EXT: Record<string, string> = {
   '.wav': 'audio/wav',
 }
 
+export function mimeTypeFor(fileName: string): string {
+  return (
+    MIME_BY_EXT[path.extname(fileName).toLowerCase()] ||
+    'application/octet-stream'
+  )
+}
+
 function sendJSON(res: ServerResponse, status: number, data: unknown): void {
   res.writeHead(status, { 'Content-Type': 'application/json' })
   res.end(JSON.stringify(data))
@@ -101,15 +108,79 @@ async function moveFile(src: string, dest: string): Promise<void> {
   }
 }
 
-const uploader = multer({
-  storage: multer.diskStorage({ destination: os.tmpdir() }),
-  limits: { fileSize: MAX_UPLOAD_BYTES },
-}).array('file')
-
 interface MulterFile {
   path: string
   originalname: string
   size: number
+}
+
+/** One uploaded part, spooled to a temp file on this machine. */
+export interface ReceivedFile {
+  /** Temp file path. */
+  path: string
+  /** Decoded original name; null when it is not a safe single segment. */
+  name: string | null
+  size: number
+}
+
+export interface ReceivedUpload {
+  fields: Record<string, string | undefined>
+  files: ReceivedFile[]
+  /** Remove every temp file that is still on disk. */
+  cleanup: () => Promise<void>
+}
+
+export interface ReceiveUploadOptions {
+  maxFileBytes?: number
+  maxFiles?: number
+  maxFields?: number
+  preservePath?: boolean
+}
+
+/** Parse a multipart body (`file` parts + text fields) into temp files. */
+export async function receiveUpload(
+  req: IncomingMessage,
+  res: ServerResponse,
+  options: ReceiveUploadOptions = {},
+): Promise<ReceivedUpload> {
+  const maxFiles = options.maxFiles
+  const maxFields = options.maxFields
+  const uploader = multer({
+    preservePath: options.preservePath ?? false,
+    storage: multer.diskStorage({ destination: os.tmpdir() }),
+    limits: {
+      fileSize: options.maxFileBytes ?? MAX_UPLOAD_BYTES,
+      ...(maxFiles === undefined ? {} : { files: maxFiles }),
+      ...(maxFields === undefined ? {} : { fields: maxFields }),
+      ...(maxFiles === undefined || maxFields === undefined
+        ? {}
+        : { parts: maxFiles + maxFields }),
+    },
+  }).array('file', maxFiles)
+  // multer is connect-style middleware; it works directly on the raw req/res.
+  const raw = await new Promise<MulterFile[]>((resolve, reject) => {
+    uploader(req as any, res as any, (err: unknown) => {
+      if (err) reject(err)
+      else resolve(((req as any).files as MulterFile[]) || [])
+    })
+  })
+  const files = raw.map(f => {
+    const name = decodeOriginalName(f.originalname)
+    let safe: string | null = name
+    try {
+      assertSafeName(name)
+    } catch {
+      safe = null
+    }
+    return { path: f.path, name: safe, size: f.size }
+  })
+  return {
+    fields: ((req as any).body ?? {}) as Record<string, string | undefined>,
+    files,
+    cleanup: async () => {
+      await Promise.allSettled(files.map(f => fs.promises.unlink(f.path)))
+    },
+  }
 }
 
 export type ResolveSafePath = (
@@ -123,23 +194,13 @@ export async function handleUpload(
   root: string,
   resolveSafe?: ResolveSafePath,
 ): Promise<void> {
-  // Parse the multipart body into temp files. multer is connect-style
-  // middleware; it works directly on the raw http req/res.
-  const files = await new Promise<MulterFile[]>((resolve, reject) => {
-    uploader(req as any, res as any, (err: unknown) => {
-      if (err) reject(err)
-      else resolve(((req as any).files as MulterFile[]) || [])
-    })
-  })
-
-  const cleanup = () =>
-    Promise.allSettled(files.map(f => fs.promises.unlink(f.path)))
+  const { fields, files, cleanup } = await receiveUpload(req, res)
 
   const resolveTarget = (input: string, access: 'read' | 'write') =>
     resolveSafe ? resolveSafe(input, access) : resolvePath(input, root)
 
   try {
-    const dirField = (req as any).body?.dir as string | undefined
+    const dirField = fields.dir
     if (!dirField) {
       await cleanup()
       sendJSON(res, 400, { error: "Missing 'dir' field" })
@@ -159,10 +220,8 @@ export async function handleUpload(
 
     const uploaded: Array<{ name: string; path: string; size: number }> = []
     for (const f of files) {
-      const name = decodeOriginalName(f.originalname)
-      try {
-        assertSafeName(name)
-      } catch {
+      const name = f.name
+      if (!name) {
         await fs.promises.unlink(f.path).catch(() => {})
         continue
       }
@@ -241,9 +300,8 @@ export async function handleDownload(
   }
 
   // File → stream it as an attachment.
-  const ext = path.extname(target).toLowerCase()
   res.writeHead(200, {
-    'Content-Type': MIME_BY_EXT[ext] || 'application/octet-stream',
+    'Content-Type': mimeTypeFor(target),
     'Content-Length': String(stat.size),
     'Content-Disposition': contentDisposition(path.basename(target)),
   })
@@ -256,7 +314,7 @@ export async function handleDownload(
  * RFC 5987 Content-Disposition with both a plain `filename` (ASCII fallback)
  * and `filename*` (UTF-8) so non-ASCII names download with the right name.
  */
-function contentDisposition(name: string): string {
+export function contentDisposition(name: string): string {
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/"/g, "'")
   const encoded = encodeURIComponent(name)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`
