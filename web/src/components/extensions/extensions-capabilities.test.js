@@ -16,10 +16,6 @@ function manifest(profile = 'desktop') {
   value.profile = profile
   if (profile === 'cloud') {
     value.extensions.scopes = ['user']
-    value.extensions.sections.plugins = {
-      enabled: false,
-      reason: 'Plugins are unavailable in the cloud runtime profile.',
-    }
     value.mcp.transports = ['http', 'sse']
     value.marketplace.targets = ['user']
   }
@@ -54,7 +50,7 @@ describe('Extensions Hub capabilities', () => {
         DEFAULT_EXTENSION_SECTIONS,
         manifest('cloud'),
       ).map(section => section.id),
-    ).not.toContain('plugins')
+    ).toContain('plugins')
   })
 
   it('labels the runtime from the capability profile', () => {

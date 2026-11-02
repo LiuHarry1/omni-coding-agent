@@ -127,15 +127,10 @@ export function resolveEffectiveCapabilities(
   const disabled = new Set<DisablableFeatureId>(disabledFeatures)
 
   const sections = Object.fromEntries(
-    EXTENSION_SECTION_IDS.map(id => {
-      if (id === 'plugins' && profile === 'cloud') {
-        return [
-          id,
-          unavailable('Plugins are unavailable in the cloud runtime profile.'),
-        ]
-      }
-      return [id, disabled.has(id) ? disabledByOverride(id) : enabled()]
-    }),
+    EXTENSION_SECTION_IDS.map(id => [
+      id,
+      disabled.has(id) ? disabledByOverride(id) : enabled(),
+    ]),
   ) as Record<ExtensionSectionId, CapabilityAvailability>
 
   const workspaceAvailability = disabled.has('workspaces')

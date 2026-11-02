@@ -6,6 +6,8 @@
 .git
 .env
 .env.*
+# Skill templates are not secrets. .gitignore already re-includes these.
+!.env.example
 .DS_Store
 coverage
 .nyc_output

@@ -45,7 +45,8 @@ export default function ModePicker() {
   const hideTip = () => setHovered(null)
 
   useEffect(() => {
-    loadAgentPicker?.(workspaceHandle || undefined)
+    if (!workspaceHandle?.environmentId || !workspaceHandle?.cwd) return
+    loadAgentPicker?.(workspaceHandle)
   }, [workspaceHandle, loadAgentPicker])
 
   const modeRows = useMemo(

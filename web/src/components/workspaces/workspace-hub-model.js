@@ -2,7 +2,7 @@ export const WORKSPACE_CREATE_METHODS = Object.freeze({
   clone: {
     id: 'clone',
     label: 'Clone repository',
-    description: 'Clone a public HTTPS Git repository into Baize Cloud.',
+    description: 'Clone an HTTP or HTTPS Git repository into Baize Cloud.',
   },
   blank: {
     id: 'blank',

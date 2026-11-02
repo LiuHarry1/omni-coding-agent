@@ -160,7 +160,8 @@ export function toPublicWorkspace(
  * Cloud workspace HTTP API (CLOUD_WORKSPACES=docker).
  *
  * GET    /workspaces            { enabled, workspaces }
- * POST   /workspaces            { name?, repoUrl?, ref? } → 202, imports async
+ * POST   /workspaces            { name?, repoUrl?, ref?, gitToken? } → 202
+ * POST   /workspaces/repo-access { repoUrl } → { access }
  * GET    /workspaces/:id
  * PATCH  /workspaces/:id        { name }
  * POST   /workspaces/:id/stop   remove the container, keep the volume
@@ -210,18 +211,33 @@ export function createCloudWorkspacesRouter() {
         }
         if (method === 'POST') {
           const body = await readBody(req)
+          const requestedRepo =
+            typeof body.repoUrl === 'string' ? body.repoUrl : undefined
+          const submittedToken =
+            typeof body.gitToken === 'string' ? body.gitToken : undefined
+          const granted = requestedRepo?.trim()
+            ? await manager.authorizeRepository(requestedRepo, submittedToken)
+            : undefined
           const record = manager.create({
             ownerEmail: owner,
             ownerName: authed.user?.username,
             name: typeof body.name === 'string' ? body.name : undefined,
-            repoUrl:
-              typeof body.repoUrl === 'string' ? body.repoUrl : undefined,
+            repoUrl: granted?.url,
             ref: typeof body.ref === 'string' ? body.ref : undefined,
+            gitToken: granted?.gitToken,
           })
           sendJSON(res, 202, { workspace: toPublicWorkspace(manager, record) })
           return true
         }
         sendJSON(res, 405, { error: 'Method not allowed' })
+        return true
+      }
+
+      if (method === 'POST' && pathOnly === '/workspaces/repo-access') {
+        const body = await readBody(req)
+        const repoUrl = typeof body.repoUrl === 'string' ? body.repoUrl : ''
+        const access = await manager.probeRepoAccess(repoUrl)
+        sendJSON(res, 200, { access })
         return true
       }
 

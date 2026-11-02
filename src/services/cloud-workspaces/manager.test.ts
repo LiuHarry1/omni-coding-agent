@@ -1,7 +1,7 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCloudWorkspaceConfig } from '../../execution/providers/cloud/config.js'
 import { WorkspaceContainers } from '../../execution/providers/cloud/containers.js'
 import type { DockerRunner } from '../../execution/providers/cloud/docker-cli.js'
@@ -12,6 +12,8 @@ import {
   validateRef,
   validateRepoUrl,
 } from './manager.js'
+import { gitCloneAuthConfig, gitTokenBasicValue } from './repo-access.js'
+import type { RepoAccess } from './repo-access.js'
 import { CloudWorkspaceStore } from './store.js'
 import { isScheduledWorkspaceAvailable } from '../cron/fire.js'
 
@@ -96,30 +98,24 @@ afterEach(() => {
 })
 
 describe('repository input validation', () => {
-  it('accepts public https URLs only', () => {
+  it('accepts http and https repository URLs on any host', () => {
     expect(validateRepoUrl(' https://github.com/a/b.git ')).toBe(
       'https://github.com/a/b.git',
     )
+    expect(validateRepoUrl('http://git.example.internal/team/service.git')).toBe(
+      'http://git.example.internal/team/service.git',
+    )
     for (const bad of [
       'git@github.com:a/b.git',
-      'http://github.com/a/b',
       'file:///etc',
       'ext::sh -c id',
       'https://user:token@github.com/a/b',
+      'http://user:token@git.example/a/b',
       'https://github.com/a/b?x=1',
       'https://github.com',
     ]) {
       expect(() => validateRepoUrl(bad), bad).toThrow(CloudWorkspaceError)
     }
-  })
-
-  it('honours the host allowlist including subdomains', () => {
-    expect(() =>
-      validateRepoUrl('https://evil.example/a/b', ['github.com']),
-    ).toThrow(/not allowed/)
-    expect(
-      validateRepoUrl('https://gitlab.github.com/a/b', ['github.com']),
-    ).toContain('gitlab.github.com')
   })
 
   it('rejects refs that could become git options', () => {
@@ -245,6 +241,52 @@ describe('workspace lifecycle', () => {
     expect(docker.containers.size).toBe(0)
   })
 
+  it('clones a private repository with an in-memory header and stores no token', async () => {
+    const token = 'ghp_clone_secret'
+    const created = manager.create({
+      ownerEmail: 'bob@example.com',
+      repoUrl: 'https://github.com/acme/private.git',
+      gitToken: token,
+    })
+    await manager.waitReady(created.id)
+    const clone = docker.calls.find(args => args.includes('clone'))
+    expect(clone).toEqual(
+      expect.arrayContaining([
+        '-c',
+        gitCloneAuthConfig(token),
+        '--',
+        'https://github.com/acme/private.git',
+        '/workspace/repo',
+      ]),
+    )
+    expect(clone?.join(' ')).not.toContain(token)
+    const onDisk = fs.readFileSync(
+      path.join(dir, `${created.id}.json`),
+      'utf8',
+    )
+    expect(onDisk).not.toContain(token)
+    expect(onDisk).not.toContain(gitTokenBasicValue(token))
+    expect(JSON.stringify(manager.get(created.id))).not.toContain(token)
+  })
+
+  it('redacts a token that leaks into a clone error', async () => {
+    const token = 'ghp_clone_secret'
+    docker.failExec = args =>
+      args.includes('clone') ? `fatal: auth ${token} rejected` : null
+    const created = manager.create({
+      ownerEmail: 'bob@example.com',
+      repoUrl: 'https://github.com/acme/private.git',
+      gitToken: token,
+    })
+    await expect(manager.waitReady(created.id)).rejects.toThrow(/redacted/)
+    const onDisk = fs.readFileSync(
+      path.join(dir, `${created.id}.json`),
+      'utf8',
+    )
+    expect(onDisk).not.toContain(token)
+    expect(onDisk).toContain('[redacted]')
+  })
+
   it('never seeds agent configuration into a blank repository', async () => {
     const blank = manager.create({ ownerEmail: 'bob@example.com' })
     await manager.waitReady(blank.id)
@@ -366,6 +408,66 @@ describe('workspace lifecycle', () => {
     const restarted = build()
     restarted.failInterruptedProvisioning()
     expect(restarted.get(created.id)?.status).toBe('error')
+  })
+})
+
+describe('repository access gate', () => {
+  function gated(sequence: RepoAccess[]) {
+    const probe = vi.fn(async () => {
+      const next = sequence.shift()
+      if (!next) throw new Error('unexpected probe')
+      return next
+    })
+    const gatedManager = new CloudWorkspaceManager({
+      store: new CloudWorkspaceStore(dir),
+      containers: manager.containers,
+      now: () => now,
+      probeRepo: probe,
+    })
+    return { probe, manager: gatedManager }
+  }
+
+  it('drops a token for a public repository', async () => {
+    const { manager: gatedManager, probe } = gated(['public'])
+    await expect(
+      gatedManager.authorizeRepository(
+        'https://github.com/acme/widgets.git',
+        'ghp_unused',
+      ),
+    ).resolves.toEqual({
+      url: 'https://github.com/acme/widgets.git',
+    })
+    expect(probe).toHaveBeenCalledTimes(1)
+    expect(probe.mock.calls[0]?.[1]).toBeUndefined()
+    expect(gatedManager.list('bob@example.com')).toEqual([])
+  })
+
+  it('does not write a record when a private repository has no token', async () => {
+    const { manager: gatedManager } = gated(['auth-required'])
+    await expect(
+      gatedManager.authorizeRepository('https://github.com/acme/private.git'),
+    ).rejects.toMatchObject({ status: 400 })
+    expect(gatedManager.list('bob@example.com')).toEqual([])
+    expect(fs.readdirSync(dir).filter(name => name.endsWith('.json'))).toEqual(
+      [],
+    )
+  })
+
+  it('does not write a record when the token is rejected', async () => {
+    const { manager: gatedManager, probe } = gated([
+      'auth-required',
+      'auth-required',
+    ])
+    await expect(
+      gatedManager.authorizeRepository(
+        'https://github.com/acme/private.git',
+        'ghp_wrong',
+      ),
+    ).rejects.toThrow(/rejected/)
+    expect(probe.mock.calls[1]?.[1]).toBe('ghp_wrong')
+    expect(fs.readdirSync(dir).filter(name => name.endsWith('.json'))).toEqual(
+      [],
+    )
   })
 })
 

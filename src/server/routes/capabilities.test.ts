@@ -58,7 +58,8 @@ describe('effective capabilities', () => {
         scopes: ['user'],
         sections: {
           plugins: {
-            enabled: false,
+            enabled: true,
+            reason: null,
           },
         },
       },
@@ -71,7 +72,10 @@ describe('effective capabilities', () => {
         targets: ['user'],
       },
     })
-    expect(manifest.extensions.sections.plugins.reason).toMatch(/cloud/i)
+    expect(manifest.extensions.sections.plugins).toEqual({
+      enabled: true,
+      reason: null,
+    })
   })
 
   it('validates explicit runtime profiles against the available backend', () => {

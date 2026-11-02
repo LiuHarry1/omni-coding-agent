@@ -1,7 +1,8 @@
 import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { Readable } from 'stream'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Session } from '../../core/types.js'
 import { loadCloudWorkspaceConfig } from '../../execution/providers/cloud/config.js'
 import { WorkspaceContainers } from '../../execution/providers/cloud/containers.js'
@@ -13,6 +14,7 @@ import { CloudWorkspaceStore } from '../../services/cloud-workspaces/store.js'
 import type { AuthedRequest } from '../auth/identity.js'
 import {
   busyCloudWorkspaceIds,
+  createCloudWorkspacesRouter,
   resolveCloudSessionBinding,
 } from './cloud-workspaces.js'
 import { canUseEnvironment, resolveWorkspaceDisplayLabel } from './execution.js'
@@ -216,5 +218,103 @@ describe('cloud workspace busy tracking', () => {
       endTurn(active.id)
     }
     expect(busyCloudWorkspaceIds()).not.toContain(workspace.id)
+  })
+})
+
+describe('repository access routes', () => {
+  function installProbe(
+    probe: (url: string, token?: string) => Promise<
+      'public' | 'auth-required' | 'not-found'
+    >,
+  ) {
+    const next = new CloudWorkspaceManager({
+      store: new CloudWorkspaceStore(dir),
+      containers: manager.containers,
+      probeRepo: probe,
+    })
+    setCloudWorkspaceManagerForTesting(next)
+    return next
+  }
+
+  async function post(url: string, body: unknown) {
+    const req = Readable.from([
+      Buffer.from(JSON.stringify(body)),
+    ]) as unknown as AuthedRequest
+    req.method = 'POST'
+    req.url = url
+    req.headers = {}
+    req.user = {
+      email: 'bob@example.com',
+      username: 'bob',
+      role: 'user',
+    }
+    let status = 0
+    let raw = ''
+    const res = {
+      writeHead(code: number) {
+        status = code
+      },
+      end(data?: string) {
+        raw = data ?? ''
+      },
+    }
+    await createCloudWorkspacesRouter()(req, res as never)
+    return { status, body: raw ? JSON.parse(raw) : null }
+  }
+
+  it('reports anonymous access without creating a workspace', async () => {
+    const probe = vi.fn(async () => 'auth-required' as const)
+    installProbe(probe)
+    const result = await post('/workspaces/repo-access', {
+      repoUrl: 'https://github.com/acme/private.git',
+    })
+    expect(result).toEqual({
+      status: 200,
+      body: { access: 'auth-required' },
+    })
+    expect(probe).toHaveBeenCalledOnce()
+    expect(fs.readdirSync(dir).filter(name => name.endsWith('.json'))).toEqual(
+      [],
+    )
+  })
+
+  it('refuses a private repository before any record exists', async () => {
+    installProbe(async () => 'auth-required')
+    const missing = await post('/workspaces', {
+      repoUrl: 'https://github.com/acme/private.git',
+    })
+    expect(missing.status).toBe(400)
+    installProbe(async (_url, token) =>
+      token ? 'auth-required' : 'auth-required',
+    )
+    const rejected = await post('/workspaces', {
+      repoUrl: 'https://github.com/acme/private.git',
+      gitToken: 'ghp_wrong',
+    })
+    expect(rejected.status).toBe(400)
+    expect(rejected.body.error).toMatch(/rejected/)
+    expect(fs.readdirSync(dir).filter(name => name.endsWith('.json'))).toEqual(
+      [],
+    )
+  })
+
+  it('ignores a token on a public repository', async () => {
+    const probe = vi.fn(async () => 'public' as const)
+    const local = installProbe(probe)
+    const token = 'ghp_public_unused'
+    const result = await post('/workspaces', {
+      repoUrl: 'https://github.com/acme/widgets.git',
+      gitToken: token,
+    })
+    expect(result.status).toBe(202)
+    expect(probe).toHaveBeenCalledOnce()
+    expect(probe.mock.calls[0]?.[1]).toBeUndefined()
+    const recordPath = path.join(dir, `${result.body.workspace.id}.json`)
+    const onDisk = fs.readFileSync(recordPath, 'utf8')
+    expect(onDisk).not.toContain(token)
+    expect(local.get(result.body.workspace.id)?.source).toMatchObject({
+      kind: 'git',
+      url: 'https://github.com/acme/widgets.git',
+    })
   })
 })

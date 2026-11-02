@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { cloudWorkspacesApi } from '../../lib/api/cloud-workspaces.js'
 import { workspaceApi } from '../../lib/api/workspace.js'
 import { isDesktop, pickWorkspaceDir } from '../../lib/desktop.js'
 import { useCloudWorkspaceStore } from '../../stores/cloud-workspace-store.js'
@@ -17,16 +18,77 @@ function CloudCreateForm({ methodId, onCancel, onCreated }) {
   const [repoUrl, setRepoUrl] = useState('')
   const [ref, setRef] = useState('')
   const [name, setName] = useState('')
+  const [gitToken, setGitToken] = useState('')
+  const [access, setAccess] = useState(null)
+  const [probedUrl, setProbedUrl] = useState('')
+  const [probing, setProbing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
+  const urlRef = useRef('')
   const cloning = methodId === 'clone'
-  const canCreate = !busy && (!cloning || repoUrl.trim())
+  const needsToken = cloning && access === 'auth-required'
+  const canCreate =
+    !busy &&
+    !probing &&
+    (!cloning ||
+      (repoUrl.trim() &&
+        access !== 'not-found' &&
+        (!needsToken || gitToken.trim())))
+
+  const clearProbe = value => {
+    urlRef.current = value.trim()
+    setRepoUrl(value)
+    setAccess(null)
+    setProbedUrl('')
+    setGitToken('')
+    setError(null)
+    setProbing(false)
+  }
+
+  const runProbe = async raw => {
+    const trimmed = raw.trim()
+    if (!trimmed) return null
+    urlRef.current = trimmed
+    setProbing(true)
+    setError(null)
+    try {
+      const { access: next } = await cloudWorkspacesApi.probeRepo(trimmed)
+      if (urlRef.current !== trimmed) return null
+      setProbedUrl(trimmed)
+      setAccess(next)
+      if (next === 'not-found') setError('仓库不存在')
+      return next
+    } catch (err) {
+      if (urlRef.current !== trimmed) return null
+      setAccess(null)
+      setProbedUrl('')
+      setError(err?.message || 'Could not check this repository')
+      return null
+    } finally {
+      if (urlRef.current === trimmed) setProbing(false)
+    }
+  }
 
   const submit = async event => {
     event.preventDefault()
-    if (!canCreate) return
-    setBusy(true)
+    if (busy || probing) return
     setError(null)
+    let nextAccess = access
+    if (cloning) {
+      const trimmed = repoUrl.trim()
+      if (!trimmed) return
+      if (probedUrl !== trimmed) {
+        nextAccess = await runProbe(trimmed)
+        if (nextAccess !== 'public') return
+      }
+      if (nextAccess === 'not-found') return
+      if (nextAccess === 'auth-required' && !gitToken.trim()) {
+        setError('这个仓库需要登录')
+        return
+      }
+      if (!nextAccess) return
+    }
+    setBusy(true)
     try {
       const workspace = await create({
         ...(name.trim() ? { name: name.trim() } : {}),
@@ -34,6 +96,9 @@ function CloudCreateForm({ methodId, onCancel, onCreated }) {
           ? {
               repoUrl: repoUrl.trim(),
               ...(ref.trim() ? { ref: ref.trim() } : {}),
+              ...(nextAccess === 'auth-required'
+                ? { gitToken: gitToken.trim() }
+                : {}),
             }
           : {}),
       })
@@ -54,11 +119,32 @@ function CloudCreateForm({ methodId, onCancel, onCreated }) {
               autoFocus
               value={repoUrl}
               placeholder='https://git.example.com/team/repository.git'
-              disabled={busy}
-              onChange={event => setRepoUrl(event.target.value)}
+              disabled={busy || probing}
+              onChange={event => clearProbe(event.target.value)}
+              onBlur={() => {
+                const trimmed = repoUrl.trim()
+                if (trimmed && trimmed !== probedUrl) void runProbe(trimmed)
+              }}
             />
-            <small>Public HTTPS Git repositories are supported.</small>
+            <small>
+              {needsToken
+                ? '这个仓库需要登录'
+                : 'HTTP and HTTPS Git repositories are supported. A private repository asks for a token before it is created.'}
+            </small>
           </label>
+          {needsToken && (
+            <label className='extensions-field'>
+              <span>Access token</span>
+              <input
+                type='password'
+                autoComplete='off'
+                value={gitToken}
+                placeholder='Personal access token'
+                disabled={busy}
+                onChange={event => setGitToken(event.target.value)}
+              />
+            </label>
+          )}
           <details className='workspace-create__advanced'>
             <summary>Branch and workspace name</summary>
             <div className='workspace-create__advanced-fields'>
@@ -128,11 +214,13 @@ function CloudCreateForm({ methodId, onCancel, onCreated }) {
           className='extensions-button extensions-button--primary'
           disabled={!canCreate}
         >
-          {busy
-            ? 'Creating…'
-            : cloning
-              ? 'Clone repository'
-              : 'Create workspace'}
+          {probing
+            ? 'Checking…'
+            : busy
+              ? 'Creating…'
+              : cloning
+                ? 'Clone repository'
+                : 'Create workspace'}
         </button>
       </div>
     </form>

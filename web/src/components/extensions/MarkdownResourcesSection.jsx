@@ -533,6 +533,7 @@ export default function MarkdownResourcesSection({
   type,
   scope = 'user',
   workspace,
+  workspaceHandle = null,
   refreshToken = 0,
   configClient = userConfigApi,
   onDirtyChange,
@@ -580,7 +581,18 @@ export default function MarkdownResourcesSection({
 
     const discover =
       type === 'agents' ? agentApi.getAgents : agentApi.getSlashCommands
-    void discover(workspace)
+    // Agents are environment-scoped. A bare cwd is resolved as local and
+    // 404s for a signed-in cloud workspace.
+    const discoverTarget =
+      type === 'agents' &&
+      workspaceHandle?.environmentId &&
+      workspaceHandle?.cwd
+        ? {
+            environmentId: workspaceHandle.environmentId,
+            cwd: workspaceHandle.cwd,
+          }
+        : workspace
+    void discover(discoverTarget)
       .then(response => {
         if (cancelled) return
         setDiscovered(discoveryResources(type, response))
@@ -601,7 +613,14 @@ export default function MarkdownResourcesSection({
     return () => {
       cancelled = true
     }
-  }, [config.label, refreshToken, type, workspace])
+  }, [
+    config.label,
+    refreshToken,
+    type,
+    workspace,
+    workspaceHandle?.environmentId,
+    workspaceHandle?.cwd,
+  ])
 
   useEffect(() => {
     setSelectedPath(current =>

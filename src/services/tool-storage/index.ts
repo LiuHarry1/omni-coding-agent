@@ -129,7 +129,7 @@ export function buildLargeResultPreview(
   return (
     `${PERSISTED_OUTPUT_OPEN} path="${filePath}" tool="${toolName}" chars="${content.length}">\n` +
     `Output too large (${formatBytes(content.length)}). Full output saved to: ${filePath}\n` +
-    `Use the Read tool on this path if you need more than the preview below.\n\n` +
+    `This path is outside the workspace. Use the Read tool on it. Do not cd, cat, or otherwise open it from the shell.\n\n` +
     `Preview (first ${formatBytes(preview.length)}):\n` +
     preview +
     (hasMore ? '\n...\n' : '\n') +
@@ -146,7 +146,7 @@ export function buildPersistedReference(
   return (
     `${PERSISTED_OUTPUT_OPEN} path="${filePath}" tool="${toolName}" chars="${originalChars}">\n` +
     `[Previous ${toolName} output (${formatBytes(originalChars)}) offloaded to disk to save context. ` +
-    `Use the Read tool on this path to retrieve the full content if needed.]\n` +
+    `This path is outside the workspace. Use the Read tool on it. Do not cd or cat it from the shell.]\n` +
     `${PERSISTED_OUTPUT_CLOSE}`
   )
 }

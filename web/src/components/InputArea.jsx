@@ -109,12 +109,11 @@ export default function InputArea() {
   }, [workspace])
 
   useEffect(() => {
+    if (!workspaceHandle?.environmentId || !workspaceHandle?.cwd) return
     let cancelled = false
     ;(async () => {
       try {
-        const data = await agentApi.getAgents(
-          workspaceHandle || workspace || undefined,
-        )
+        const data = await agentApi.getAgents(workspaceHandle)
         if (cancelled) return
         const list = Array.isArray(data.agents) ? data.agents : []
         setSubagentMentions(
@@ -127,7 +126,7 @@ export default function InputArea() {
     return () => {
       cancelled = true
     }
-  }, [workspace, workspaceHandle])
+  }, [workspaceHandle?.environmentId, workspaceHandle?.cwd])
 
   const syncCursor = useCallback(() => {
     const el = textareaRef.current

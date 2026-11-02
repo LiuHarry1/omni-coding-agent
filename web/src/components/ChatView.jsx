@@ -40,6 +40,19 @@ function distanceFromBottom(el) {
   return el.scrollHeight - el.scrollTop - el.clientHeight
 }
 
+/** Put the latest user bubble at the top of the pane. Returns false if none. */
+function pinLatestUserMessage(pane) {
+  const nodes = pane.querySelectorAll('.msg-user')
+  const user = nodes[nodes.length - 1]
+  if (!user) return false
+  const top =
+    user.getBoundingClientRect().top -
+    pane.getBoundingClientRect().top +
+    pane.scrollTop
+  pane.scrollTop = Math.max(0, top - 8)
+  return true
+}
+
 function computeBottomInsetPx(paneHeight) {
   if (!paneHeight || paneHeight < 80) return BOTTOM_INSET_MIN_PX
   return Math.min(
@@ -108,6 +121,7 @@ export default function ChatView() {
   const userPointerRef = useRef(false)
   const stickRafRef = useRef(0)
   const stickDirtyRef = useRef(false)
+  const openedSessionRef = useRef(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
   const [bottomInsetPx, setBottomInsetPx] = useState(160)
@@ -224,23 +238,44 @@ export default function ChatView() {
   }, [])
 
   useLayoutEffect(() => {
-    pinToBottomRef.current = true
-    userUnpinnedRef.current = false
+    // Opening a saved session used to jump to the spacer under the reply, which
+    // parks the user's own message just above the viewport.
+    if (useChatStore.getState().isStreaming) return
+    if (sessionLoading || !hasMessages) return
+    if (openedSessionRef.current === currentSessionId) return
+    const pane = scrollRef.current
+    if (!pane) return
+    programmaticScrollRef.current = true
+    pinLatestUserMessage(pane)
+    pinToBottomRef.current = false
+    userUnpinnedRef.current = true
     leftBottomRef.current = false
+    openedSessionRef.current = currentSessionId
     setShowScrollBtn(false)
-    const el = scrollRef.current
-    if (el) {
+    requestAnimationFrame(() => {
+      programmaticScrollRef.current = false
+    })
+  }, [currentSessionId, sessionLoading, hasMessages, flatStructureKey])
+
+  // A new turn keeps the user's message at the top of the pane. Following the
+  // bottom hides that message as soon as the tool output is taller than the
+  // screen.
+  useLayoutEffect(() => {
+    if (!isStreaming) return
+    const pane = scrollRef.current
+    const userNodes = pane?.querySelectorAll('.msg-user')
+    const user = userNodes?.[userNodes.length - 1]
+    if (pane && user) {
       programmaticScrollRef.current = true
-      el.scrollTop = el.scrollHeight
+      pinLatestUserMessage(pane)
+      pinToBottomRef.current = false
+      userUnpinnedRef.current = true
+      leftBottomRef.current = false
       requestAnimationFrame(() => {
         programmaticScrollRef.current = false
       })
+      return
     }
-  }, [currentSessionId])
-
-  // New turn streaming: re-pin so a prior scroll-away does not hide the reply.
-  useEffect(() => {
-    if (!isStreaming) return
     pinToBottomRef.current = true
     userUnpinnedRef.current = false
     leftBottomRef.current = false
@@ -403,7 +438,10 @@ export default function ChatView() {
             {visibleElements.map((el, i) => {
               const absIndex = startIndex + i
               const fromEnd = flatElements.length - 1 - absIndex
-              const skipContain = fromEnd < liveTail
+              const isUser =
+                el.type === 'bubble' &&
+                bubblesById[el.bubbleId]?.kind === 'user'
+              const skipContain = isUser || fromEnd < liveTail
               return (
                 <div
                   key={el.id}

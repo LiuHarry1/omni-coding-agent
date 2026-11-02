@@ -180,11 +180,11 @@ export const useChatStore = create((set, get) => {
 
     /** Fetch GET /agents and populate picker + ModePicker rows. */
     loadAgentPicker: async workspace => {
+      const target = workspace || workspaceSnapshot().handle
+      if (!target?.environmentId || !target?.cwd) return
       set({ agentPickerLoaded: false })
       try {
-        const data = await agentApi.getAgents(
-          workspace || workspaceSnapshot().handle,
-        )
+        const data = await agentApi.getAgents(target)
         const picker = data?.picker
         const modes = Array.isArray(picker?.modes)
           ? picker.modes
@@ -505,11 +505,16 @@ export const useChatStore = create((set, get) => {
     },
 
     switchSession: async id => {
-      get().abortController?.abort()
       if (!id) {
+        get().abortController?.abort()
         get().clearSession()
         return
       }
+      // A new chat learns its id while the turn is already on screen. Reloading
+      // here aborts that turn and drops the optimistic user bubble; the stream
+      // replay only has assistant events, so the user's message never returns.
+      if (get().isStreaming && get().currentSessionId === id) return
+      get().abortController?.abort()
       localStorage.setItem('coding_agent_session_id', id)
       set({
         currentSessionId: id,
@@ -944,5 +949,5 @@ setWorkspaceSwitchGuard(() => {
 
 // Dev-only: browser / CDP harness can inject transcript fixtures.
 if (import.meta.env.DEV && typeof window !== 'undefined') {
-  window.__BAIZE_CHAT_STORE__ = useChatStore
+  window.__baix_CHAT_STORE__ = useChatStore
 }

@@ -12,8 +12,22 @@ export const cloudWorkspacesApi = {
 
   get: id => fetchJSON(`/workspaces/${encodeURIComponent(id)}`),
 
-  /** @param {{name?: string, repoUrl?: string, ref?: string}} input */
-  create: input => fetchJSON('/workspaces', { method: 'POST', ...json(input) }),
+  /** @param {string} repoUrl @returns {Promise<{access: 'public'|'auth-required'|'not-found'}>} */
+  probeRepo: repoUrl =>
+    fetchJSON('/workspaces/repo-access', {
+      method: 'POST',
+      ...json({ repoUrl }),
+    }),
+
+  /**
+   * @param {{name?: string, repoUrl?: string, ref?: string, gitToken?: string}} input
+   * `gitToken` is sent only when the caller includes it.
+   */
+  create: input => {
+    const body = { ...input }
+    if (!body.gitToken) delete body.gitToken
+    return fetchJSON('/workspaces', { method: 'POST', ...json(body) })
+  },
 
   rename: (id, name) =>
     fetchJSON(`/workspaces/${encodeURIComponent(id)}`, {

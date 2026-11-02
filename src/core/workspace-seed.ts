@@ -62,6 +62,60 @@ export function applyWorkspaceSeed(
   return copied
 }
 
+/**
+ * Skill packages ship `.env.example` only. Existing workspaces already have
+ * the skill directory, so a later seed does not merge new files into it.
+ * Add the template, and a `.env` copied from it, when either file is absent.
+ * Never overwrite a file the user may already have edited.
+ */
+function ensureSkillEnvTemplates(
+  userWorkspace: string,
+  seedDir: string,
+): boolean {
+  const seedSkills = path.join(seedDir, '.ai-agent', 'skills')
+  if (!fs.existsSync(seedSkills)) return false
+
+  let changed = false
+  for (const name of fs.readdirSync(seedSkills)) {
+    const seedSkill = path.join(seedSkills, name)
+    let skillStat: fs.Stats
+    try {
+      skillStat = fs.statSync(seedSkill)
+    } catch {
+      continue
+    }
+    if (!skillStat.isDirectory()) continue
+
+    const example = path.join(seedSkill, '.env.example')
+    if (!fs.existsSync(example)) continue
+    try {
+      if (!fs.statSync(example).isFile()) continue
+    } catch {
+      continue
+    }
+
+    const userSkill = path.join(userWorkspace, '.ai-agent', 'skills', name)
+    if (!fs.existsSync(userSkill)) continue
+    try {
+      if (!fs.statSync(userSkill).isDirectory()) continue
+    } catch {
+      continue
+    }
+
+    const destExample = path.join(userSkill, '.env.example')
+    if (!fs.existsSync(destExample)) {
+      fs.copyFileSync(example, destExample)
+      changed = true
+    }
+    const destEnv = path.join(userSkill, '.env')
+    if (!fs.existsSync(destEnv)) {
+      fs.copyFileSync(example, destEnv)
+      changed = true
+    }
+  }
+  return changed
+}
+
 function writeSeedMarker(userWorkspace: string, seedDir: string): void {
   const markerPath = path.join(userWorkspace, WORKSPACE_SEEDED_MARKER)
   fs.writeFileSync(
@@ -82,7 +136,7 @@ function writeSeedMarker(userWorkspace: string, seedDir: string): void {
  * Upgrade the exact obsolete Desktop assistant instruction without replacing
  * the file or touching customized surrounding content.
  */
-export function applyWorkspaceSeedMigrations(
+function migrateAssistantShellGuidance(
   userWorkspace: string,
   seedDir: string,
 ): boolean {
@@ -114,6 +168,19 @@ export function applyWorkspaceSeedMigrations(
 }
 
 /**
+ * Narrow updates for workspaces that were already seeded.
+ * Existing files are never overwritten.
+ */
+export function applyWorkspaceSeedMigrations(
+  userWorkspace: string,
+  seedDir: string,
+): boolean {
+  const assistantChanged = migrateAssistantShellGuidance(userWorkspace, seedDir)
+  const envChanged = ensureSkillEnvTemplates(userWorkspace, seedDir)
+  return assistantChanged || envChanged
+}
+
+/**
  * On first use of a workspace, copy the baked seed template.
  * Idempotent — safe to call on every request that discovers the workspace.
  */
@@ -136,6 +203,7 @@ export function seedUserWorkspaceIfNeeded(userWorkspace: string): boolean {
 
   try {
     applyWorkspaceSeed(userWorkspace, seedDir)
+    applyWorkspaceSeedMigrations(userWorkspace, seedDir)
     writeSeedMarker(userWorkspace, seedDir)
     console.log(`[workspace] seeded ${userWorkspace} from ${seedDir}`)
     return true

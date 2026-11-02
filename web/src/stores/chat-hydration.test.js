@@ -110,6 +110,25 @@ describe('chat hydration guards', () => {
     }
   })
 
+  it('does not reload the transcript when a live turn learns its session id', async () => {
+    useChatStore.setState({
+      currentSessionId: 'live-session',
+      isStreaming: true,
+      bubbleOrder: ['user:1'],
+      bubblesById: {
+        'user:1': { id: 'user:1', kind: 'user', content: 'still here' },
+      },
+    })
+
+    await useChatStore.getState().switchSession('live-session')
+
+    expect(agentApi.getSessionMessages).not.toHaveBeenCalled()
+    expect(useChatStore.getState().isStreaming).toBe(true)
+    expect(useChatStore.getState().bubblesById['user:1']?.content).toBe(
+      'still here',
+    )
+  })
+
   it('keeps the optimistic user bubble across stale-session retry', async () => {
     streamChatTurn.mockImplementation(async options => {
       options.onSessionNotFound()

@@ -26,10 +26,9 @@
 npm run build:worker
 docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 
-# 2. tenant 镜像(FROM base + managed policy 与用户 seed,秒级)
-docker build -f deploy/Dockerfile.agent-tenant -t ai-agent-tenant:latest .
-# 私有 registry 可追加:
-#   --build-arg BASE_IMAGE=registry.example.com/ai-agent-base:latest
+# 2. tenant 镜像(FROM harbor base + managed policy 与用户 seed,秒级)
+docker build -f deploy/Dockerfile.agent-tenant --build-arg BASE_TAG=latest -t ai-agent-tenant:latest .
+# 默认镜像: harbor.advantest.com/dice-zero/ai-agent-base:${BASE_TAG}
 
 # 3. web 镜像(vite 构建 → nginx 静态站)
 docker build -f deploy/Dockerfile.web -t ai-agent-web:latest .
@@ -117,11 +116,25 @@ docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env up -d
 
 还需在**外部 auth-service** 把 `FRONTEND_ORIGIN` 加入 `SSO_ALLOWED_RETURN_ORIGINS` 和 `CORS_ALLOWED_ORIGINS`,否则登录回跳会被拒(400)。
 
+### 通过 KnowBot `/code/` 发布
+
+`deploy/docker-compose.sso.yml` 已经写好 KnowBot 的源地址、镜像标签和 Cloud 配置。其中的 `JWT_SECRET` 必须与 KnowBot auth-service 一致。浏览器始终通过 `https://baix.advantest.com` 访问登录和 Agent API：
+
+```bash
+docker compose -f deploy/docker-compose.sso.yml up -d
+```
+
+Microsoft Entra 只需注册 auth-service 的 callback
+`https://baix.advantest.com/sso/microsoft/callback`；Coding Agent 不需要单独的
+Microsoft 应用或 callback。登录成功后 auth-service 会回跳
+`https://baix.advantest.com/code/#token=...`，Agent 使用共享 `JWT_SECRET`
+验证该 KnowBot JWT。
+
 每个用户被锁定到 `/workspace/users/<email>`,首次登录会从 `deploy/workspace-seed/`(打进 tenant 镜像)复制一份初始内容。
 
 ### 可选 Cloud Workspace
 
-基础 SSO stack 默认不启用 Cloud Workspace，也不会挂载 `docker.sock`。先构建 worker 和 workspace 镜像，再显式叠加 Cloud override：
+基础 SSO stack 默认不启用 Cloud Workspace，也不会挂载 `docker.sock`。先构建 worker 和 workspace 镜像，再显式叠加 Cloud override。这个 override 会把 `BAIZE_RUNTIME_PROFILE` 设为 `cloud`，并挂载宿主 `docker.sock`。KnowBot 生产用的镜像标签、实例名和 `docker.sock` 已经写在 `deploy/docker-compose.sso.yml` 里。
 
 ```bash
 npm run build:worker

@@ -18,8 +18,8 @@
 #   3. Build the tenant image (from repo root):
 #        docker build -f deploy/Dockerfile.agent-tenant \
 #          -t ai-agent-tenant:latest .
-#      To use a published base, add:
-#        --build-arg BASE_IMAGE=registry.example.com/ai-agent-base:latest
+#      The default base is the Advantest harbor image. Override the tag with:
+#        --build-arg BASE_TAG=<tag>
 #
 #   4. Run via compose (which already references ai-agent-tenant:latest):
 #        docker compose -f deploy/docker-compose.admin.yml up -d
@@ -29,8 +29,8 @@
 #   image layers and are recoverable via `docker history` even if a later
 #   layer overwrites them. Prefer env injection at runtime (compose .env).
 
-ARG BASE_IMAGE=ai-agent-base:latest
-FROM ${BASE_IMAGE}
+ARG BASE_TAG=latest
+FROM ai-agent-base:${BASE_TAG}
 
 # UTF-8 locale — agent logs include CJK user text; a non-UTF-8 locale makes
 # in-container shells/pagers (docker exec + less, etc.) show <E4><BD>… bytes.
@@ -46,6 +46,15 @@ COPY deploy/managed/.ai-agent/ /etc/ai-agent/.ai-agent/
 # Per-user workspace template — copied on first SSO login into
 # /workspace/users/<slug>/. User-visible agents/skills go here — not /etc.
 COPY deploy/workspace-seed/ /opt/workspace-seed/
+
+# Windows working trees (core.autocrlf) COPY *.sh as CRLF; Linux bash then
+# treats `set -o pipefail\r` as an invalid option. Normalize before bake.
+# .env.example is the only env file in the build context. Materialize a
+# user-editable .env from it so the Extensions file tree has both files.
+RUN find /opt/workspace-seed -type f \( -name '*.sh' -o -name '.env' -o -name '.env.example' \) \
+      -exec sed -i 's/\r$//' {} + \
+ && find /opt/workspace-seed -type f -name '.env.example' -exec sh -c \
+      'for example; do dest="$(dirname "$example")/.env"; [ -e "$dest" ] || cp "$example" "$dest"; done' sh {} +
 
 # Optional: override the default CMD from the base image.
 # CMD ["./node_modules/.bin/tsx", "start.js"]

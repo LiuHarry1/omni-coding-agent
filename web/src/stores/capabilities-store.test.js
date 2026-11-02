@@ -11,10 +11,6 @@ function cloudManifest() {
   manifest.workspace.lifecycle = 'managed'
   manifest.workspace.createMethods = ['clone', 'blank']
   manifest.extensions.scopes = ['user']
-  manifest.extensions.sections.plugins = {
-    enabled: false,
-    reason: 'Plugins are unavailable in the cloud runtime profile.',
-  }
   manifest.mcp.transports = ['http', 'sse']
   manifest.marketplace.targets = ['user']
   return manifest

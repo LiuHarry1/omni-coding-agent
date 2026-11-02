@@ -183,6 +183,34 @@ describe('extension resource detail panes', () => {
       recursive: true,
     })
     expect(configClient.read).toHaveBeenCalledWith('agents/reviewer.md')
+    expect(agentApi.getAgents).toHaveBeenCalledWith(undefined)
+  })
+
+  it('discovers agents with the cloud workspace handle', async () => {
+    const getAgents = vi.spyOn(agentApi, 'getAgents').mockResolvedValue({
+      all: [],
+      errors: [],
+    })
+    const handle = {
+      environmentId: 'cloud:abcdef0123456789',
+      cwd: '/workspace/repo',
+    }
+    const configClient = {
+      list: vi.fn().mockResolvedValue({ entries: [] }),
+    }
+
+    await mount(
+      createElement(MarkdownResourcesSection, {
+        type: 'agents',
+        scope: 'workspace',
+        workspace: handle.cwd,
+        workspaceHandle: handle,
+        configClient,
+      }),
+    )
+    await waitFor(() => getAgents.mock.calls.length > 0)
+
+    expect(getAgents).toHaveBeenCalledWith(handle)
   })
 
   it('shows discovered built-in/plugin resources and load warnings read-only', async () => {

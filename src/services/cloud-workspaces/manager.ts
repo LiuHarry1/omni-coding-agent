@@ -5,6 +5,13 @@ import {
   cloudEnvironmentId,
 } from '../../execution/providers/cloud/cloud-provider.js'
 import type { WorkspaceHandle } from '../../execution/types.js'
+import {
+  gitCloneAuthConfig,
+  probeGitRepository,
+  redactGitSecret,
+  RepoProbeError,
+  type RepoAccess,
+} from './repo-access.js'
 import type {
   CloudWorkspaceRecord,
   CloudWorkspaceSource,
@@ -29,13 +36,26 @@ export type CreateCloudWorkspaceInput = {
   /** Public HTTPS repository; omitted → empty repository. */
   repoUrl?: string
   ref?: string
+  /**
+   * Clone credential. Held only for the in-flight import; never stored on
+   * the workspace record or written into the remote URL.
+   */
+  gitToken?: string
 }
+
+export type { RepoAccess }
+
+/** Already-validated URL in, access result out. Token is optional. */
+export type RepoAccessProbe = (
+  repoUrl: string,
+  token?: string,
+) => Promise<RepoAccess>
 
 export type CloudWorkspaceManagerOptions = {
   store: CloudWorkspaceStore
   containers: WorkspaceContainers
-  /** Hosts a repository URL may point at; empty → any public HTTPS host. */
-  allowedGitHosts?: string[]
+  /** Defaults to a live smart-HTTP probe. Tests inject a stub. */
+  probeRepo?: RepoAccessProbe
   now?: () => number
 }
 
@@ -51,10 +71,7 @@ function newWorkspaceId(): string {
   return randomBytes(8).toString('hex')
 }
 
-export function validateRepoUrl(
-  raw: string,
-  allowedHosts: string[] = [],
-): string {
+export function validateRepoUrl(raw: string): string {
   const trimmed = raw.trim()
   let url: URL
   try {
@@ -62,9 +79,9 @@ export function validateRepoUrl(
   } catch {
     throw new CloudWorkspaceError('Repository URL is not a valid URL', 400)
   }
-  if (url.protocol !== 'https:') {
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
     throw new CloudWorkspaceError(
-      'Only https:// repository URLs are supported',
+      'Only http:// and https:// repository URLs are supported',
       400,
     )
   }
@@ -77,16 +94,6 @@ export function validateRepoUrl(
   if (url.search || url.hash) {
     throw new CloudWorkspaceError(
       'Repository URL must not contain a query or fragment',
-      400,
-    )
-  }
-  const host = url.hostname.toLowerCase()
-  if (
-    allowedHosts.length > 0 &&
-    !allowedHosts.some(h => host === h || host.endsWith(`.${h}`))
-  ) {
-    throw new CloudWorkspaceError(
-      `Repository host ${host} is not allowed (allowed: ${allowedHosts.join(', ')})`,
       400,
     )
   }
@@ -127,7 +134,7 @@ function publicError(err: unknown): string {
 export class CloudWorkspaceManager {
   private readonly store: CloudWorkspaceStore
   readonly containers: WorkspaceContainers
-  private readonly allowedGitHosts: string[]
+  private readonly probeRepo: RepoAccessProbe
   private readonly now: () => number
   private readonly provisioning = new Map<string, Promise<void>>()
   private readonly deleting = new Map<string, Promise<void>>()
@@ -139,10 +146,62 @@ export class CloudWorkspaceManager {
   constructor(opts: CloudWorkspaceManagerOptions) {
     this.store = opts.store
     this.containers = opts.containers
-    this.allowedGitHosts = (opts.allowedGitHosts ?? []).map(h =>
-      h.trim().toLowerCase(),
-    )
+    this.probeRepo =
+      opts.probeRepo ??
+      ((url, token) => probeGitRepository(url, token))
     this.now = opts.now ?? Date.now
+  }
+
+  private async callProbe(url: string, token?: string): Promise<RepoAccess> {
+    try {
+      return await this.probeRepo(url, token)
+    } catch (err) {
+      if (err instanceof RepoProbeError) {
+        throw new CloudWorkspaceError(err.message, err.status)
+      }
+      throw err
+    }
+  }
+
+  /** Anonymous access check used before the create dialog asks for a token. */
+  async probeRepoAccess(repoUrl: string): Promise<RepoAccess> {
+    const url = validateRepoUrl(repoUrl)
+    return this.callProbe(url)
+  }
+
+  /**
+   * Decide whether a clone may start. A public repository drops any token.
+   * A repository that asks for login is refused, with no record written,
+   * until a token survives a second probe.
+   */
+  async authorizeRepository(
+    repoUrl: string,
+    gitToken?: string,
+  ): Promise<{ url: string; gitToken?: string }> {
+    const url = validateRepoUrl(repoUrl)
+    const anonymous = await this.callProbe(url)
+    if (anonymous === 'not-found') {
+      throw new CloudWorkspaceError('Repository not found', 404)
+    }
+    if (anonymous === 'public') return { url }
+    const token = gitToken?.trim() ?? ''
+    if (!token) {
+      throw new CloudWorkspaceError(
+        'This repository requires a sign-in token',
+        400,
+      )
+    }
+    if (token.length > 512 || /\s/.test(token)) {
+      throw new CloudWorkspaceError('Git token was rejected', 400)
+    }
+    const authed = await this.callProbe(url, token)
+    if (authed === 'not-found') {
+      throw new CloudWorkspaceError('Repository not found', 404)
+    }
+    if (authed !== 'public') {
+      throw new CloudWorkspaceError('Git token was rejected', 400)
+    }
+    return { url, gitToken: token }
   }
 
   get config() {
@@ -237,7 +296,7 @@ export class CloudWorkspaceManager {
     const source: CloudWorkspaceSource = input.repoUrl?.trim()
       ? {
           kind: 'git',
-          url: validateRepoUrl(input.repoUrl, this.allowedGitHosts),
+          url: validateRepoUrl(input.repoUrl),
           ...(ref ? { ref } : {}),
         }
       : { kind: 'empty' }
@@ -258,9 +317,11 @@ export class CloudWorkspaceManager {
       lastUsedAt: now,
     }
     this.store.put(record)
-    const job = this.provision(record, input.ownerName).finally(() => {
-      this.provisioning.delete(record.id)
-    })
+    const job = this.provision(record, input.ownerName, input.gitToken).finally(
+      () => {
+        this.provisioning.delete(record.id)
+      },
+    )
     this.provisioning.set(record.id, job)
     return record
   }
@@ -296,6 +357,7 @@ export class CloudWorkspaceManager {
   private async provision(
     record: CloudWorkspaceRecord,
     ownerName?: string,
+    gitToken?: string,
   ): Promise<void> {
     const { containers } = this
     const repoDir = this.config.repoDir
@@ -316,6 +378,9 @@ export class CloudWorkspaceManager {
             'protocol.allow=never',
             '-c',
             'protocol.https.allow=always',
+            '-c',
+            'protocol.http.allow=always',
+            ...(gitToken ? ['-c', gitCloneAuthConfig(gitToken)] : []),
             'clone',
             '--depth',
             '1',
@@ -351,10 +416,11 @@ export class CloudWorkspaceManager {
       ])
       this.update(record.id, { status: 'ready', error: undefined })
     } catch (err) {
+      const message = redactGitSecret(publicError(err), gitToken)
       console.warn(
-        `[cloud-workspaces] provisioning ${record.id} failed: ${err instanceof Error ? err.message : err}`,
+        `[cloud-workspaces] provisioning ${record.id} failed: ${message}`,
       )
-      this.update(record.id, { status: 'error', error: publicError(err) })
+      this.update(record.id, { status: 'error', error: message })
       await containers.removeContainer(record.id).catch(() => {})
     }
   }

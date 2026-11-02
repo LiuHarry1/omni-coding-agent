@@ -21,6 +21,7 @@ import {
   readTextFromString,
 } from '../../utils/read/index.js'
 import type { ReadFileState } from '../../utils/read/types.js'
+import { isReadableInternalPath } from '../../core/session-paths.js'
 import {
   assertAccessibleResolved,
   checkReadPermissionForTool,
@@ -109,22 +110,26 @@ export const definition: ToolDefinition = {
         const execution = context.execution
         // Local worker still has real disk mtime — use the FS path below for
         // dedup + images/PDF. Only remote environments use readText RPC.
-        const useRemoteFs = !!execution && execution.environmentId !== 'local'
-
-        if (useRemoteFs) {
-          try {
-            const abs = execution.resolve(cwd, file_path)
-            execution.assertInWorkspace(cwd, abs, 'read')
-            if (pages) {
-              return 'Error: PDF page reads are not supported over SSH yet. Use bash to inspect PDFs remotely.'
+        // Oversized tool output is spilled on the agent host
+        // (`{agentHome}/.ai-agent/projects/.../tool-results`). That path is
+        // not inside the cloud container workspace, so Read serves it from
+        // the host instead of the worker.
+        if (execution && execution.environmentId !== 'local') {
+          const abs = execution.resolve(cwd, file_path)
+          if (!isReadableInternalPath(abs)) {
+            try {
+              execution.assertInWorkspace(cwd, abs, 'read')
+              if (pages) {
+                return 'Error: PDF page reads are not supported over SSH yet. Use bash to inspect PDFs remotely.'
+              }
+              // Remote FS: no reliable local mtime — skip dedup; share slice/gates.
+              const text = await execution.readText(abs)
+              return {
+                data: readTextFromString(text, file_path, { offset, limit }),
+              }
+            } catch (err) {
+              return `Error: ${err instanceof Error ? err.message : String(err)}`
             }
-            // Remote FS: no reliable local mtime — skip dedup; share slice/gates.
-            const text = await execution.readText(abs)
-            return {
-              data: readTextFromString(text, file_path, { offset, limit }),
-            }
-          } catch (err) {
-            return `Error: ${err instanceof Error ? err.message : String(err)}`
           }
         }
 

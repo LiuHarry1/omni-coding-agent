@@ -7,6 +7,7 @@
 services:
   agent:
     environment:
+      BAIZE_RUNTIME_PROFILE: cloud
       CLOUD_WORKSPACES: docker
       WORKSPACE_IMAGE: '${WORKSPACE_IMAGE:-agent-workspace:latest}'
       WORKSPACE_INSTANCE: '${WORKSPACE_INSTANCE:-sso}'
@@ -15,7 +16,6 @@ services:
       WORKSPACE_CPUS: '${WORKSPACE_CPUS:-2}'
       WORKSPACE_IDLE_MINUTES: '${WORKSPACE_IDLE_MINUTES:-30}'
       WORKSPACE_MAX_PER_USER: '${WORKSPACE_MAX_PER_USER:-5}'
-      WORKSPACE_GIT_HOSTS: '${WORKSPACE_GIT_HOSTS:-github.com,gitlab.com,bitbucket.org,gitee.com}'
     volumes:
       # Root-equivalent host capability. It is intentionally absent from the
       # base SSO stack and mounted only for the explicit Cloud profile.

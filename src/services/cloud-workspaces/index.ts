@@ -33,10 +33,6 @@ export function initCloudWorkspaces(): CloudWorkspaceManager | null {
       path.join(getProcessAppDir(), 'cloud-workspaces'),
     ),
     containers: new WorkspaceContainers(config),
-    allowedGitHosts: (process.env.WORKSPACE_GIT_HOSTS ?? '')
-      .split(',')
-      .map(h => h.trim())
-      .filter(Boolean),
   })
   manager.failInterruptedProvisioning()
   return manager
