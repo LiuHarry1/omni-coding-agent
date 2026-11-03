@@ -51,6 +51,8 @@ export default function InputArea() {
   const sendMessage = useChatStore(s => s.sendMessage)
   const isStreaming = useChatStore(s => s.isStreaming)
   const sessionLoading = useChatStore(s => s.sessionLoading)
+  const sessionReadOnly = useChatStore(s => s.sessionReadOnly)
+  const viewingOwnerEmail = useChatStore(s => s.viewingOwnerEmail)
   const isAwaitingInteraction = useChatStore(s => s.isAwaitingInteraction)
   const stopStreaming = useChatStore(s => s.stopStreaming)
   const workspace = useWorkspaceContextStore(s => s.cwd)
@@ -578,6 +580,15 @@ export default function InputArea() {
     },
     [addFiles],
   )
+
+  if (sessionReadOnly) {
+    return (
+      <div className='input-area input-area--readonly'>
+        Read-only conversation
+        {viewingOwnerEmail ? ` · ${viewingOwnerEmail}` : ''}
+      </div>
+    )
+  }
 
   return (
     <div

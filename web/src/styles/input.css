@@ -13,6 +13,12 @@
   border-top-color: var(--accent);
 }
 
+.input-area--readonly {
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .input-wrapper {
   display: flex;
   flex-direction: column;

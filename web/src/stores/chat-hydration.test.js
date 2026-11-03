@@ -45,6 +45,10 @@ function deferred() {
   return { promise, resolve }
 }
 
+function tokenFor(payload) {
+  return `x.${btoa(JSON.stringify(payload))}.x`
+}
+
 describe('chat hydration guards', () => {
   beforeEach(() => {
     values.clear()
@@ -59,6 +63,9 @@ describe('chat hydration guards', () => {
     useChatStore.setState({
       currentSessionId: null,
       sessionLoading: false,
+      sessionReadOnly: false,
+      viewingOwnerEmail: null,
+      sessions: [],
       bubbleOrder: [],
       bubblesById: {},
       activeTurnId: null,
@@ -105,6 +112,46 @@ describe('chat hydration guards', () => {
       await switching
       expect(useChatStore.getState().sessionLoading).toBe(false)
       expect(useChatStore.getState().bubbleOrder).not.toEqual([])
+    } finally {
+      useWorkspaceContextStore.setState({ syncFromSession: originalSync })
+    }
+  })
+
+  it("loads another user's session read-only without restoring its workspace", async () => {
+    values.set(
+      'coding_agent_auth_token',
+      tokenFor({
+        sub: 'super@example.com',
+        role: 'super',
+      }),
+    )
+    const originalSync = useWorkspaceContextStore.getState().syncFromSession
+    const syncFromSession = vi.fn()
+    useWorkspaceContextStore.setState({ syncFromSession })
+    useChatStore.setState({
+      sessions: [
+        {
+          id: 'foreign-session',
+          ownerEmail: 'owner@example.com',
+        },
+      ],
+    })
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [{ type: 'user', id: 'u1', content: 'foreign message' }],
+    })
+
+    try {
+      await useChatStore.getState().switchSession('foreign-session')
+
+      const state = useChatStore.getState()
+      expect(state.sessionReadOnly).toBe(true)
+      expect(state.viewingOwnerEmail).toBe('owner@example.com')
+      expect(state.bubbleOrder).not.toEqual([])
+      expect(syncFromSession).not.toHaveBeenCalled()
+      expect(agentApi.getScheduledTasks).not.toHaveBeenCalled()
+
+      await state.sendMessage('must not mutate foreign session')
+      expect(streamChatTurn).not.toHaveBeenCalled()
     } finally {
       useWorkspaceContextStore.setState({ syncFromSession: originalSync })
     }

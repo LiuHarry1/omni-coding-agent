@@ -8,6 +8,7 @@
  */
 import { create } from 'zustand'
 import { agentApi } from '../lib/api/agent.js'
+import { getUser, isSuperUser } from '../lib/auth.js'
 import {
   setWorkspaceSwitchGuard,
   useWorkspaceContextStore,
@@ -100,6 +101,8 @@ export const useChatStore = create((set, get) => {
     sessions: [],
     currentSessionId: localStorage.getItem('coding_agent_session_id') || null,
     sessionLoading: Boolean(localStorage.getItem('coding_agent_session_id')),
+    sessionReadOnly: false,
+    viewingOwnerEmail: null,
 
     // ── Transcript (flat bubbles) ──────────────
     bubbleOrder: [],
@@ -515,9 +518,18 @@ export const useChatStore = create((set, get) => {
       // replay only has assistant events, so the user's message never returns.
       if (get().isStreaming && get().currentSessionId === id) return
       get().abortController?.abort()
+      const selectedSession = get().sessions.find(session => session.id === id)
+      const me = getUser()
+      const readOnly = Boolean(
+        selectedSession?.ownerEmail &&
+        isSuperUser(me) &&
+        selectedSession.ownerEmail !== me?.email,
+      )
       localStorage.setItem('coding_agent_session_id', id)
       set({
         currentSessionId: id,
+        sessionReadOnly: readOnly,
+        viewingOwnerEmail: readOnly ? selectedSession.ownerEmail : null,
         ...emptyTranscript(),
         todos: [],
         sessionLoading: true,
@@ -532,11 +544,17 @@ export const useChatStore = create((set, get) => {
         planState: { status: 'idle', content: '', filePath: null },
       })
       try {
-        const [data, scheduled] = await Promise.all([
-          agentApi.getSessionMessages(id),
-          agentApi.getScheduledTasks(id).catch(() => ({ tasks: [] })),
-          useWorkspaceContextStore.getState().syncFromSession(id),
-        ])
+        let data
+        let scheduled = { tasks: [] }
+        if (readOnly) {
+          data = await agentApi.getSessionMessages(id)
+        } else {
+          ;[data, scheduled] = await Promise.all([
+            agentApi.getSessionMessages(id),
+            agentApi.getScheduledTasks(id).catch(() => ({ tasks: [] })),
+            useWorkspaceContextStore.getState().syncFromSession(id),
+          ])
+        }
         if (get().currentSessionId !== id) return
         const msgs = sanitizeMessagesForUi(
           (data.messages || []).map(m => (m.id ? m : { ...m, id: newId() })),
@@ -636,6 +654,8 @@ export const useChatStore = create((set, get) => {
       localStorage.removeItem('coding_agent_session_id')
       set({
         currentSessionId: null,
+        sessionReadOnly: false,
+        viewingOwnerEmail: null,
         ...emptyTranscript(),
         todos: [],
         sessionLoading: false,
@@ -716,7 +736,13 @@ export const useChatStore = create((set, get) => {
      * @param {Array<string|{kind:string,name:string,size:number,previewUrl:string|null,file:File}>} [attachments]
      */
     sendMessage: async (text, attachments = []) => {
-      if (!text.trim() || get().isStreaming || get().sessionLoading) return
+      if (
+        !text.trim() ||
+        get().isStreaming ||
+        get().sessionLoading ||
+        get().sessionReadOnly
+      )
+        return
 
       const abortController = new AbortController()
 
