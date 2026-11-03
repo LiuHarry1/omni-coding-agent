@@ -21,10 +21,7 @@ export function classifyGitUploadPackStatus(status: number): RepoAccess {
   if (status === 200) return 'public'
   if (status === 401) return 'auth-required'
   if (status === 404) return 'not-found'
-  throw new RepoProbeError(
-    `Could not check repository access (${status})`,
-    502,
-  )
+  throw new RepoProbeError(`Could not check repository access (${status})`, 502)
 }
 
 /** `base64(x-access-token:<token>)`, the GitHub Basic-auth username form. */

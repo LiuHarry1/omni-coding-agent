@@ -102,9 +102,9 @@ describe('repository input validation', () => {
     expect(validateRepoUrl(' https://github.com/a/b.git ')).toBe(
       'https://github.com/a/b.git',
     )
-    expect(validateRepoUrl('http://git.example.internal/team/service.git')).toBe(
-      'http://git.example.internal/team/service.git',
-    )
+    expect(
+      validateRepoUrl('http://git.example.internal/team/service.git'),
+    ).toBe('http://git.example.internal/team/service.git')
     for (const bad of [
       'git@github.com:a/b.git',
       'file:///etc',
@@ -260,10 +260,7 @@ describe('workspace lifecycle', () => {
       ]),
     )
     expect(clone?.join(' ')).not.toContain(token)
-    const onDisk = fs.readFileSync(
-      path.join(dir, `${created.id}.json`),
-      'utf8',
-    )
+    const onDisk = fs.readFileSync(path.join(dir, `${created.id}.json`), 'utf8')
     expect(onDisk).not.toContain(token)
     expect(onDisk).not.toContain(gitTokenBasicValue(token))
     expect(JSON.stringify(manager.get(created.id))).not.toContain(token)
@@ -279,10 +276,7 @@ describe('workspace lifecycle', () => {
       gitToken: token,
     })
     await expect(manager.waitReady(created.id)).rejects.toThrow(/redacted/)
-    const onDisk = fs.readFileSync(
-      path.join(dir, `${created.id}.json`),
-      'utf8',
-    )
+    const onDisk = fs.readFileSync(path.join(dir, `${created.id}.json`), 'utf8')
     expect(onDisk).not.toContain(token)
     expect(onDisk).toContain('[redacted]')
   })

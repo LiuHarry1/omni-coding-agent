@@ -27,9 +27,9 @@ describe('probeGitRepository', () => {
 
   it('probes anonymously and does not follow a redirect', async () => {
     const fetchImpl = vi.fn(async () => response(302))
-    await expect(probeGitRepository(repo, undefined, fetchImpl)).rejects.toThrow(
-      /redirect/i,
-    )
+    await expect(
+      probeGitRepository(repo, undefined, fetchImpl),
+    ).rejects.toThrow(/redirect/i)
     const [url, init] = fetchImpl.mock.calls[0]!
     expect(String(url)).toBe(
       'https://github.com/acme/widgets.git/info/refs?service=git-upload-pack',

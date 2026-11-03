@@ -223,9 +223,10 @@ describe('cloud workspace busy tracking', () => {
 
 describe('repository access routes', () => {
   function installProbe(
-    probe: (url: string, token?: string) => Promise<
-      'public' | 'auth-required' | 'not-found'
-    >,
+    probe: (
+      url: string,
+      token?: string,
+    ) => Promise<'public' | 'auth-required' | 'not-found'>,
   ) {
     const next = new CloudWorkspaceManager({
       store: new CloudWorkspaceStore(dir),

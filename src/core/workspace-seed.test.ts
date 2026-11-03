@@ -28,10 +28,9 @@ describe('skill env templates', () => {
     const seed = path.join(parent, 'seed')
     const workspace = path.join(parent, 'workspace')
     const template = 'TOKEN=example\n'
-    fs.mkdirSync(
-      path.join(seed, '.ai-agent', 'skills', 'weshare-manager'),
-      { recursive: true },
-    )
+    fs.mkdirSync(path.join(seed, '.ai-agent', 'skills', 'weshare-manager'), {
+      recursive: true,
+    })
     fs.writeFileSync(
       path.join(seed, '.ai-agent', 'skills', 'weshare-manager', '.env.example'),
       template,
@@ -40,10 +39,7 @@ describe('skill env templates', () => {
       path.join(workspace, '.ai-agent', 'skills', 'weshare-manager'),
       { recursive: true },
     )
-    fs.writeFileSync(
-      path.join(workspace, WORKSPACE_SEEDED_MARKER),
-      '{}\n',
-    )
+    fs.writeFileSync(path.join(workspace, WORKSPACE_SEEDED_MARKER), '{}\n')
     process.env.WORKSPACE_SEED_DIR = seed
 
     expect(seedUserWorkspaceIfNeeded(workspace)).toBe(true)

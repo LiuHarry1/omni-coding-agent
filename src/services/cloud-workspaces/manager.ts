@@ -147,8 +147,7 @@ export class CloudWorkspaceManager {
     this.store = opts.store
     this.containers = opts.containers
     this.probeRepo =
-      opts.probeRepo ??
-      ((url, token) => probeGitRepository(url, token))
+      opts.probeRepo ?? ((url, token) => probeGitRepository(url, token))
     this.now = opts.now ?? Date.now
   }
 
