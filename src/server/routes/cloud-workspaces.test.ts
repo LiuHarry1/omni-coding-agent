@@ -300,7 +300,9 @@ describe('repository access routes', () => {
   })
 
   it('ignores a token on a public repository', async () => {
-    const probe = vi.fn(async () => 'public' as const)
+    const probe = vi.fn(
+      async (_url: string, _token?: string) => 'public' as const,
+    )
     const local = installProbe(probe)
     const token = 'ghp_public_unused'
     const result = await post('/workspaces', {

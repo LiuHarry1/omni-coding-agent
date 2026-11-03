@@ -2,6 +2,8 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { EventBus } from '../../core/event-bus.js'
+import { noopWireEmitter } from '../../core/wire-emitter.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import { getAppDirName } from '../../utils/app-dir.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
@@ -49,11 +51,17 @@ describe('FileRead of host tool-results from a cloud workspace', () => {
     } as unknown as ExecutionBackend
 
     process.env.AUTH_ENABLED = 'true'
-    const tool = definition.create('/workspace/repo', { execution })
+    const tool = definition.create('/workspace/repo', {
+      eventBus: new EventBus(),
+      wire: noopWireEmitter,
+      execution,
+    })
+    const execute = tool.execute
+    if (!execute) throw new Error('FileRead has no execute')
     const result = await runWithRequestScope(
       { agentHome: home, cwd: '/workspace/repo' },
       () =>
-        tool.execute(
+        execute(
           { file_path: filePath },
           { toolCallId: 'toolu_test', messages: [] },
         ),

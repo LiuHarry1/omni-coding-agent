@@ -407,7 +407,7 @@ describe('workspace lifecycle', () => {
 
 describe('repository access gate', () => {
   function gated(sequence: RepoAccess[]) {
-    const probe = vi.fn(async () => {
+    const probe = vi.fn(async (_repoUrl: string, _token?: string) => {
       const next = sequence.shift()
       if (!next) throw new Error('unexpected probe')
       return next
