@@ -66,9 +66,23 @@ function isPdfPreviewResource(resource) {
   }
 }
 
+function previewFileName(resource) {
+  try {
+    const parsed = new URL(
+      resource,
+      globalThis.location?.origin || 'http://localhost',
+    )
+    const name = (parsed.searchParams.get('path') || '').split(/[\\/]/).pop()
+    return name || 'Preview'
+  } catch {
+    return 'Preview'
+  }
+}
+
 function PreviewLink({ href, children, ...props }) {
   const resource = workspacePreviewResource(href)
   const isPdf = isPdfPreviewResource(resource)
+  const previewTitle = resource ? previewFileName(resource) : ''
   const [open, setOpen] = useState(false)
   const [src, setSrc] = useState(null)
   const [error, setError] = useState(null)
@@ -130,10 +144,10 @@ function PreviewLink({ href, children, ...props }) {
           className='chart-preview-dialog'
           role='dialog'
           aria-modal='true'
-          aria-label='Interactive chart preview'
+          aria-label={previewTitle}
         >
           <div className='chart-preview-toolbar'>
-            <span>Interactive chart preview</span>
+            <span>{previewTitle}</span>
             <button type='button' onClick={() => setOpen(false)}>
               Close
             </button>
@@ -150,7 +164,7 @@ function PreviewLink({ href, children, ...props }) {
             <iframe
               className='chart-preview-frame'
               src={src}
-              title='Interactive chart preview'
+              title={previewTitle}
               // Chrome's built-in PDF viewer does not render in a sandboxed
               // iframe. PDF stays in the browser's isolated viewer; HTML
               // previews retain the stricter workspace-content sandbox.

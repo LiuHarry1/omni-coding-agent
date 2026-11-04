@@ -50,4 +50,13 @@ describe('subagentRowSubtitle', () => {
       subagentRowSubtitle({ stopping: true }, nested, 'Analyze exports'),
     ).toBe('Stopping…')
   })
+
+  it('plans between nested steps instead of claiming a final report', () => {
+    const settled = [
+      { type: 'tool_call', toolCallId: 'grep-1', name: 'Grep', status: 'done' },
+    ]
+    expect(
+      subagentRowSubtitle({ status: 'running' }, settled, 'Find broker'),
+    ).toBe('Planning next moves')
+  })
 })

@@ -246,6 +246,10 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         return finalizeQuery('aborted', text)
       }
 
+      // Tools are settled; show planning while the step is committed so the UI
+      // has no status gap between the last tool row and the next request.
+      if (stepResult.toolCalls.length > 0) wire.thinking()
+
       await postTurn({
         step,
         stepResult,
@@ -301,8 +305,6 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         const completedText = extractPartialResult(messages) ?? finalText
         return finalizeQuery('completed', completedText)
       }
-
-      wire.thinking()
     }
 
     autoCompleteTodos(currentTodos, eventBus, wire)

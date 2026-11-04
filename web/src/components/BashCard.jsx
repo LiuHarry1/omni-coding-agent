@@ -90,20 +90,23 @@ function shellDisplayParts(part) {
   }
 }
 
-/** First-pass truncate (~5 lines / 2k chars). */
-function truncateShellText(text) {
+/**
+ * First-pass truncate (~5 lines / 2k chars), keeping the tail: the latest
+ * progress and any final error live at the end of shell output.
+ */
+export function truncateShellText(text) {
   if (typeof text !== 'string' || !text) {
     return { preview: '', truncated: false }
   }
-  const lines = text.split('\n')
-  let preview = text
+  const lines = text.replace(/\n+$/, '').split('\n')
+  let preview = lines.join('\n')
   let truncated = false
   if (lines.length > PREVIEW_LINES) {
-    preview = lines.slice(0, PREVIEW_LINES).join('\n')
+    preview = lines.slice(-PREVIEW_LINES).join('\n')
     truncated = true
   }
   if (preview.length > PREVIEW_CHARS) {
-    preview = preview.slice(0, PREVIEW_CHARS)
+    preview = preview.slice(-PREVIEW_CHARS)
     truncated = true
   }
   return { preview, truncated }
@@ -329,16 +332,16 @@ export default function BashCard({ part, onStopTool }) {
             <pre
               className={`tool-row-body ui-shell-tool-call__output ${showFullOutput ? 'ui-shell-tool-call__output--full' : ''}`}
             >
+              {!showFullOutput && stdoutTrunc.truncated ? '…\n' : ''}
               {showFullOutput ? display.stdout : stdoutTrunc.preview}
-              {!showFullOutput && stdoutTrunc.truncated ? '\n…' : ''}
             </pre>
           ) : null}
           {display.stderr ? (
             <pre
               className={`tool-row-body tool-row-body--stderr ui-shell-tool-call__stderr ${showFullOutput ? 'ui-shell-tool-call__output--full' : ''}`}
             >
+              {!showFullOutput && stderrTrunc.truncated ? '…\n' : ''}
               {showFullOutput ? display.stderr : stderrTrunc.preview}
-              {!showFullOutput && stderrTrunc.truncated ? '\n…' : ''}
             </pre>
           ) : null}
           {!display.stdout && !display.stderr && (
@@ -363,8 +366,8 @@ export default function BashCard({ part, onStopTool }) {
           <pre
             className={`tool-row-body ui-shell-tool-call__output ${showFullOutput ? 'ui-shell-tool-call__output--full' : ''}`}
           >
+            {!showFullOutput && fallbackTrunc.truncated ? '…\n' : ''}
             {showFullOutput ? display.textFallback : fallbackTrunc.preview}
-            {!showFullOutput && fallbackTrunc.truncated ? '\n…' : ''}
           </pre>
           {fallbackTrunc.truncated && (
             <button

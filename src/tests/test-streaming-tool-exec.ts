@@ -125,6 +125,39 @@ async function main(): Promise<void> {
     `reads should overlap; got: ${overlapOrder.join(',')}`,
   )
   console.log('[ok] single burst parallel reads overlap')
+
+  // Stop mid-run: the model must see what the tool actually produced.
+  const stopController = createAbortController()
+  const stopCtx: ToolUseContext = {
+    tools: {
+      Write: {
+        execute: async (
+          _input: unknown,
+          opts: { abortSignal?: AbortSignal },
+        ) => {
+          await new Promise<void>(resolve =>
+            opts.abortSignal?.addEventListener('abort', () => resolve(), {
+              once: true,
+            }),
+          )
+          return 'tick 1\ntick 2\n[interrupted]'
+        },
+      } as unknown as AnyTool,
+    },
+    wire: noopWire,
+    abortController: stopController,
+    concurrencyPolicy: () => false,
+    getDefinition: name => defs[name],
+  }
+  const stopExec = new StreamingToolExecutor(allowAllTools, stopCtx)
+  stopExec.addTool({ toolCallId: 's', toolName: 'Write', input: {} })
+  setTimeout(() => stopController.abort(), 20)
+  const stopped = []
+  for await (const r of stopExec.getRemainingResults()) stopped.push(r)
+  assert.equal(stopped.length, 1)
+  assert.match(stopped[0]!.result, /tick 2/)
+  assert.doesNotMatch(stopped[0]!.result, /rejected/i)
+  console.log('[ok] interrupted tool keeps its partial output')
 }
 
 void main().catch(err => {

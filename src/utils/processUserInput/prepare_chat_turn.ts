@@ -504,16 +504,24 @@ export async function prepareChatTurn(
   }
 
   const reminderParts: string[] = []
-  if (cloudSession && session.workspace) {
-    const environmentId = encodeURIComponent(session.workspace.environmentId)
-    reminderParts.push(
-      `This turn runs in cloud environment \`${session.workspace.environmentId}\`. ` +
-        'For an HTML or image artifact in this environment, use this same-origin URL form: ' +
-        `\`/workspace/preview?environmentId=${environmentId}&path={encodeURIComponent(absolutePath)}\`. ` +
-        'Return HTML as a Markdown link and images as Markdown image syntax (`![alt](URL)`) so they render inline. ' +
-        'Generate a PNG only when the user explicitly requests one; interactive HTML preview does not require Chrome or Playwright.',
-    )
-  }
+  const previewEnvironmentId =
+    remote && session.workspace ? session.workspace.environmentId : null
+  const previewQuery = previewEnvironmentId
+    ? `environmentId=${encodeURIComponent(previewEnvironmentId)}&`
+    : ''
+  // The user views this chat in a browser that may not share our filesystem,
+  // so file:// links and bare paths are dead ends.
+  reminderParts.push(
+    (cloudSession && previewEnvironmentId
+      ? `This turn runs in cloud environment \`${previewEnvironmentId}\`. `
+      : '') +
+      'To show the user an HTML, image, or PDF file from this workspace, never give a `file://` URL or a bare path; use this same-origin URL form: ' +
+      `\`/workspace/preview?${previewQuery}path={encodeURIComponent(absolutePath)}\`. ` +
+      'Return HTML and PDF as a Markdown link and images as Markdown image syntax (`![alt](URL)`) so they render inline.' +
+      (cloudSession
+        ? ' Generate a PNG only when the user explicitly requests one; interactive HTML preview does not require Chrome or Playwright.'
+        : ''),
+  )
   if (activeSkills.length > 0) {
     reminderParts.push(
       `The following skills are available for use with the Skill tool:\n\n${formatSkillListing(activeSkills)}`,

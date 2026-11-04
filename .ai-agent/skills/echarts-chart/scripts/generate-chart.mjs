@@ -116,7 +116,8 @@ function slugify(title) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 64)
-  return ascii || `chart-${fnv1a(title).slice(0, 8)}`
+  // Non-Latin titles ("最近 7 天…") would otherwise collapse to a bare number.
+  return /[a-z]/.test(ascii) ? ascii : `chart-${fnv1a(title).slice(0, 8)}`
 }
 
 function normalizeTimeRange(value) {
@@ -387,18 +388,29 @@ function chromeCandidates() {
         `${process.env.LOCALAPPDATA || ''}\\Google\\Chrome\\Application\\chrome.exe`,
         'chrome.exe',
       ]
-    : [
-        process.env.CHROME_PATH,
-        'google-chrome',
-        'google-chrome-stable',
-        'chromium',
-        'chromium-browser',
-      ]
+    : process.platform === 'darwin'
+      ? [
+          process.env.CHROME_PATH,
+          '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          `${process.env.HOME || ''}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`,
+          '/Applications/Chromium.app/Contents/MacOS/Chromium',
+          '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+          'google-chrome',
+          'chromium',
+        ]
+      : [
+          process.env.CHROME_PATH,
+          'google-chrome',
+          'google-chrome-stable',
+          'chromium',
+          'chromium-browser',
+        ]
   return names.filter(Boolean)
 }
 
 function renderPng(htmlPath, pngPath) {
-  const target = pathToFileURL(htmlPath).href
+  // #static hides the interactive controls so the PNG shows only the chart.
+  const target = `${pathToFileURL(htmlPath).href}#static`
   const args = [
     '--headless=new',
     '--disable-gpu',

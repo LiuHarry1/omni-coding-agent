@@ -219,7 +219,7 @@ export class StreamingToolExecutor {
     const { toolCallId, toolName } = tool.call
     let result: string
     if (reason === 'user_interrupted') {
-      result = 'User rejected tool use'
+      result = 'Not run: the user interrupted the turn before this tool started'
     } else if (reason === 'streaming_fallback') {
       result = 'Error: Streaming fallback - tool execution discarded'
     } else {
@@ -308,11 +308,17 @@ export class StreamingToolExecutor {
       )
 
       const abortReason = this.#getAbortReason(tool)
-      if (abortReason && !thisToolErrored) {
+      // The tool already ran: keep its real (possibly partial) output so the
+      // model knows what happened instead of believing it never executed.
+      if (
+        abortReason &&
+        abortReason !== 'user_interrupted' &&
+        !thisToolErrored
+      ) {
         tool.result = this.#syntheticResult(tool, abortReason)
       } else {
         tool.result = executed
-        if (executed.isError) {
+        if (executed.isError && !abortReason) {
           thisToolErrored = true
           if (tool.call.toolName === BASH_TOOL_NAME) {
             this.#hasErrored = true

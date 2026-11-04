@@ -227,7 +227,6 @@ export default function ReadFileCard({ part, nested = false }) {
     nested,
     hasBody,
     headerOnly,
-    forceExpandOnce: isDone && !isError && isImageKind,
   })
 
   const handleOpen = () => {

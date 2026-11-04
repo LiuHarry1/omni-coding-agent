@@ -56,7 +56,7 @@ export function subagentRowSubtitle(part, steps, headline) {
   const title = typeof headline === 'string' ? headline.trim() : ''
   if (liveTask && liveTask !== title) return liveTask
   if (steps.length > 0 && steps.every(s => s.status === 'done')) {
-    return 'Writing report…'
+    return 'Planning next moves'
   }
   return 'Starting…'
 }

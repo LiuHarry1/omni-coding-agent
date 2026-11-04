@@ -498,7 +498,8 @@ function init(){
   meta('source','Source',D.source);
   meta('period','Time range',D.timeRange?D.timeRange.start+' — '+D.timeRange.end+(D.timeRange.timezone?' · '+D.timeRange.timezone:''):'');
   meta('unit','Unit',typeof D.unit==='string'?D.unit:D.unit?Object.entries(D.unit).map(([k,v])=>k+': '+v):'');
-  const quality=[D.missingValuePolicy+' missing-value policy'];
+  if(location.hash==='#static')document.getElementById('controls').classList.add('hidden');
+  const quality=D.missingValuePolicy&&D.missingValuePolicy!=='error'?['Missing values: '+D.missingValuePolicy]:[];
   if(D.incompletePeriod)quality.push(D.incompletePeriod.label+(D.incompletePeriod.note?' — '+D.incompletePeriod.note:''));
   if(D.topN)quality.push('Top '+D.topN+(D.includeOther?' + Other':''));
   meta('quality','Data notes',quality);

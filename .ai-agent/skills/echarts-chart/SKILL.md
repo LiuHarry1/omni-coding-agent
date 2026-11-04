@@ -74,10 +74,10 @@ If field names are unclear, shape the data first. Do not guess column names.
    count, units, time range, missing values, and sort order.
 4. The interactive HTML is the default output and does not require Chrome or
    Playwright. Only when PNG was requested, rerun with `--png` and Read it once.
-5. Return all artifacts and a same-origin preview link. For a cloud turn, use
-   the exact `environmentId` link form supplied in the turn reminder. Otherwise
-   use `/workspace/preview?path={encodedAbsoluteHtmlPath}`. Do not prefix an
-   IP address.
+5. Return all artifacts and a same-origin preview link. Use the exact link form
+   supplied in the turn reminder (remote environments include `environmentId`);
+   without one, use `/workspace/preview?path={encodedAbsoluteHtmlPath}`. Do not
+   prefix an IP address or use `file://`.
 
 ### Workflow B — small edits (patch)
 

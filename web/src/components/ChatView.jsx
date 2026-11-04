@@ -164,6 +164,7 @@ export default function ChatView() {
 
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE)
+    setShowScrollBtn(false)
   }, [currentSessionId])
 
   // Size the bottom spacer from the chat pane, not window vh — otherwise the
@@ -466,7 +467,7 @@ export default function ChatView() {
           </div>
         )}
       </div>
-      {showScrollBtn && (
+      {hasMessages && showScrollBtn && (
         <button
           className='scroll-to-bottom'
           onClick={scrollToBottomSmooth}
