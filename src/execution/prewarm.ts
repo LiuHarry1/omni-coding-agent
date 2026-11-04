@@ -6,6 +6,7 @@
  * the critical path of the user's first message. `RuntimeBroker` keys runtimes
  * by `environmentId::cwd`, so a runtime opened here is reused verbatim by the
  * first turn — as long as we prewarm the cwd that turn will actually use.
+ * A warmup that straddles `closeEnvironment` is discarded by the broker.
  */
 import { getExecutionPlane } from './bootstrap.js'
 import type { WorkspaceHandle } from './types.js'
@@ -16,16 +17,9 @@ function handleKey(handle: WorkspaceHandle): string {
 
 export class WorkspaceWarmupCoordinator {
   private inFlight = new Map<string, Promise<void>>()
-  private generations = new Map<string, number>()
 
-  warm(handle: WorkspaceHandle, generation = 0): Promise<void> {
+  warm(handle: WorkspaceHandle): Promise<void> {
     const baseKey = handleKey(handle)
-    const previousGeneration = this.generations.get(baseKey)
-    if (previousGeneration !== undefined && previousGeneration !== generation) {
-      this.inFlight.delete(baseKey)
-    }
-    this.generations.set(baseKey, generation)
-
     const pending = this.inFlight.get(baseKey)
     if (pending) return pending
 
@@ -58,28 +52,22 @@ export class WorkspaceWarmupCoordinator {
     for (const key of this.inFlight.keys()) {
       if (key.startsWith(prefix)) this.inFlight.delete(key)
     }
-    for (const key of this.generations.keys()) {
-      if (key.startsWith(prefix)) this.generations.delete(key)
-    }
   }
 }
 
 const coordinator = new WorkspaceWarmupCoordinator()
 
 /** Awaitable warmup used when a caller wants to share the same cold start. */
-export function warmRuntime(
-  handle: WorkspaceHandle,
-  generation = 0,
-): Promise<void> {
-  return coordinator.warm(handle, generation)
+export function warmRuntime(handle: WorkspaceHandle): Promise<void> {
+  return coordinator.warm(handle)
 }
 
 /**
  * Open the Worker Runtime for `handle` in the background.
  * Repeated calls for the same workspace are collapsed.
  */
-export function prewarmRuntime(handle: WorkspaceHandle, generation = 0): void {
-  void warmRuntime(handle, generation)
+export function prewarmRuntime(handle: WorkspaceHandle): void {
+  void warmRuntime(handle)
 }
 
 export function invalidatePrewarm(environmentId: string): void {

@@ -70,4 +70,38 @@ describe('RuntimeBroker environment cleanup', () => {
     expect(opening.close).toHaveBeenCalledOnce()
     expect(internals.runtimes.size).toBe(0)
   })
+
+  it('discards a runtime whose open started before the environment closed', async () => {
+    const opened = runtime()
+    let releaseOpen!: () => void
+    const conn = {
+      ensureWorker: vi.fn(async () => {}),
+      openRuntime: vi.fn(
+        () =>
+          new Promise<RuntimePort>(resolve => {
+            releaseOpen = () => resolve(opened)
+          }),
+      ),
+    }
+    const broker = new RuntimeBroker(
+      { getConnectionForEnv: () => conn } as never,
+      { issueRuntimeAuth: () => ({}) } as never,
+    )
+    const handle = {
+      environmentId: 'cloud:abcdef0123456789',
+      cwd: '/workspace/repo',
+    }
+
+    const pending = broker.getOrCreate(handle, 'prewarm')
+    await vi.waitFor(() => expect(conn.openRuntime).toHaveBeenCalled())
+    const closing = broker.closeEnvironment(handle.environmentId)
+    releaseOpen()
+
+    await expect(pending).rejects.toThrow(
+      /closed while its runtime was opening/,
+    )
+    await closing
+    expect(opened.close).toHaveBeenCalledOnce()
+    expect(broker.get(handle)).toBeUndefined()
+  })
 })

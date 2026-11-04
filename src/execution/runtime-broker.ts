@@ -14,6 +14,8 @@ export class RuntimeBroker {
   private runtimes = new Map<string, RuntimePort>()
   /** Opens in progress, so concurrent callers share one worker per key. */
   private opening = new Map<string, Promise<RuntimePort>>()
+  /** Bumped by closeEnvironment; an open that straddles a close is discarded. */
+  private closeEpochs = new Map<string, number>()
 
   constructor(
     private registry: EnvironmentRegistry,
@@ -25,6 +27,7 @@ export class RuntimeBroker {
     sessionId: string,
   ): Promise<RuntimePort> {
     const key = handleKey(handle)
+    const epoch = this.closeEpoch(handle.environmentId)
     const existing = this.runtimes.get(key)
     if (existing) {
       const health = await existing.health()
@@ -38,19 +41,24 @@ export class RuntimeBroker {
     const inFlight = this.opening.get(key)
     if (inFlight) return inFlight
 
-    const opened = this.open(handle, sessionId, key)
+    const opened = this.open(handle, sessionId, key, epoch)
     this.opening.set(key, opened)
     try {
       return await opened
     } finally {
-      this.opening.delete(key)
+      if (this.opening.get(key) === opened) this.opening.delete(key)
     }
+  }
+
+  private closeEpoch(environmentId: string): number {
+    return this.closeEpochs.get(environmentId) ?? 0
   }
 
   private async open(
     handle: WorkspaceHandle,
     sessionId: string,
     key: string,
+    epoch: number,
   ): Promise<RuntimePort> {
     let conn = this.registry.getConnectionForEnv(handle.environmentId)
     if (!conn) {
@@ -67,6 +75,12 @@ export class RuntimeBroker {
       handle.environmentId,
     )
     const runtime = await conn.openRuntime(handle.cwd, auth)
+    if (this.closeEpoch(handle.environmentId) !== epoch) {
+      await runtime.close().catch(() => {})
+      throw new Error(
+        `environment ${handle.environmentId} was closed while its runtime was opening`,
+      )
+    }
     this.runtimes.set(key, runtime)
     let offFailure: () => void = () => {}
     offFailure = runtime.onMessage(message => {
@@ -114,6 +128,7 @@ export class RuntimeBroker {
   /** Close cached and currently-opening runtimes for one environment. */
   async closeEnvironment(environmentId: string): Promise<void> {
     const prefix = `${environmentId}::`
+    this.closeEpochs.set(environmentId, this.closeEpoch(environmentId) + 1)
     const closeCached = async () => {
       const matches = [...this.runtimes].filter(([key]) =>
         key.startsWith(prefix),

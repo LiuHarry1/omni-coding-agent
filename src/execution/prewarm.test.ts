@@ -52,30 +52,6 @@ describe('WorkspaceWarmupCoordinator', () => {
     expect(getOrCreate).toHaveBeenCalledTimes(2)
   })
 
-  it('does not let stale completion replace an invalidated generation', async () => {
-    let releaseFirst!: () => void
-    getOrCreate
-      .mockReturnValueOnce(
-        new Promise<void>(resolve => {
-          releaseFirst = resolve
-        }),
-      )
-      .mockResolvedValueOnce(undefined)
-    const coordinator = new WorkspaceWarmupCoordinator()
-
-    const handle = {
-      environmentId: 'cloud:workspace-1',
-      cwd: '/workspace/repo',
-    }
-    const stale = coordinator.warm(handle, 1)
-    const current = coordinator.warm(handle, 2)
-    releaseFirst()
-    await Promise.all([stale, current])
-
-    await coordinator.warm(handle, 2)
-    expect(getOrCreate).toHaveBeenCalledTimes(3)
-  })
-
   it('starts fresh work after an environment is invalidated', async () => {
     let releaseFirst!: () => void
     getOrCreate

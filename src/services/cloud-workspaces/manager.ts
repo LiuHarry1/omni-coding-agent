@@ -420,10 +420,6 @@ export class CloudWorkspaceManager {
         ownerName?.trim() || record.ownerEmail,
       ])
       this.update(record.id, { status: 'ready', error: undefined })
-      this.afterReady({
-        environmentId: cloudEnvironmentId(record.id),
-        cwd: repoDir,
-      })
     } catch (err) {
       const message = redactGitSecret(publicError(err), gitToken)
       console.warn(
@@ -431,6 +427,20 @@ export class CloudWorkspaceManager {
       )
       this.update(record.id, { status: 'error', error: message })
       await containers.removeContainer(record.id).catch(() => {})
+      return
+    }
+    // Deleted while provisioning: nothing to warm.
+    if (this.store.get(record.id)?.status !== 'ready') return
+    // A failing hook must not undo a workspace that is already ready.
+    try {
+      this.afterReady({
+        environmentId: cloudEnvironmentId(record.id),
+        cwd: repoDir,
+      })
+    } catch (err) {
+      console.warn(
+        `[cloud-workspaces] afterReady hook for ${record.id} failed: ${publicError(err)}`,
+      )
     }
   }
 

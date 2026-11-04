@@ -197,6 +197,20 @@ describe('container template', () => {
 })
 
 describe('workspace lifecycle', () => {
+  it('keeps a workspace ready when the afterReady hook throws', async () => {
+    manager.setAfterReady(() => {
+      throw new Error('prewarm exploded')
+    })
+    const created = manager.create({
+      ownerEmail: 'bob@example.com',
+      repoUrl: 'https://github.com/acme/widgets.git',
+    })
+
+    const ready = await manager.waitReady(created.id)
+    expect(ready.status).toBe('ready')
+    expect(docker.containers.get(`agent-ws-${created.id}`)).toBe(true)
+  })
+
   it('clones a public repository into the volume and marks it ready', async () => {
     const afterReady = vi.fn()
     manager.setAfterReady(afterReady)
