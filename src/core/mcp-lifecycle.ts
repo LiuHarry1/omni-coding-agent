@@ -12,6 +12,7 @@ interface ManagedMCPPoolEntry {
 }
 
 const managers = new Map<string, ManagedMCPPoolEntry>()
+const opening = new Map<string, Promise<MCPManager>>()
 const IDLE_TTL_MS = 30 * 60 * 1000
 
 function stableStringify(value: unknown): string {
@@ -81,12 +82,34 @@ export async function getMCPManagerForServers(
     return existing.manager
   }
 
-  const manager = new MCPManager()
-  for (const [name, config] of Object.entries(effectiveServers)) {
-    await manager.addServer(name, config)
+  const pending = opening.get(key)
+  if (pending) return pending
+
+  const create = (async () => {
+    const manager = new MCPManager()
+    try {
+      await Promise.all(
+        Object.entries(effectiveServers).map(([name, config]) =>
+          manager.addServer(name, config),
+        ),
+      )
+    } catch (error) {
+      await manager.closeAll().catch(() => {})
+      throw error
+    }
+    managers.set(key, {
+      manager,
+      lastUsed: Date.now(),
+      cwd: path.resolve(cwd),
+    })
+    return manager
+  })()
+  opening.set(key, create)
+  try {
+    return await create
+  } finally {
+    if (opening.get(key) === create) opening.delete(key)
   }
-  managers.set(key, { manager, lastUsed: Date.now(), cwd: path.resolve(cwd) })
-  return manager
 }
 
 export function initMcpLifecycle(): void {

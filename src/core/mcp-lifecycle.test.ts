@@ -44,4 +44,30 @@ describe('MCP transport policy', () => {
       args: ['server.js'],
     })
   })
+
+  it('connects servers concurrently and shares an opening manager', async () => {
+    delete process.env.CLOUD_WORKSPACES
+    const releases: Array<() => void> = []
+    const add = vi.spyOn(MCPManager.prototype, 'addServer').mockImplementation(
+      () =>
+        new Promise<void>(resolve => {
+          releases.push(resolve)
+        }),
+    )
+    const servers = {
+      first: { url: 'https://first.example.com', transport: 'http' as const },
+      second: {
+        url: 'https://second.example.com',
+        transport: 'http' as const,
+      },
+    }
+
+    const first = getMCPManagerForServers('/tmp/concurrent-mcp', servers)
+    const second = getMCPManagerForServers('/tmp/concurrent-mcp', servers)
+    await vi.waitFor(() => expect(add).toHaveBeenCalledTimes(2))
+    releases.forEach(release => release())
+
+    expect(await first).toBe(await second)
+    expect(add).toHaveBeenCalledTimes(2)
+  })
 })

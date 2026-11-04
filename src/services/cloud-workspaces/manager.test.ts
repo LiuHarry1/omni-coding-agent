@@ -198,6 +198,8 @@ describe('container template', () => {
 
 describe('workspace lifecycle', () => {
   it('clones a public repository into the volume and marks it ready', async () => {
+    const afterReady = vi.fn()
+    manager.setAfterReady(afterReady)
     const created = manager.create({
       ownerEmail: 'Bob@Example.com',
       ownerName: 'Bob',
@@ -209,6 +211,13 @@ describe('workspace lifecycle', () => {
 
     const ready = await manager.waitReady(created.id)
     expect(ready.status).toBe('ready')
+    expect(afterReady).toHaveBeenCalledOnce()
+    expect(afterReady).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environmentId: `cloud:${created.id}`,
+        cwd: '/workspace/repo',
+      }),
+    )
     const clone = docker.calls.find(c => c.includes('clone'))!
     expect(clone).toEqual(
       expect.arrayContaining([

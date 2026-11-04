@@ -441,7 +441,8 @@ function compatibleTypes(){
   if(D.chartType==='table')return ['table'];
   if(D.chartType==='pie'||D.chartType==='donut')return ['donut','pie','bar'];
   if(D.chartType==='line'||D.chartType==='area')return ['line','area','bar'];
-  if(D.chartType==='bar'||D.chartType==='stacked_bar'||D.chartType==='histogram')return yFields.length>1?['bar','stacked_bar','line']:['bar','line','area'];
+  if(D.chartType==='histogram')return ['histogram','bar','line','area'];
+  if(D.chartType==='bar'||D.chartType==='stacked_bar')return yFields.length>1?['bar','stacked_bar','line']:['bar','line','area'];
   return [D.chartType];
 }
 function renderTable(){

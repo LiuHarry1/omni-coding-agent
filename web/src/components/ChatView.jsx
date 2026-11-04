@@ -10,6 +10,7 @@ import { useChatStore } from '../stores/chat-store.js'
 import { buildFlatElements } from '../lib/bubbles/flat-elements.js'
 import WelcomeScreen from './WelcomeScreen.jsx'
 import TranscriptRow from './transcript/TranscriptRow.jsx'
+import TurnStatus from './TurnStatus.jsx'
 
 /** Distance from bottom that still counts as "following" the stream. */
 const PIN_THRESHOLD_PX = 80
@@ -90,6 +91,10 @@ export default function ChatView() {
   const sessionLoading = useChatStore(s => s.sessionLoading)
   const isStreaming = useChatStore(s => s.isStreaming)
   const activeTurnId = useChatStore(s => s.activeTurnId)
+  const turnState = useChatStore(s => s.turnState)
+  const turnDetail = useChatStore(s => s.turnDetail)
+  const turnStateLabel = useChatStore(s => s.turnStateLabel)
+  const turnStateSince = useChatStore(s => s.turnStateSince)
 
   // sawLiveWork: sticky for this session view after we watch a generate.
   const sawLiveSessionRef = useRef(null)
@@ -122,6 +127,7 @@ export default function ChatView() {
   const stickRafRef = useRef(0)
   const stickDirtyRef = useRef(false)
   const openedSessionRef = useRef(null)
+  const followedStreamingSessionRef = useRef(null)
   const [showScrollBtn, setShowScrollBtn] = useState(false)
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
   const [bottomInsetPx, setBottomInsetPx] = useState(160)
@@ -257,30 +263,24 @@ export default function ChatView() {
     })
   }, [currentSessionId, sessionLoading, hasMessages, flatStructureKey])
 
-  // A new turn keeps the user's message at the top of the pane. Following the
-  // bottom hides that message as soon as the tool output is taller than the
-  // screen.
+  // Follow a new streaming turn from the live edge. Initialize once per turn:
+  // rerunning this when activeTurnId is assigned would override a user's
+  // deliberate upward scroll. Mark the session opened so stream completion
+  // does not trigger the saved-session "pin latest user" behavior above.
   useLayoutEffect(() => {
-    if (!isStreaming) return
-    const pane = scrollRef.current
-    const userNodes = pane?.querySelectorAll('.msg-user')
-    const user = userNodes?.[userNodes.length - 1]
-    if (pane && user) {
-      programmaticScrollRef.current = true
-      pinLatestUserMessage(pane)
-      pinToBottomRef.current = false
-      userUnpinnedRef.current = true
-      leftBottomRef.current = false
-      requestAnimationFrame(() => {
-        programmaticScrollRef.current = false
-      })
+    if (!isStreaming) {
+      followedStreamingSessionRef.current = null
       return
     }
+    if (followedStreamingSessionRef.current === currentSessionId) return
+    followedStreamingSessionRef.current = currentSessionId
+    openedSessionRef.current = currentSessionId
     pinToBottomRef.current = true
     userUnpinnedRef.current = false
     leftBottomRef.current = false
+    setShowScrollBtn(false)
     scheduleStickToBottom()
-  }, [isStreaming, activeTurnId, scheduleStickToBottom])
+  }, [isStreaming, currentSessionId, scheduleStickToBottom])
 
   useLayoutEffect(() => {
     scheduleStickToBottom()
@@ -458,6 +458,14 @@ export default function ChatView() {
                 </div>
               )
             })}
+            {isStreaming && (
+              <TurnStatus
+                state={turnState}
+                detail={turnDetail}
+                label={turnStateLabel}
+                since={turnStateSince}
+              />
+            )}
             {/*
               Bottom inset air: stick-to-bottom lands on this spacer so the live
               edge sits mid-lower, not flush on the input.

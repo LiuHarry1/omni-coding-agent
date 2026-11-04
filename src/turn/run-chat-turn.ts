@@ -34,7 +34,7 @@ import {
   type PreparedChatTurn,
 } from '../utils/processUserInput/prepare_chat_turn.js'
 import { createCanUseTool } from '../core/can-use-tool.js'
-import { profileSpan } from '../utils/startupProfiler.js'
+import { createTurnProfiler, profileSpan } from '../utils/startupProfiler.js'
 import { getSystemPromptForMode } from '../prompts/mode.js'
 import { getSystemPromptForAgentProfile } from '../prompts/agent-profile.js'
 import { applyModeRestrictions } from '../core/mode-restrictions.js'
@@ -238,12 +238,16 @@ export async function runChatTurn(
     abortSignal: externalAbort,
   } = input
   const turnStartTime = Date.now()
-
+  const turnProfile = createTurnProfiler(session.id, turnStartTime)
+  const wire = createWireEmitter(transport, session.id)
+  wire.turnState('preparing', 'turn.accepted', 'Preparing request')
+  turnProfile.checkpoint('first_status_emitted', {
+    remote: isRemoteWorkspace(session.workspace) ? 1 : 0,
+  })
   const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
   const resolvedSettings = resolveSettings(turnScope.settingsCwd)
   const models = createModelRegistry(resolvedSettings.config.models)
   const provider = models.provider('large')
-  const wire = createWireEmitter(transport, session.id)
 
   if (!session.permissionMode) {
     session.permissionMode = { mode: 'agent' }
@@ -296,6 +300,7 @@ export async function runChatTurn(
   let attachmentPrelude: Message[] | undefined
   let attachmentFiles: UserFileAttachment[] | undefined
   try {
+    wire.turnState('preparing', 'attachments.resolve', 'Preparing attachments')
     const refs = await offloadChatImageRefs(session.id, images)
     // Non-image attachments become meta messages ahead of the user turn;
     // images join the legacy ref list and ride on the user turn itself.
@@ -314,6 +319,7 @@ export async function runChatTurn(
       ? resolved.preludeMessages
       : undefined
     attachmentFiles = resolved.files.length ? resolved.files : undefined
+    turnProfile.checkpoint('attachments_ready')
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     wire.error(msg)
@@ -348,8 +354,11 @@ export async function runChatTurn(
       eventBus,
       middleware,
       runAgent,
+      wire,
+      turnProfiler: turnProfile,
     }),
   )
+  turnProfile.checkpoint('turn_prepared')
 
   // Title via small model after the first real user turn.
   maybeGenerateSessionTitle(session, message, models)
@@ -630,6 +639,7 @@ export async function runChatTurn(
     updateRunCheckpoint()
   }
 
+  wire.turnState('preparing', 'prompt.resolve', 'Preparing context')
   const systemPrompt = await resolveTurnSystemPrompt(
     session,
     cwd,
@@ -641,6 +651,7 @@ export async function runChatTurn(
     },
     turnMemoryAppend(session, prepared),
   )
+  turnProfile.checkpoint('prompt_ready')
 
   const refreshTools = () => {
     const next = applyModeRestrictions(
@@ -794,6 +805,7 @@ export async function runChatTurn(
         }),
         concurrencyPolicy: prepared.concurrencyPolicy,
         sessionId: session.id,
+        turnProfiler: turnProfile,
         toolUseContext: prepared.toolUseContext,
         refreshTools,
         refreshSystemPrompt,
@@ -845,6 +857,7 @@ export async function runChatTurn(
   }
 
   const turnEndTime = Date.now()
+  turnProfile.checkpoint('turn_complete')
   stampTurnTiming(turnMessages(), {
     isMeta: !!isMeta,
     startTime: turnStartTime,

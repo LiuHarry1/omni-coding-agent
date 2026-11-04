@@ -18,12 +18,23 @@
 FROM node:22-bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
     ca-certificates \
     curl \
+    file \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-wqy-zenhei \
     git \
+    jq \
     less \
+    patch \
+    poppler-utils \
     procps \
     python3 \
+    python3-matplotlib \
+    python3-pandas \
+    python3-pil \
     python3-venv \
     python3-pip \
     python-is-python3 \
@@ -44,6 +55,15 @@ RUN git config --system protocol.file.allow user \
   && git config --system init.defaultBranch main
 
 COPY dist/worker/ /opt/agent/dist/worker/
+
+# Fail the image build instead of publishing a workspace that cannot start its
+# coding worker. Exactly one branded worker bundle is expected.
+RUN set -eu; \
+  worker_count="$(find /opt/agent/dist/worker -maxdepth 1 -type f -name '*-worker.cjs' | wc -l)"; \
+  test "$worker_count" -eq 1; \
+  worker="$(find /opt/agent/dist/worker -maxdepth 1 -type f -name '*-worker.cjs' -print -quit)"; \
+  test -s "$worker"; \
+  node --check "$worker"
 
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \

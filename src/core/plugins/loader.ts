@@ -338,7 +338,7 @@ function resolveMcpVars(
  * Discover plugins reachable from `cwd` and collect everything they
  * contribute. Project-scope plugins override user-scope ones of the same name.
  */
-export async function loadPlugins(cwd: string): Promise<PluginContributions> {
+async function loadPluginsFresh(cwd: string): Promise<PluginContributions> {
   const errors: PluginContributions['errors'] = []
   const roots = getPluginRoots(cwd)
 
@@ -403,4 +403,83 @@ export async function loadPlugins(cwd: string): Promise<PluginContributions> {
     mcpServers,
     errors,
   }
+}
+
+type PluginCacheEntry = {
+  value: PluginContributions
+  fingerprint: string
+}
+
+const pluginCache = new Map<string, PluginCacheEntry>()
+/** roots → plugin → component dir → file/skill dir → SKILL.md */
+const PLUGIN_TREE_DEPTH = 4
+
+/** Stat-only signature of a tree: catches added, removed, and edited entries. */
+async function fingerprintPath(p: string, depth: number): Promise<string> {
+  let stat: import('fs').Stats
+  try {
+    stat = await fs.stat(p)
+  } catch {
+    return `${p}|-`
+  }
+  const self = `${p}|${stat.mtimeMs}|${stat.size}`
+  if (!stat.isDirectory() || depth <= 0) return self
+  let names: string[]
+  try {
+    names = (await fs.readdir(p)).sort()
+  } catch {
+    return self
+  }
+  const children = await Promise.all(
+    names.map(name => fingerprintPath(path.join(p, name), depth - 1)),
+  )
+  return [self, ...children].join('\n')
+}
+
+async function pluginTreeFingerprint(cwd: string): Promise<string> {
+  const parts = await Promise.all(
+    getPluginRoots(cwd).map(root =>
+      fingerprintPath(root.dir, PLUGIN_TREE_DEPTH),
+    ),
+  )
+  return parts.join('\n')
+}
+
+/** Manifest paths outside the plugin folder are invisible to the fingerprint. */
+function hasExternalComponentPaths(value: PluginContributions): boolean {
+  return value.plugins.some(plugin =>
+    [
+      ...plugin.agentPaths,
+      ...plugin.commandPaths,
+      ...plugin.skillPaths,
+      ...plugin.mcpSources.filter(
+        (source): source is string => typeof source === 'string',
+      ),
+    ].some(p => {
+      const rel = path.relative(plugin.path, p)
+      return rel.startsWith('..') || path.isAbsolute(rel)
+    }),
+  )
+}
+
+/**
+ * Reuse the last plugin snapshot while the plugin trees are unchanged. The
+ * stat-only fingerprint is far cheaper than re-reading every frontmatter and
+ * `.mcp.json`, and keeps the next-message hot-reload contract.
+ */
+export async function loadPlugins(cwd: string): Promise<PluginContributions> {
+  const key = path.resolve(cwd)
+  const fingerprint = await pluginTreeFingerprint(cwd)
+  const cached = pluginCache.get(key)
+  if (cached?.fingerprint === fingerprint) return cached.value
+
+  const value = await loadPluginsFresh(cwd)
+  if (hasExternalComponentPaths(value)) pluginCache.delete(key)
+  else pluginCache.set(key, { value, fingerprint })
+  return value
+}
+
+export function invalidatePluginCache(cwd?: string): void {
+  if (cwd) pluginCache.delete(path.resolve(cwd))
+  else pluginCache.clear()
 }

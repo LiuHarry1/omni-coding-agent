@@ -8,7 +8,9 @@ import { shutdownAllLspManagers } from '../services/lsp/manager.js'
 import {
   bootstrapExecutionPlane,
   getExecutionPlane,
+  invalidatePrewarm,
   prewarmLocalRuntime,
+  prewarmRuntime,
   shutdownExecutionPlane,
 } from '../execution/index.js'
 import {
@@ -132,10 +134,12 @@ export function startServer(_opts: ServerOptions = {}): void {
       )
       if (cloud) {
         cloud.setBusyProbe(busyCloudWorkspaceIds)
+        cloud.setAfterReady(handle => prewarmRuntime(handle))
         cloud.setBeforeStop(async handle => {
           const plane = getExecutionPlane()
           await plane.runtimes.closeEnvironment(handle.environmentId)
           await plane.registry.disconnectEnvironment(handle.environmentId)
+          invalidatePrewarm(handle.environmentId)
         })
         stopCloudSweeper = startCloudWorkspaceSweeper(cloud)
         console.log(

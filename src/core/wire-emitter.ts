@@ -15,6 +15,8 @@ import {
   todoUpdateMessage,
   toolCallMessage,
   toolResultMessage,
+  turnStateMessage,
+  type TurnState,
   type WireEnvelope,
 } from './protocol-messages.js'
 
@@ -25,6 +27,7 @@ import {
 export class WireEmitter {
   readonly #sink: ProtocolSink
   readonly #env: WireEnvelope
+  #lastTurnState = ''
 
   constructor(sink: ProtocolSink, sessionId: string, parentToolUseId?: string) {
     this.#sink = sink
@@ -43,10 +46,12 @@ export class WireEmitter {
   }
 
   textDelta(text: string): void {
+    this.turnState('responding')
     this.emit(textDeltaMessage(text, this.#env))
   }
 
   reasoningStart(): void {
+    this.turnState('thinking')
     this.emit({ type: 'system', subtype: 'reasoning_start', ...this.#env })
   }
 
@@ -63,6 +68,7 @@ export class WireEmitter {
     name: string
     is_subagent?: boolean
   }): void {
+    this.turnState('tool-input')
     this.emit({
       type: 'system',
       subtype: 'tool_input_start',
@@ -99,6 +105,7 @@ export class WireEmitter {
     args: unknown
     is_subagent?: boolean
   }): void {
+    this.turnState('tool-use')
     this.emit(
       toolCallMessage({
         tool_use_id: input.tool_use_id,
@@ -139,7 +146,17 @@ export class WireEmitter {
   }
 
   thinking(): void {
+    this.turnState('thinking')
     this.emit({ type: 'system', subtype: 'thinking', ...this.#env })
+  }
+
+  turnState(state: TurnState, detailCode?: string, label?: string): void {
+    const key = `${state}\0${detailCode ?? ''}\0${label ?? ''}`
+    if (key === this.#lastTurnState) return
+    this.#lastTurnState = key
+    this.emit(
+      turnStateMessage(state, { detail_code: detailCode, label }, this.#env),
+    )
   }
 
   todoUpdate(todos: TodoItem[]): void {
@@ -249,14 +266,17 @@ export class WireEmitter {
   }
 
   finish(reason: string, text?: string): void {
+    this.turnState('idle')
     this.emit(resultSuccessMessage({ reason, text, env: this.#env }))
   }
 
   done(): void {
+    this.turnState('idle')
     this.emit(resultSuccessMessage({ reason: 'done', env: this.#env }))
   }
 
   error(message: string): void {
+    this.turnState('idle')
     this.emit(resultErrorMessage(message, this.#env))
   }
 

@@ -40,6 +40,30 @@ export type WireEnvelope = {
   parent_tool_use_id?: string
 }
 
+export type TurnState =
+  | 'preparing'
+  | 'requesting'
+  | 'thinking'
+  | 'responding'
+  | 'tool-input'
+  | 'tool-use'
+  | 'idle'
+
+export function turnStateMessage(
+  state: TurnState,
+  input: { detail_code?: string; label?: string },
+  env: WireEnvelope,
+): ServerMessage {
+  return {
+    type: 'system',
+    subtype: 'turn_state',
+    state,
+    detail_code: input.detail_code,
+    label: input.label,
+    ...env,
+  }
+}
+
 export function scheduledTurnMessage(
   prompt: string,
   env: WireEnvelope,

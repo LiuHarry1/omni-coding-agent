@@ -27,6 +27,7 @@
     "build:cloud": "node ./scripts/cloud-dev.mjs --build-only",
     "sync:echarts-skill": "node ./scripts/sync-echarts-skill.cjs",
     "check:echarts-skill": "node ./scripts/sync-echarts-skill.cjs --check",
+    "test:echarts-skill": "node ./.ai-agent/skills/echarts-chart/scripts/test-use-cases.mjs",
     "stage:agent-runtime": "node ./scripts/stage-agent-runtime.cjs",
     "stage:ripgrep": "node ./scripts/stage-ripgrep.cjs",
     "build:agent:native": "node ./src/agent/build-agent-native.cjs",

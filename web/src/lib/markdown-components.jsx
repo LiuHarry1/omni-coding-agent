@@ -53,8 +53,22 @@ function workspacePreviewResource(href) {
   }
 }
 
+function isPdfPreviewResource(resource) {
+  if (!resource) return false
+  try {
+    const parsed = new URL(
+      resource,
+      globalThis.location?.origin || 'http://localhost',
+    )
+    return parsed.searchParams.get('path')?.toLowerCase().endsWith('.pdf')
+  } catch {
+    return false
+  }
+}
+
 function PreviewLink({ href, children, ...props }) {
   const resource = workspacePreviewResource(href)
+  const isPdf = isPdfPreviewResource(resource)
   const [open, setOpen] = useState(false)
   const [src, setSrc] = useState(null)
   const [error, setError] = useState(null)
@@ -137,7 +151,10 @@ function PreviewLink({ href, children, ...props }) {
               className='chart-preview-frame'
               src={src}
               title='Interactive chart preview'
-              sandbox='allow-scripts allow-downloads'
+              // Chrome's built-in PDF viewer does not render in a sandboxed
+              // iframe. PDF stays in the browser's isolated viewer; HTML
+              // previews retain the stricter workspace-content sandbox.
+              sandbox={isPdf ? undefined : 'allow-scripts allow-downloads'}
             />
           )}
         </section>
@@ -162,16 +179,61 @@ function PreviewLink({ href, children, ...props }) {
   )
 }
 
+function PreviewImage({ src, alt, ...props }) {
+  const resource = workspacePreviewResource(src)
+  const [blobSrc, setBlobSrc] = useState(null)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    if (!resource) return undefined
+    let revoked = false
+    let objectUrl = null
+    setError(null)
+    fetchAuthenticatedResourceBlobUrl(resource)
+      .then(url => {
+        if (revoked) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        objectUrl = url
+        setBlobSrc(url)
+      })
+      .catch(err => {
+        if (!revoked) setError(err.message || 'Image preview failed')
+      })
+    return () => {
+      revoked = true
+      setBlobSrc(null)
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [resource])
+
+  if (!resource) return <img src={src} alt={alt} {...props} />
+  if (error) {
+    return (
+      <span className='chart-preview-status chart-preview-status--error'>
+        {error}
+      </span>
+    )
+  }
+  if (!blobSrc) {
+    return <span className='chart-preview-status'>Loading image…</span>
+  }
+  return <img src={blobSrc} alt={alt} {...props} />
+}
+
 const MD_COMPONENTS_IDLE = {
   pre,
   code: makeCode(false),
   a: PreviewLink,
+  img: PreviewImage,
 }
 
 const MD_COMPONENTS_STREAMING = {
   pre,
   code: makeCode(true),
   a: PreviewLink,
+  img: PreviewImage,
 }
 
 export function getMdComponents({ streaming = false } = {}) {

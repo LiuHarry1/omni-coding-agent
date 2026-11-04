@@ -175,6 +175,23 @@ export const ThinkingMessageSchema = z.object({
   ...envelopeFields,
 })
 
+export const TurnStateMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('turn_state'),
+  state: z.enum([
+    'preparing',
+    'requesting',
+    'thinking',
+    'responding',
+    'tool-input',
+    'tool-use',
+    'idle',
+  ]),
+  detail_code: z.string().max(80).optional(),
+  label: z.string().max(160).optional(),
+  ...envelopeFields,
+})
+
 export const PlanReadyMessageSchema = z.object({
   type: z.literal('system'),
   subtype: z.literal('plan_ready'),
@@ -272,6 +289,7 @@ export const ServerMessageSchema = z.union([
   ToolInputPreviewDeltaMessageSchema,
   StepStartMessageSchema,
   ThinkingMessageSchema,
+  TurnStateMessageSchema,
   PlanReadyMessageSchema,
   CompactionStartMessageSchema,
   CompactionDoneMessageSchema,

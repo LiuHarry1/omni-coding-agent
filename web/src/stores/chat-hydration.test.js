@@ -9,6 +9,7 @@ const { streamChatTurn, streamDurableRun, agentApi } = vi.hoisted(() => ({
     getScheduledTasks: vi.fn(async () => ({ tasks: [] })),
     setSessionMode: vi.fn(async () => ({})),
     setSessionAgent: vi.fn(async () => ({})),
+    uploadChatAttachments: vi.fn(),
   },
 }))
 vi.mock('./chat/stream-chat.js', () => ({
@@ -56,6 +57,7 @@ describe('chat hydration guards', () => {
     streamDurableRun.mockReset()
     agentApi.getSessionMessages.mockReset()
     agentApi.getScheduledTasks.mockReset()
+    agentApi.uploadChatAttachments.mockReset()
     agentApi.getScheduledTasks.mockResolvedValue({ tasks: [] })
     agentApi.setSessionMode.mockClear()
     agentApi.setSessionAgent.mockClear()
@@ -85,6 +87,37 @@ describe('chat hydration guards', () => {
     await useChatStore.getState().sendMessage('wait for hydration')
     expect(streamChatTurn).not.toHaveBeenCalled()
     expect(useChatStore.getState().bubbleOrder).toEqual([])
+  })
+
+  it('ignores a stale attachment upload after the turn generation changes', async () => {
+    const upload = deferred()
+    agentApi.uploadChatAttachments.mockReturnValue(upload.promise)
+    useChatStore.setState({
+      currentSessionId: 'session-1',
+      sessionLoading: false,
+      sessionReadOnly: false,
+      isStreaming: false,
+    })
+
+    const sending = useChatStore.getState().sendMessage('inspect this', [
+      {
+        file: new File(['data'], 'input.csv', { type: 'text/csv' }),
+        name: 'input.csv',
+        kind: 'file',
+        size: 4,
+      },
+    ])
+    const activeGeneration = useChatStore.getState().turnGeneration
+    useChatStore.setState({
+      turnGeneration: activeGeneration + 1,
+      abortController: null,
+      isStreaming: false,
+    })
+    upload.resolve({ session_id: 'stale-session', files: [] })
+    await sending
+
+    expect(streamChatTurn).not.toHaveBeenCalled()
+    expect(useChatStore.getState().currentSessionId).toBe('session-1')
   })
 
   it('keeps session loading active until workspace restoration finishes', async () => {

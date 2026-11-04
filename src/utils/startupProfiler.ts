@@ -27,6 +27,31 @@ export function isProfilingEnabled(): boolean {
   return ENABLED
 }
 
+export type TurnProfiler = {
+  checkpoint(name: string, fields?: Record<string, string | number>): void
+}
+
+/** Request-scoped timeline for cold/warm first-turn investigations. */
+export function createTurnProfiler(
+  sessionId: string,
+  turnStartedAt = Date.now(),
+): TurnProfiler {
+  let previous = turnStartedAt
+  return {
+    checkpoint(name, fields = {}) {
+      if (!ENABLED) return
+      const now = Date.now()
+      const suffix = Object.entries(fields)
+        .map(([key, value]) => ` ${key}=${JSON.stringify(value)}`)
+        .join('')
+      console.error(
+        `[turn-profile] session=${sessionId} turn=${turnStartedAt} phase=${name} +${now - previous}ms total=${now - turnStartedAt}ms${suffix}`,
+      )
+      previous = now
+    },
+  }
+}
+
 /** Checkpoint a span around `fn`, keeping the call site a one-liner. */
 export async function profileSpan<T>(
   name: string,

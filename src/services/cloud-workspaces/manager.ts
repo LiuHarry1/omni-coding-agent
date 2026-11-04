@@ -142,6 +142,7 @@ export class CloudWorkspaceManager {
   private busyProbe: () => Set<string> = () => new Set()
   private beforeStop: (handle: WorkspaceHandle) => Promise<void> =
     async () => {}
+  private afterReady: (handle: WorkspaceHandle) => void = () => {}
 
   constructor(opts: CloudWorkspaceManagerOptions) {
     this.store = opts.store
@@ -215,6 +216,11 @@ export class CloudWorkspaceManager {
   /** Close control-plane runtimes before a container goes away. */
   setBeforeStop(hook: (handle: WorkspaceHandle) => Promise<void>): void {
     this.beforeStop = hook
+  }
+
+  /** Fire-and-forget warmup hook after a workspace becomes usable. */
+  setAfterReady(hook: (handle: WorkspaceHandle) => void): void {
+    this.afterReady = hook
   }
 
   /** A provisioning record without a live job was cut off by a restart. */
@@ -414,6 +420,10 @@ export class CloudWorkspaceManager {
         ownerName?.trim() || record.ownerEmail,
       ])
       this.update(record.id, { status: 'ready', error: undefined })
+      this.afterReady({
+        environmentId: cloudEnvironmentId(record.id),
+        cwd: repoDir,
+      })
     } catch (err) {
       const message = redactGitSecret(publicError(err), gitToken)
       console.warn(

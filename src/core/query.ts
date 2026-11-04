@@ -65,6 +65,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     abortSignal,
     memoryPrefetch,
     runAgent,
+    turnProfiler,
   } = opts
 
   if (!configuredProvider) {
@@ -195,6 +196,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         return finalizeQuery('aborted', text)
       }
 
+      wire.turnState('requesting', 'model.request', 'Waiting for model')
       const stepResult = await runStep({
         messages,
         modelMessages: activeMessages,
@@ -222,6 +224,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         readFileState: toolUseContext?.readFileState,
         dumpPrompts,
         runAgent,
+        turnProfiler,
       })
 
       if (stepResult === null) {

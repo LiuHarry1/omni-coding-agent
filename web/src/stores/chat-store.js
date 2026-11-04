@@ -119,6 +119,11 @@ export const useChatStore = create((set, get) => {
     currentRunId: null,
     lastRunSeq: 0,
     runConnectionStatus: 'idle',
+    turnGeneration: 0,
+    turnState: 'idle',
+    turnDetail: null,
+    turnStateLabel: null,
+    turnStateSince: 0,
     /** True while a scheduled-task turn is rendering from /sessions/:id/live. */
     scheduledTurnActive: false,
     /** Open live SSE only when this session has (or just got) a timer. */
@@ -461,6 +466,9 @@ export const useChatStore = create((set, get) => {
             : {}
         set({
           isStreaming: false,
+          turnState: 'idle',
+          turnDetail: null,
+          turnStateLabel: null,
           isAwaitingInteraction: false,
           activeTurnId: null,
           scheduledTurnActive: false,
@@ -539,6 +547,9 @@ export const useChatStore = create((set, get) => {
         currentRunId: null,
         lastRunSeq: 0,
         runConnectionStatus: 'idle',
+        turnState: 'idle',
+        turnDetail: null,
+        turnStateLabel: null,
         liveNeeded: false,
         scheduledTurnActive: false,
         planState: { status: 'idle', content: '', filePath: null },
@@ -625,6 +636,9 @@ export const useChatStore = create((set, get) => {
                   abortController: null,
                   currentRunId: null,
                   runConnectionStatus: 'idle',
+                  turnState: 'idle',
+                  turnDetail: null,
+                  turnStateLabel: null,
                   isAwaitingInteraction: false,
                   activeTurnId: null,
                 })
@@ -664,6 +678,9 @@ export const useChatStore = create((set, get) => {
         currentRunId: null,
         lastRunSeq: 0,
         runConnectionStatus: 'idle',
+        turnState: 'idle',
+        turnDetail: null,
+        turnStateLabel: null,
         isAwaitingInteraction: false,
         liveNeeded: false,
         scheduledTurnActive: false,
@@ -677,6 +694,9 @@ export const useChatStore = create((set, get) => {
       get()._onInterrupted({ tool_use: true })
       set({
         isStreaming: false,
+        turnState: 'idle',
+        turnDetail: null,
+        turnStateLabel: null,
         isAwaitingInteraction: false,
       })
 
@@ -765,7 +785,9 @@ export const useChatStore = create((set, get) => {
             .map(a => ({ name: a.name, kind: a.kind, size: a.size }))
         : []
 
+      let turnGeneration = 0
       set(s => {
+        turnGeneration = s.turnGeneration + 1
         let next = appendBubble(s, {
           id: userMsgId,
           kind: 'user',
@@ -776,6 +798,11 @@ export const useChatStore = create((set, get) => {
         })
         return {
           isStreaming: true,
+          turnGeneration,
+          turnState: 'dispatching',
+          turnDetail: 'turn.submit',
+          turnStateLabel: 'Submitting request',
+          turnStateSince: Date.now(),
           abortController,
           currentRunId: null,
           lastRunSeq: 0,
@@ -786,6 +813,9 @@ export const useChatStore = create((set, get) => {
           bubblesById: next.bubblesById,
         }
       })
+      const ownsTurn = () =>
+        get().turnGeneration === turnGeneration &&
+        get().abortController === abortController
 
       let wireImages = []
       let wireAttachments = []
@@ -796,6 +826,7 @@ export const useChatStore = create((set, get) => {
             get().currentSessionId,
             attachments.map(a => a.file),
           )
+          if (!ownsTurn()) return
           if (up.session_id) get().setSessionId(up.session_id)
           wireAttachments = up.files || (up.urls || []).map(url => ({ url }))
           const uploadedImages = wireAttachments
@@ -813,6 +844,7 @@ export const useChatStore = create((set, get) => {
             }
           }
         } catch (err) {
+          if (!ownsTurn()) return
           for (const a of attachments) {
             if (a.previewUrl?.startsWith('blob:')) {
               URL.revokeObjectURL(a.previewUrl)
@@ -833,6 +865,9 @@ export const useChatStore = create((set, get) => {
             })
             return {
               isStreaming: false,
+              turnState: 'idle',
+              turnDetail: null,
+              turnStateLabel: null,
               abortController: null,
               activeTurnId: null,
               bubbleOrder: next.bubbleOrder,
@@ -867,12 +902,12 @@ export const useChatStore = create((set, get) => {
           body,
           signal: abortController.signal,
           onEvent: data => {
-            if (get().abortController !== abortController) return
+            if (!ownsTurn()) return
             set({ runConnectionStatus: 'connected' })
             handleSse(data)
           },
           onOpen: opened => {
-            if (get().abortController !== abortController) return
+            if (!ownsTurn()) return
             if (opened.sessionId) get().setSessionId(opened.sessionId)
             set({
               currentRunId: opened.runId,
@@ -881,22 +916,25 @@ export const useChatStore = create((set, get) => {
             })
           },
           onReconnecting: () => {
-            if (get().abortController === abortController) {
+            if (ownsTurn()) {
               set({ runConnectionStatus: 'reconnecting' })
             }
           },
           onSessionNotFound: () => {
-            if (get().abortController !== abortController) return
+            if (!ownsTurn()) return
             get().setSessionId(null)
           },
           onHttpError: ({ status, message }) => {
-            if (get().abortController !== abortController) return
+            if (!ownsTurn()) return
             get()._appendPart({
               type: 'error',
               message: status === 404 ? `HTTP ${status}: ${message}` : message,
             })
             set({
               isStreaming: false,
+              turnState: 'idle',
+              turnDetail: null,
+              turnStateLabel: null,
               abortController: null,
               currentRunId: null,
               runConnectionStatus: 'idle',
@@ -927,17 +965,14 @@ export const useChatStore = create((set, get) => {
           set({ agentType: nextType })
         }
       } catch (err) {
-        if (
-          get().abortController === abortController &&
-          err.name !== 'AbortError'
-        ) {
+        if (ownsTurn() && err.name !== 'AbortError') {
           get()._appendPart({ type: 'error', message: err.message })
         }
       }
 
       // Session switches detach this subscriber; the durable run continues,
       // and the old send must not finalize or overwrite the newly loaded UI.
-      if (get().abortController !== abortController) return
+      if (!ownsTurn()) return
       get()._finalizeAssistant()
       const planPatch =
         get().planState?.status === 'building'
@@ -950,6 +985,9 @@ export const useChatStore = create((set, get) => {
           : {}
       set({
         isStreaming: false,
+        turnState: 'idle',
+        turnDetail: null,
+        turnStateLabel: null,
         abortController: null,
         currentRunId: null,
         runConnectionStatus: 'idle',

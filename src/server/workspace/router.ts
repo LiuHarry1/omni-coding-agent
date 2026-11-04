@@ -12,7 +12,12 @@ import {
 } from './fs-ops.js'
 import { gitStatus, gitDiff, normalizeGitRelativePath } from './git.js'
 import { handleUpload, handleDownload } from './transfer.js'
-import { getPreviewBaseUrl, handlePreview } from './preview.js'
+import {
+  getPreviewBaseUrl,
+  handlePreview,
+  handleRemotePreview,
+  type RemotePreviewFs,
+} from './preview.js'
 import { isPathInWorkspace } from '../../core/workspace.js'
 import {
   assertAccessibleResolved,
@@ -42,6 +47,14 @@ export interface WorkspaceRouterOptions {
    * IDE can list every tenant folder; regular users stay pinned to their dir.
    */
   resolveRoot?: (req: IncomingMessage) => string | undefined
+  /**
+   * Resolve an authorized execution environment for HTML/image preview. Returning
+   * null hides environments that do not exist or do not belong to the caller.
+   */
+  resolveRemotePreview?: (
+    req: IncomingMessage,
+    environmentId: string,
+  ) => Promise<{ port: RemotePreviewFs; workspaceRoot: string } | null>
 }
 
 const MAX_BODY = 6 * 1024 * 1024
@@ -90,6 +103,8 @@ function statusFor(err: unknown): number {
       return 413
     case 'EACCES':
       return 403
+    case 'EINVAL':
+      return 400
     default:
       return 500
   }
@@ -208,11 +223,20 @@ export function createWorkspaceRouter(opts: WorkspaceRouterOptions) {
         return true
       }
 
-      // GET /workspace/preview?path=  — search2chart-style HTTP HTML preview
+      // GET /workspace/preview?path=  — sandboxed HTML/image preview
       if (method === 'GET' && url.startsWith('/workspace/preview')) {
         const params = new URL(url, `http://${req.headers.host}`).searchParams
         const p = params.get('path')
-        await handlePreview(res, p, safe)
+        const environmentId = params.get('environmentId')
+        if (environmentId) {
+          const remote = await opts.resolveRemotePreview?.(req, environmentId)
+          if (!remote) {
+            throw new FsOpError('ENOENT', 'Environment not found')
+          }
+          await handleRemotePreview(res, p, remote.port, remote.workspaceRoot)
+        } else {
+          await handlePreview(res, p, safe)
+        }
         return true
       }
 

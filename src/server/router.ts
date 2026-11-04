@@ -64,6 +64,7 @@ import {
 } from '../core/mcp-policy.js'
 import { getLspStatusForCwd } from '../services/lsp/manager.js'
 import { getExecutionPlane } from '../execution/bootstrap.js'
+import { ShellFsPort } from '../execution/shell-fs.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { WorkerExecutionBackend } from '../execution/worker-execution-backend.js'
 import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
@@ -135,6 +136,20 @@ export function createRouter({ staticDir }: RouterOptions) {
       const authed = req as AuthedRequest
       if (isSuperUser(authed.user)) return getUsersRoot()
       return authed.userWorkspace
+    },
+    resolveRemotePreview: async (req, environmentId) => {
+      if (!canUseEnvironment(req, environmentId)) return null
+      const plane = getExecutionPlane()
+      const environment = await plane.registry
+        .resolve(environmentId)
+        .catch(() => null)
+      if (!environment || environment.kind === 'local') return null
+      const port = await plane.workspaces.ensureFs(environmentId)
+      if (!(port instanceof ShellFsPort)) return null
+      return {
+        port,
+        workspaceRoot: environment.defaultCwd || '~',
+      }
     },
   })
   const lazyRunAgent: RunAgentFn = async (...args) => {

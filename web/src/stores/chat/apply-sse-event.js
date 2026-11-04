@@ -109,6 +109,14 @@ export function applySseEvent(data, { set, get, mutators: m }) {
         case 'thinking':
           m._setThinking()
           break
+        case 'turn_state':
+          set({
+            turnState: data.state || 'idle',
+            turnDetail: data.detail_code || null,
+            turnStateLabel: data.label || null,
+            turnStateSince: Date.now(),
+          })
+          break
         case 'todo_update':
           m._updateTodos(data.todos)
           break
@@ -234,6 +242,12 @@ export function applySseEvent(data, { set, get, mutators: m }) {
       } else if (data.subtype === 'success' && data.reason === 'done') {
         m._removeThinking()
       }
+      set({
+        turnState: 'idle',
+        turnDetail: null,
+        turnStateLabel: null,
+        turnStateSince: Date.now(),
+      })
       break
   }
 }

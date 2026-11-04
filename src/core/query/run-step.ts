@@ -104,6 +104,7 @@ export interface RunStepArgs {
   readFileState?: import('../../utils/read/types.js').ReadFileState
   dumpPrompts?: DumpPromptsRecorder
   runAgent?: RunAgentFn
+  turnProfiler?: AgentOptions['turnProfiler']
 }
 
 export function shouldAttemptReactiveCompaction(
@@ -137,6 +138,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
     sessionId,
     logLabel,
     abortSignal,
+    turnProfiler,
   } = args
 
   const dumpPrompts = args.dumpPrompts ?? createNoopDumpPromptsRecorder()
@@ -238,6 +240,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
 
       // streamText is lazy — the request goes out when consumeStream pulls.
       profileCheckpoint('turn_api_request_sent')
+      turnProfiler?.checkpoint('api_request', { step })
       const timing = { firstEventMs: 0 }
       const stepResult = await consumeStream(
         stream,
@@ -248,7 +251,14 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           streamingExecutor: streamingExecutor ?? undefined,
         },
       )
-      profileCheckpoint(`turn_stream_done_ttft=${timing.firstEventMs}ms`)
+      const ttftMs = timing.firstEventMs
+        ? timing.firstEventMs - requestStart
+        : -1
+      profileCheckpoint(`turn_stream_done_ttft=${ttftMs}ms`)
+      turnProfiler?.checkpoint('stream_complete', {
+        step,
+        ttft_ms: ttftMs,
+      })
 
       if (stepResult.aborted) {
         if (streamingExecutor) {

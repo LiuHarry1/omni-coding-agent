@@ -48,4 +48,10 @@ export {
   getWorkerBundlePath,
   readWorkerVersion,
 } from './worker-paths.js'
-export { prewarmRuntime, prewarmLocalRuntime } from './prewarm.js'
+export {
+  WorkspaceWarmupCoordinator,
+  warmRuntime,
+  prewarmRuntime,
+  prewarmLocalRuntime,
+  invalidatePrewarm,
+} from './prewarm.js'

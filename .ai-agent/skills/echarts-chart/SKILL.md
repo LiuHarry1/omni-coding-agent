@@ -44,7 +44,8 @@ At minimum you need:
   [`scripts/generate-chart.mjs`](scripts/generate-chart.mjs)
 - Default output directory is the workspace `charts/` folder
 - Conclusions must come from the generated `.data.json`; do not guess values via OCR
-- Pass `--png` only for visual QA, reports/decks, or when the user explicitly asks
+- Do not pass `--png` by default. Use it only when the user explicitly asks
+  for a PNG or a downstream report/deck requires a raster image.
 
 ## Preflight Checklist
 
@@ -71,11 +72,12 @@ If field names are unclear, shape the data first. Do not guess column names.
    `node .ai-agent/skills/echarts-chart/scripts/generate-chart.mjs --input <input.json> --output-dir charts`
 3. Read the generated `<slug>.spec.json` and `<slug>.data.json`. Confirm record
    count, units, time range, missing values, and sort order.
-4. For visual QA, rerun with `--png` and Read the PNG once. If Chrome is not
-   available, keep the HTML and say the PNG was not generated.
-5. Return all artifacts and a same-origin preview link (`/workspace/preview?path=`).
-   Do not prefix `http://IP:port`. The web app opens it in-page and the logged-in
-   browser can also open the `/code/workspace/preview` URL in a new tab.
+4. The interactive HTML is the default output and does not require Chrome or
+   Playwright. Only when PNG was requested, rerun with `--png` and Read it once.
+5. Return all artifacts and a same-origin preview link. For a cloud turn, use
+   the exact `environmentId` link form supplied in the turn reminder. Otherwise
+   use `/workspace/preview?path={encodedAbsoluteHtmlPath}`. Do not prefix an
+   IP address.
 
 ### Workflow B — small edits (patch)
 
@@ -112,8 +114,10 @@ Chart generated.
 - Interactive chart: `{absoluteHtmlPath}`
 - Cleaned data: `{absoluteDataPath}`
 - Chart spec: `{absoluteSpecPath}`
-- Preview: [Open interactive chart](/workspace/preview?path={encodedAbsoluteHtmlPath})
-- PNG: `{absolutePngPath}` (list only when actually generated)
+- Preview (cloud): [Open interactive chart](/workspace/preview?environmentId={encodedEnvironmentId}&path={encodedAbsoluteHtmlPath})
+- Preview (local): [Open interactive chart](/workspace/preview?path={encodedAbsoluteHtmlPath})
+- PNG (when generated): embed it with Markdown image syntax using the same
+  cloud/local preview URL form and the encoded PNG path.
 ```
 
 Add 2–4 insights from `.data.json`, and state source, unit, and any incomplete period.

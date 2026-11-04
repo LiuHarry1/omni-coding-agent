@@ -44,7 +44,8 @@ import type { ToolRegistry } from '../../core/tool-registry.js'
 import type { SlashEntry } from '../../commands/slashRegistry.js'
 import { extractFilePathCandidates } from './path_candidates.js'
 import { mergeMCPServers } from '../../core/settings-manager.js'
-import { noopWireEmitter } from '../../core/wire-emitter.js'
+import { noopWireEmitter, type WireEmitter } from '../../core/wire-emitter.js'
+import type { TurnProfiler } from '../startupProfiler.js'
 import { getMCPManagerForServers } from '../../core/mcp-lifecycle.js'
 import {
   createFilesystemPermissionContext,
@@ -66,11 +67,8 @@ import { loadSlashRegistry } from '../../commands/slashRegistry.js'
 import type { DirectiveRuntime } from '../../commands/promptExpansion.js'
 import type { SkillDefinition } from '../../skills/types.js'
 import {
-  canMapMaterializedSkills,
-  mapMaterializedSkills,
   materializeCloudSkills,
   requireShellFsPort,
-  type CloudSkillMaterialization,
 } from '../../services/cloud-workspaces/skill-materializer.js'
 import {
   filterCloudMCPServers,
@@ -216,6 +214,8 @@ export interface PrepareChatTurnInput {
   eventBus: ToolContext['eventBus']
   middleware: ToolContext['middleware']
   runAgent: NonNullable<ToolContext['runAgent']>
+  wire?: WireEmitter
+  turnProfiler?: TurnProfiler
 }
 
 export async function prepareChatTurn(
@@ -232,6 +232,8 @@ export async function prepareChatTurn(
     eventBus,
     middleware,
     runAgent,
+    wire = noopWireEmitter,
+    turnProfiler,
   } = input
 
   const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
@@ -249,9 +251,21 @@ export async function prepareChatTurn(
   // make directives fall back to control-plane shell or filesystem access.
   let execution
   try {
+    const runtimeHandle = session.workspace ?? {
+      environmentId: 'local',
+      cwd,
+    }
+    const runtimeCache = getExecutionPlane().runtimes.get(runtimeHandle)
+      ? 'hot'
+      : 'cold'
+    wire.turnState('preparing', 'execution.resolve', 'Preparing environment')
     execution = await profileSpan('turn_execution_backend', () =>
       resolveExecutionBackend(session, config.lspServers),
     )
+    turnProfiler?.checkpoint('execution_ready', {
+      workspace: remote ? 'remote' : 'local',
+      runtime_cache: runtimeCache,
+    })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.warn(`[server] execution backend resolve failed:`, msg)
@@ -266,44 +280,10 @@ export async function prepareChatTurn(
   }
   const directiveRuntime = remote ? execution : undefined
 
-  let cloudSkillSnapshot: CloudSkillMaterialization | undefined
-  const cloudSkillWarnings = new Map<string, string>()
-  const applyCloudSkillSnapshot = (
-    skills: SkillDefinition[],
-    snapshot: CloudSkillMaterialization,
-  ): SkillDefinition[] => {
-    const skipped = new Set(snapshot.skipped.map(item => item.name))
-    for (const item of snapshot.skipped) {
-      cloudSkillWarnings.set(item.name, item.error)
-      console.warn(`[skills] skipped cloud skill "${item.name}": ${item.error}`)
-    }
-    return mapMaterializedSkills(
-      skills.filter(skill => !skipped.has(skill.name)),
-      snapshot.runtimeBaseDirs,
-    )
-  }
+  let cloudSkillPortPromise:
+    Promise<ReturnType<typeof requireShellFsPort>> | undefined
   const transformCloudSkills = cloudSession
     ? async (skills: SkillDefinition[]): Promise<SkillDefinition[]> => {
-        const packageSkills = skills.filter(
-          skill =>
-            (skill.source === 'user' || skill.source === 'plugin') &&
-            skill.baseDir,
-        )
-        if (
-          cloudSkillSnapshot &&
-          canMapMaterializedSkills(
-            packageSkills.filter(
-              skill =>
-                !cloudSkillSnapshot!.skipped.some(
-                  item => item.name === skill.name,
-                ),
-            ),
-            cloudSkillSnapshot.runtimeBaseDirs,
-          )
-        ) {
-          return applyCloudSkillSnapshot(skills, cloudSkillSnapshot)
-        }
-        if (packageSkills.length === 0) return skills
         if (
           !session.workspace ||
           !cloudWorkspaceId ||
@@ -311,22 +291,50 @@ export async function prepareChatTurn(
         ) {
           throw new Error('Cloud skill materialization has no workspace')
         }
-        const port = requireShellFsPort(
-          await getExecutionPlane().workspaces.ensureFs(
-            session.workspace.environmentId,
-          ),
-        )
-        cloudSkillSnapshot = await profileSpan(
-          'turn_cloud_skill_materialize',
-          () =>
-            materializeCloudSkills({
-              workspaceId: cloudWorkspaceId,
-              skills: packageSkills,
-              port,
-              sourceRoot: turnScope.extensionRoot,
-            }),
-        )
-        return applyCloudSkillSnapshot(skills, cloudSkillSnapshot)
+        return skills.map(skill => {
+          if (
+            (skill.source !== 'user' && skill.source !== 'plugin') ||
+            !skill.baseDir
+          ) {
+            return skill
+          }
+          let prepared: Promise<string | undefined> | undefined
+          return {
+            ...skill,
+            prepareRuntimeBaseDir: () => {
+              if (prepared) return prepared
+              prepared = profileSpan(
+                'turn_cloud_skill_materialize',
+                async () => {
+                  wire.turnState(
+                    'preparing',
+                    'skills.materialize',
+                    `Loading ${skill.name}`,
+                  )
+                  cloudSkillPortPromise ??= getExecutionPlane()
+                    .workspaces.ensureFs(session.workspace!.environmentId)
+                    .then(requireShellFsPort)
+                  const snapshot = await materializeCloudSkills({
+                    workspaceId: cloudWorkspaceId,
+                    skills: [skill],
+                    port: await cloudSkillPortPromise,
+                    sourceRoot: turnScope.extensionRoot,
+                  })
+                  const skipped = snapshot.skipped.find(
+                    item => item.name === skill.name,
+                  )
+                  if (skipped) {
+                    throw new Error(
+                      `Skill "${skill.name}" could not be loaded: ${skipped.error}`,
+                    )
+                  }
+                  return snapshot.skills[0]?.runtimeBaseDir
+                },
+              )
+              return prepared
+            },
+          }
+        })
       }
     : undefined
 
@@ -345,6 +353,7 @@ export async function prepareChatTurn(
   // Plugins/skills/MCP load from a local tree. Remote sessions still use the
   // Control Plane machine's default workspace for that — tools use remote cwd.
   // Cloud sessions use only the request-scoped tenant home.
+  wire.turnState('preparing', 'extensions.load', 'Loading extensions')
   const plugins = await loadPlugins(extensionCwd)
   if (plugins.plugins.length > 0) {
     console.log(
@@ -375,6 +384,10 @@ export async function prepareChatTurn(
     },
   )
   const conditionalHidden = allSkills.length - activeSkills.length
+  turnProfiler?.checkpoint('extensions_ready', {
+    agents: activeAgents.length,
+    skills: activeSkills.length,
+  })
   console.log(
     `[server] cwd=${cwd}${remote ? ` remote=${session.workspace?.environmentId}` : ''}  agents=[${activeAgents.map(a => a.agentType).join(', ')}]  skills=[${activeSkills.map(s => s.name).join(', ')}]${conditionalHidden > 0 ? `  (+${conditionalHidden} conditional hidden)` : ''}`,
   )
@@ -389,7 +402,12 @@ export async function prepareChatTurn(
       )
     }
   }
+  wire.turnState('preparing', 'mcp.connect', 'Connecting integrations')
   const mcpManager = await getMCPManagerForServers(extensionCwd, mcpServers)
+  turnProfiler?.checkpoint('mcp_ready', {
+    configured: Object.keys(mcpServers).length,
+    connected: mcpManager.connectedCount,
+  })
 
   const projectRulesRaw = cloudSession
     ? loadUserAgentRules()
@@ -486,9 +504,14 @@ export async function prepareChatTurn(
   }
 
   const reminderParts: string[] = []
-  if (cloudSkillWarnings.size > 0) {
+  if (cloudSession && session.workspace) {
+    const environmentId = encodeURIComponent(session.workspace.environmentId)
     reminderParts.push(
-      `Some Skills were skipped because their packages exceed the Cloud limits:\n${[...cloudSkillWarnings].map(([name, error]) => `- ${name}: ${error}`).join('\n')}`,
+      `This turn runs in cloud environment \`${session.workspace.environmentId}\`. ` +
+        'For an HTML or image artifact in this environment, use this same-origin URL form: ' +
+        `\`/workspace/preview?environmentId=${environmentId}&path={encodeURIComponent(absolutePath)}\`. ` +
+        'Return HTML as a Markdown link and images as Markdown image syntax (`![alt](URL)`) so they render inline. ' +
+        'Generate a PNG only when the user explicitly requests one; interactive HTML preview does not require Chrome or Playwright.',
     )
   }
   if (activeSkills.length > 0) {

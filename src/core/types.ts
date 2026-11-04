@@ -453,6 +453,8 @@ export interface ToolUseContext {
 // ── Agent ───────────────────────────────────────
 
 export interface AgentOptions {
+  /** Request-scoped startup/TTFT timeline; no-op unless profiling is enabled. */
+  turnProfiler?: import('../utils/startupProfiler.js').TurnProfiler
   /** Current agent-loop entry, injected for cache-safe side-path forks. */
   runAgent?: RunAgentFn
   /**

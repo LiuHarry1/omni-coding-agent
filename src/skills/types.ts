@@ -41,6 +41,11 @@ export interface SkillDefinition {
    */
   runtimeBaseDir?: string
   /**
+   * Lazily make the package available in the active execution environment.
+   * Remote turns use this to keep package copies off the first-token path.
+   */
+  prepareRuntimeBaseDir?: () => Promise<string | undefined>
+  /**
    * Body comes from a sandboxed workspace (cloud container). `!cmd` and
    * `@file` directives would run on the control plane, so they stay literal.
    */
