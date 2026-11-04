@@ -91,11 +91,6 @@ export default function ChatView() {
   const sessionLoading = useChatStore(s => s.sessionLoading)
   const isStreaming = useChatStore(s => s.isStreaming)
   const activeTurnId = useChatStore(s => s.activeTurnId)
-  const turnState = useChatStore(s => s.turnState)
-  const turnDetail = useChatStore(s => s.turnDetail)
-  const turnStateLabel = useChatStore(s => s.turnStateLabel)
-  const turnStateSince = useChatStore(s => s.turnStateSince)
-
   // sawLiveWork: sticky for this session view after we watch a generate.
   const sawLiveSessionRef = useRef(null)
   const sawLiveWorkRef = useRef(false)
@@ -458,14 +453,7 @@ export default function ChatView() {
                 </div>
               )
             })}
-            {isStreaming && (
-              <TurnStatus
-                state={turnState}
-                detail={turnDetail}
-                label={turnStateLabel}
-                since={turnStateSince}
-              />
-            )}
+            {isStreaming && <TurnStatus />}
             {/*
               Bottom inset air: stick-to-bottom lands on this spacer so the live
               edge sits mid-lower, not flush on the input.

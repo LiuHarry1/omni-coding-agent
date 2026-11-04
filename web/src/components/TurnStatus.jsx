@@ -1,47 +1,48 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useChatStore } from '../stores/chat-store.js'
+import { thinkingBubbleId } from '../lib/bubbles/messages-to-bubbles.js'
 
-const STATE_LABELS = {
-  dispatching: 'Submitting request',
-  preparing: 'Preparing',
-  requesting: 'Waiting for model',
-  thinking: 'Thinking',
-  responding: 'Responding',
-  'tool-input': 'Preparing tool',
-  'tool-use': 'Running tool',
-}
+/**
+ * States with no transcript row yet. Later states (reasoning, tool input/run,
+ * streaming text) are shown inline by their own rows, so the tail stays empty.
+ */
+const PRE_ROW_STATES = new Set(['dispatching', 'preparing', 'requesting'])
+const DEFAULT_LABEL = 'Planning next moves'
+/** Short preparing phases would flash unreadable labels; keep the default. */
+const PHASE_LABEL_DELAY_MS = 800
 
-export default function TurnStatus({ state, detail, label, since }) {
-  const [now, setNow] = useState(Date.now())
+/** Transcript tail status before the turn's first row (one indicator at a time). */
+export default function TurnStatus() {
+  const state = useChatStore(s => s.turnState)
+  const detail = useChatStore(s => s.turnDetail)
+  const label = useChatStore(s => s.turnStateLabel)
+  const since = useChatStore(s => s.turnStateSince)
+  const awaiting = useChatStore(s => s.isAwaitingInteraction)
+  const planningShown = useChatStore(
+    s => !!s.activeTurnId && !!s.bubblesById[thinkingBubbleId(s.activeTurnId)],
+  )
+  const [labelReady, setLabelReady] = useState(false)
 
   useEffect(() => {
-    if (!since || state === 'idle') return undefined
-    const timer = window.setInterval(() => setNow(Date.now()), 1000)
-    return () => window.clearInterval(timer)
-  }, [since, state])
+    setLabelReady(false)
+    if (state !== 'preparing' || !label) return undefined
+    const wait = Math.max(0, PHASE_LABEL_DELAY_MS - (Date.now() - (since || 0)))
+    const timer = window.setTimeout(() => setLabelReady(true), wait)
+    return () => window.clearTimeout(timer)
+  }, [state, label, since])
 
-  const elapsed = since ? Math.max(0, now - since) : 0
-  const text = useMemo(
-    () => label || STATE_LABELS[state] || 'Working',
-    [label, state],
-  )
-  const stalled = elapsed >= 3000 && state !== 'tool-use'
-  if (!state || state === 'idle') return null
+  if (!PRE_ROW_STATES.has(state) || awaiting || planningShown) return null
 
+  const text = state === 'preparing' && labelReady ? label : DEFAULT_LABEL
   return (
     <div
-      className={`turn-status${stalled ? ' turn-status--stalled' : ''}`}
+      className='planning-status'
       role='status'
       aria-live='polite'
       data-turn-state={state}
       data-turn-detail={detail || undefined}
     >
-      <span className='turn-status-dot' aria-hidden='true' />
       <span className='shimmer-text'>{text}</span>
-      {elapsed >= 1000 && (
-        <span className='turn-status-elapsed'>
-          {Math.floor(elapsed / 1000)}s
-        </span>
-      )}
     </div>
   )
 }

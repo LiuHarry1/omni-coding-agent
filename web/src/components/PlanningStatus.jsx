@@ -2,7 +2,7 @@
 export default function PlanningStatus() {
   return (
     <div className='planning-status' role='status'>
-      <span className='shimmer-text'>Working on next step</span>
+      <span className='shimmer-text'>Planning next moves</span>
     </div>
   )
 }

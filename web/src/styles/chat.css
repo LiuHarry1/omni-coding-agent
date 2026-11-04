@@ -748,43 +748,6 @@
   color: var(--text-tier-2);
 }
 
-.turn-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 22px;
-  padding: 2px 0;
-  color: var(--text-tier-2);
-  font-size: 13px;
-  line-height: 1.4;
-}
-.turn-status-dot {
-  width: 6px;
-  height: 6px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: currentColor;
-  animation: turn-status-pulse 1.2s ease-in-out infinite;
-}
-.turn-status-elapsed {
-  color: var(--text-tier-4);
-  font-variant-numeric: tabular-nums;
-}
-.turn-status--stalled {
-  color: var(--text-tier-3);
-}
-@keyframes turn-status-pulse {
-  50% {
-    opacity: 0.35;
-    transform: scale(0.75);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .turn-status-dot {
-    animation: none;
-  }
-}
-
 /* ── Reasoning Block (collapsible thinking) ── */
 .reasoning-block {
   margin: 0;
