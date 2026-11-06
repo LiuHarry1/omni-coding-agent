@@ -79,6 +79,9 @@ describe('chat hydration guards', () => {
       agentMode: 'agent',
       agentType: null,
       agentPicker: null,
+      agentPickerFor: null,
+      agentPickerLoaded: false,
+      draftSelectionChosen: false,
     })
   })
 
@@ -314,6 +317,107 @@ describe('chat hydration guards', () => {
       agentType: 'reviewer',
       workspace: '/remote/repo',
     })
+  })
+
+  it('starts a new chat in the picker default mode, not the last used one', () => {
+    useChatStore.setState({
+      currentSessionId: 'ask-session',
+      agentMode: 'ask',
+      agentPicker: {
+        modes: ['agent', 'ask', 'plan'],
+        primaries: [],
+        default: { mode: 'agent', agentType: null },
+      },
+    })
+
+    useChatStore.getState().clearSession()
+
+    expect(useChatStore.getState().agentMode).toBe('agent')
+    expect(values.has('coding_agent_mode')).toBe(false)
+  })
+
+  it('restores the mode stored on the session when switching to it', async () => {
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [{ type: 'user', id: 'u1', content: 'read only question' }],
+      mode: 'ask',
+      agentType: null,
+    })
+
+    await useChatStore.getState().switchSession('ask-session')
+    expect(useChatStore.getState().agentMode).toBe('ask')
+
+    useChatStore.getState().clearSession()
+    expect(useChatStore.getState().agentMode).toBe('agent')
+  })
+
+  const allModes = {
+    modes: ['agent', 'ask', 'plan'],
+    primaries: [],
+    default: { mode: 'plan', agentType: null },
+  }
+
+  it('starts an untouched new chat at the picker default', () => {
+    useChatStore.getState().applyAgentPicker(allModes)
+    expect(useChatStore.getState().agentMode).toBe('plan')
+  })
+
+  it('keeps a mode picked in a new chat when the picker reloads', () => {
+    useChatStore.getState().applyAgentPicker(allModes)
+    useChatStore.getState().setAgentMode('ask')
+
+    useChatStore.getState().applyAgentPicker(allModes)
+    expect(useChatStore.getState().agentMode).toBe('ask')
+
+    useChatStore
+      .getState()
+      .applyAgentPicker({ ...allModes, modes: ['agent', 'plan'] })
+    expect(useChatStore.getState().agentMode).toBe('plan')
+
+    useChatStore.getState().clearSession()
+    useChatStore.getState().applyAgentPicker(allModes)
+    expect(useChatStore.getState().agentMode).toBe('plan')
+  })
+
+  it('snaps a restored session mode the loaded picker does not allow', async () => {
+    useWorkspaceContextStore
+      .getState()
+      .apply({ environmentId: 'local', cwd: '/repo' })
+    useChatStore.setState({
+      agentPicker: { ...allModes, modes: ['agent', 'plan'] },
+      agentPickerFor: 'local\u0000/repo',
+      agentPickerLoaded: true,
+    })
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [],
+      mode: 'ask',
+      agentType: null,
+    })
+
+    await useChatStore.getState().switchSession('ask-session')
+    expect(useChatStore.getState().agentMode).toBe('plan')
+    expect(agentApi.setSessionMode).toHaveBeenCalledWith(
+      expect.objectContaining({ session_id: 'ask-session', mode: 'plan' }),
+    )
+  })
+
+  it('leaves a restored mode alone when the picker is for another workspace', async () => {
+    useWorkspaceContextStore
+      .getState()
+      .apply({ environmentId: 'local', cwd: '/repo' })
+    useChatStore.setState({
+      agentPicker: { ...allModes, modes: ['agent', 'plan'] },
+      agentPickerFor: 'local\u0000/other',
+      agentPickerLoaded: true,
+    })
+    agentApi.getSessionMessages.mockResolvedValue({
+      messages: [],
+      mode: 'ask',
+      agentType: null,
+    })
+
+    await useChatStore.getState().switchSession('ask-session')
+    expect(useChatStore.getState().agentMode).toBe('ask')
+    expect(agentApi.setSessionMode).not.toHaveBeenCalled()
   })
 
   it('hydrates the transcript then resumes an active run after checkpoint_seq', async () => {

@@ -62,6 +62,7 @@ import {
   syntheticReadCallMessage,
   toModelFilePath,
 } from './attachment-to-messages.js'
+import type { ShellAttachmentStager } from './stage-for-shell.js'
 import type { Attachment } from './types.js'
 
 /** Wire shape of one composer attachment on `POST /chat`. */
@@ -101,6 +102,49 @@ function metaMessage(text: string): Message {
 
 function attachmentMessage(attachment: Attachment): Message {
   return createAttachmentMessage(attachment)
+}
+
+/** Result of copying an upload into a remote (SSH/cloud) environment. */
+type ShellCopy = { path: string } | { error: string }
+
+function binaryShellFields(shellCopy?: ShellCopy): {
+  shellPath?: string
+  shellCopyError?: string
+} {
+  if (!shellCopy) return {}
+  return 'path' in shellCopy
+    ? { shellPath: shellCopy.path }
+    : { shellCopyError: shellCopy.error }
+}
+
+/** Path the model should hand to shell commands. */
+function shellProcessPath(absPath: string, shellCopy?: ShellCopy): string {
+  return shellCopy && 'path' in shellCopy
+    ? shellCopy.path
+    : toModelFilePath(absPath)
+}
+
+/**
+ * Remote turns: Read serves the host path, the shell only sees the copy.
+ * Both paths must be spelled out or the model mixes them up.
+ */
+function remotePathNote(
+  displayName: string,
+  absPath: string,
+  shellCopy?: ShellCopy,
+): string | undefined {
+  if (!shellCopy) return undefined
+  const hostPath = toModelFilePath(absPath)
+  if ('error' in shellCopy) {
+    return (
+      `${displayName} could not be copied into the workspace where shell commands run (${shellCopy.error}). ` +
+      `${FILE_READ_TOOL_NAME} can still open ${hostPath}; shell commands cannot.`
+    )
+  }
+  return (
+    `Shell commands run in the workspace, where ${displayName} is at ${shellCopy.path}. ` +
+    `Use ${hostPath} only with ${FILE_READ_TOOL_NAME}.`
+  )
 }
 
 /**
@@ -188,13 +232,15 @@ function pdfPrelude(
   displayName: string,
   pageCount: number | null,
   sizeText: string,
+  shellCopy?: ShellCopy,
 ): Message[] {
-  const diskPath = toModelFilePath(absPath)
+  const remoteNote = remotePathNote(displayName, absPath, shellCopy)
   return [
     syntheticReadCallMessage(absPath),
     metaMessage(
       `The user attached ${displayName} (PDF, ${pageCount ?? '?'} pages, ${sizeText}). ` +
-        `Copy or process the on-disk path ${diskPath} — do not rebuild it from the original filename.`,
+        `Copy or process the on-disk path ${shellProcessPath(absPath, shellCopy)} — do not rebuild it from the original filename.` +
+        (remoteNote ? ` ${remoteNote}` : ''),
     ),
   ]
 }
@@ -204,10 +250,17 @@ async function resolvePdfAttachment(
   displayName: string,
   sessionId: string,
   provider: IProvider,
+  shellCopy?: ShellCopy,
 ): Promise<{ messages: Message[]; warning?: string }> {
   const pageCount = await getPdfPageCount(absPath)
   const sizeText = formatPdfFileSize(fs.statSync(absPath).size)
-  const header = pdfPrelude(absPath, displayName, pageCount, sizeText)
+  const header = pdfPrelude(
+    absPath,
+    displayName,
+    pageCount,
+    sizeText,
+    shellCopy,
+  )
   const diskPath = toModelFilePath(absPath)
 
   if (provider.supportsNativePdf?.() === true) {
@@ -273,7 +326,7 @@ async function resolvePdfAttachment(
       ...header,
       metaMessage(
         `${displayName} could not be converted for this model — no PDF document support, no page renderer (poppler), and no text layer. ` +
-          `The raw file is at ${diskPath} if a shell tool can help.`,
+          `The raw file is at ${shellProcessPath(absPath, shellCopy)} if a shell tool can help.`,
       ),
     ],
     warning: `${displayName}: could not be read (install poppler-utils for PDF page rendering).`,
@@ -283,25 +336,25 @@ async function resolvePdfAttachment(
 function resolveTextAttachment(
   absPath: string,
   displayName: string,
+  shellCopy?: ShellCopy,
 ): { messages: Message[]; warning?: string } {
   try {
     const output = readTextFileTruncated(absPath, displayName)
     const truncated = output.file.totalLines > output.file.numLines
+    const processPath = shellProcessPath(absPath, shellCopy)
 
     let note: string | undefined
     if (isTabularExtension(displayName)) {
       const summary = summarizeDelimitedFile(absPath)
       if (summary) {
-        note = formatTabularSummary(
-          summary,
-          displayName,
-          toModelFilePath(absPath),
-        )
+        note = formatTabularSummary(summary, displayName, processPath)
       }
     }
     note ??=
-      `${displayName} is on disk at ${toModelFilePath(absPath)}. ` +
+      `${displayName} is on disk at ${processPath}. ` +
       `Copy or process that on-disk path; do not rebuild it from the original filename.`
+    const remoteNote = remotePathNote(displayName, absPath, shellCopy)
+    if (remoteNote) note += `\n${remoteNote}`
 
     return {
       messages: [
@@ -325,6 +378,7 @@ function resolveTextAttachment(
           displayPath: displayName,
           mediaType: 'application/octet-stream',
           fileSize: size,
+          ...binaryShellFields(shellCopy),
         }),
       ],
       warning: `${displayName}: ${err instanceof Error ? err.message : String(err)}`,
@@ -338,7 +392,12 @@ function resolveTextAttachment(
  */
 export async function resolveChatAttachments(
   refs: ChatAttachmentRef[] | undefined,
-  opts: { sessionId: string; provider: IProvider },
+  opts: {
+    sessionId: string
+    provider: IProvider
+    /** Set for SSH/cloud turns, whose shell cannot see agent-host uploads. */
+    stageForShell?: ShellAttachmentStager
+  },
 ): Promise<ResolvedChatAttachments> {
   const result: ResolvedChatAttachments = {
     imageRefs: [],
@@ -388,12 +447,26 @@ export async function resolveChatAttachments(
         continue
       }
 
+      let shellCopy: ShellCopy | undefined
+      if (opts.stageForShell) {
+        try {
+          shellCopy = { path: await opts.stageForShell(absPath) }
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err)
+          shellCopy = { error: msg }
+          result.warnings.push(
+            `${displayName}: copy into the workspace failed: ${msg}`,
+          )
+        }
+      }
+
       if (kind === 'pdf') {
         const { messages, warning } = await resolvePdfAttachment(
           absPath,
           displayName,
           opts.sessionId,
           opts.provider,
+          shellCopy,
         )
         result.preludeMessages.push(...messages)
         if (warning) result.warnings.push(warning)
@@ -404,6 +477,7 @@ export async function resolveChatAttachments(
         const { messages, warning } = resolveTextAttachment(
           absPath,
           displayName,
+          shellCopy,
         )
         result.preludeMessages.push(...messages)
         if (warning) result.warnings.push(warning)
@@ -417,6 +491,7 @@ export async function resolveChatAttachments(
           displayPath: displayName,
           mediaType: ref.mediaType ?? 'application/octet-stream',
           fileSize: ref.sizeBytes ?? fs.statSync(absPath).size,
+          ...binaryShellFields(shellCopy),
         }),
       )
     } catch (err) {

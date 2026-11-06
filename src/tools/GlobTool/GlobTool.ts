@@ -9,7 +9,11 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import * as fs from 'fs'
 import * as path from 'path'
-import { buildGlobRgArgs, glob as runGlob } from '../../utils/glob.js'
+import {
+  buildGlobRgArgs,
+  extractGlobBaseDirectory,
+  glob as runGlob,
+} from '../../utils/glob.js'
 import { resolvePath } from '../utils.js'
 import {
   assertAccessibleResolved,
@@ -25,6 +29,10 @@ import type {
 import { GLOB_TOOL_NAME } from '../../constants/tool_names.js'
 import { AGENT_TOOL_NAME } from '../../constants/tool_names.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import {
+  displayPathFromCwd,
+  readsFromAgentHost,
+} from '../../execution/fs-route.js'
 import { isInsideExcludedDir } from '../../constants/file_filters.js'
 
 const DESCRIPTION = `- Fast file pattern matching tool that works with any codebase size
@@ -65,6 +73,22 @@ function localDirProbe(cwd: string): DirProbe {
       }
     },
   }
+}
+
+/**
+ * An absolute glob into an agent-host harness dir (`/…/tool-results/*.txt`)
+ * names no search root, so routing would send it to the remote workspace,
+ * where the dir does not exist. Split it into path + relative pattern.
+ */
+function splitAgentHostPattern(
+  pattern: string,
+): { pattern: string; searchPath: string } | undefined {
+  if (!HAS_GLOB_METACHAR.test(pattern) || !path.isAbsolute(pattern)) {
+    return undefined
+  }
+  const { baseDir, relativePattern } = extractGlobBaseDirectory(pattern)
+  if (!baseDir || !readsFromAgentHost(baseDir)) return undefined
+  return { pattern: relativePattern, searchPath: baseDir }
 }
 
 /**
@@ -166,13 +190,24 @@ export const definition: ToolDefinition = {
         const start = Date.now()
         const execution = context.execution
         // Local Worker uses native glob below. Remote (SSH) uses Worker `rg`
-        // RPC — argv spawn, exit 0/1 = success.
+        // RPC — argv spawn, exit 0/1 = success. Agent-host harness dirs are
+        // globbed natively in every environment.
+        const hostSplit =
+          rawSearchPath === undefined
+            ? splitAgentHostPattern(rawPattern)
+            : undefined
+        const inputPattern = hostSplit?.pattern ?? rawPattern
+        const inputPath = hostSplit?.searchPath ?? rawSearchPath
+        const searchRoot =
+          inputPath ??
+          (HAS_GLOB_METACHAR.test(inputPattern) ? undefined : inputPattern)
         const useRemoteRg =
           !!execution &&
           !(
             isWorkerExecutionBackend(execution) &&
             execution.environmentId === 'local'
-          )
+          ) &&
+          !readsFromAgentHost(searchRoot)
         let probe: DirProbe = localDirProbe(cwd)
         if (useRemoteRg && execution) {
           const remote = execution
@@ -192,8 +227,8 @@ export const definition: ToolDefinition = {
           }
         }
         const { pattern, searchPath } = await normalizeDirectoryPattern(
-          rawPattern,
-          rawSearchPath,
+          inputPattern,
+          inputPath,
           probe,
         )
         if (useRemoteRg && execution) {
@@ -260,10 +295,11 @@ export const definition: ToolDefinition = {
           return `Error: ${e instanceof Error ? e.message : String(e)}`
         }
 
-        const allFilenames = result.files.map(abs => {
-          const rel = path.relative(cwd, abs)
-          return rel === '' ? '.' : rel.replaceAll('\\', '/')
-        })
+        const toDisplay = (abs: string): string =>
+          path.resolve(abs) === path.resolve(cwd)
+            ? '.'
+            : displayPathFromCwd(cwd, abs)
+        const allFilenames = result.files.map(toDisplay)
 
         const noiseInUtilsResult = allFilenames.filter(
           p =>
@@ -282,7 +318,16 @@ export const definition: ToolDefinition = {
         // Hidden paths (.ai-agent, etc.) are included via rg --hidden in
         // utils/glob.ts (GLOB_HIDDEN defaults true). No extra dot-segment
         // post-filter here — only excluded directories are dropped below.
-        const allKept = allFilenames.filter(p => !isInsideExcludedDir(p))
+        // Judge exclusions below the search root: absolute display paths
+        // carry ancestors (e.g. a `build/` above the agent home).
+        const allKept = result.files
+          .filter(
+            abs =>
+              !isInsideExcludedDir(
+                path.relative(searchDir, abs).replaceAll('\\', '/'),
+              ),
+          )
+          .map(toDisplay)
         const filteredCount = allFilenames.length - allKept.length
         const filenames = allKept.slice(0, DEFAULT_LIMIT)
         const truncatedAfterFilter =

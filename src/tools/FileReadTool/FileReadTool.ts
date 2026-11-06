@@ -21,7 +21,7 @@ import {
   readTextFromString,
 } from '../../utils/read/index.js'
 import type { ReadFileState } from '../../utils/read/types.js'
-import { isReadableInternalPath } from '../../core/session-paths.js'
+import { readsFromAgentHost } from '../../execution/fs-route.js'
 import {
   assertAccessibleResolved,
   checkReadPermissionForTool,
@@ -110,14 +110,12 @@ export const definition: ToolDefinition = {
         const execution = context.execution
         // Local worker still has real disk mtime — use the FS path below for
         // dedup + images/PDF. Only remote environments use readText RPC.
-        // Oversized tool output is spilled on the agent host
-        // (`{agentHome}/.ai-agent/projects/.../tool-results`). That path is
-        // not inside the cloud container workspace, so Read serves it from
-        // the host instead of the worker.
+        // Agent-host harness files (tool-results, uploads, …) are not in the
+        // workspace; `readsFromAgentHost` sends them to the FS path below.
         if (execution && execution.environmentId !== 'local') {
-          const abs = execution.resolve(cwd, file_path)
-          if (!isReadableInternalPath(abs)) {
+          if (!readsFromAgentHost(file_path)) {
             try {
+              const abs = execution.resolve(cwd, file_path)
               execution.assertInWorkspace(cwd, abs, 'read')
               if (pages) {
                 return 'Error: PDF page reads are not supported over SSH yet. Use bash to inspect PDFs remotely.'

@@ -21,10 +21,15 @@ export type FileAttachment = {
  */
 export type UploadedBinaryAttachment = {
   type: 'uploaded_binary'
+  /** Agent-host path. */
   filename: string
   displayPath: string
   mediaType: string
   fileSize: number
+  /** Copy inside the SSH/cloud environment where shell commands run. */
+  shellPath?: string
+  /** Why the copy into a remote environment failed. */
+  shellCopyError?: string
 }
 
 export type PdfReferenceAttachment = {

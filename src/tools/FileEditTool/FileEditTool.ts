@@ -17,6 +17,7 @@ import {
 } from '../../services/lsp/manager.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
 import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
+import { writesToAgentHost } from '../../execution/fs-route.js'
 import {
   activeReadFileState,
   recordWriteInState,
@@ -105,7 +106,13 @@ export const definition: ToolDefinition = {
         // Local Worker: FS path + sandbox (extraWriteRoots for auto-memory).
         // Remote SSH: Worker RPC + assertInWorkspace.
         // Match FileReadTool: gate on environmentId only.
-        const useRemoteFs = !!execution && execution.environmentId !== 'local'
+        const useRemoteFs =
+          !!execution &&
+          execution.environmentId !== 'local' &&
+          !writesToAgentHost(
+            file_path,
+            context.permissionContext?.extraWriteRoots,
+          )
         if (useRemoteFs && execution) {
           try {
             const abs = execution.resolve(cwd, file_path)

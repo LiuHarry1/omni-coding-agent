@@ -18,6 +18,10 @@ import {
   registerToolAbort,
 } from '../../core/tool-abort-registry.js'
 import { maybePersistAfterExecute } from '../tool-storage/index.js'
+import {
+  isMcpCallResult,
+  processMcpToolResult,
+} from '../tool-storage/mcp-result.js'
 import { projectToolUseResult } from '../../utils/project-tool-use-result.js'
 import {
   blocksToToolResultOutputParts,
@@ -128,6 +132,7 @@ export async function executeOneTool(
     let toolUseResult: unknown | undefined
     let followUpMessages: Message[] | undefined
     let isError = false
+    let sizeHandled = false
 
     if (def?.mapToolResultToToolResultBlockParam && isDualChannelReturn(raw)) {
       followUpMessages = raw.newMessages
@@ -177,10 +182,23 @@ export async function executeOneTool(
       followUpMessages = structured.followUpMessages ?? structured.newMessages
       isError = result.startsWith('Error:')
     } else {
-      result = JSON.stringify(raw)
+      const mcp = isMcpCallResult(raw)
+        ? processMcpToolResult(raw, {
+            sessionId,
+            toolCallId: tc.toolCallId,
+            toolName: tc.toolName,
+          })
+        : null
+      if (mcp) {
+        result = mcp.result
+        isError = mcp.isError
+        sizeHandled = true
+      } else {
+        result = JSON.stringify(raw)
+      }
     }
 
-    if (!resultBlocks) {
+    if (!resultBlocks && !sizeHandled) {
       result = maybePersistAfterExecute(
         sessionId,
         tc.toolCallId,

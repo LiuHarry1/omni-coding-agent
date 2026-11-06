@@ -74,6 +74,7 @@ import {
   filterCloudMCPServers,
   resolveTurnWorkspaceScope,
 } from '../../services/cloud-workspaces/turn-scope.js'
+import { setToolResultsHostOnly } from '../../services/tool-storage/index.js'
 
 export type ForkSkillSlashResult = {
   kind: 'run'
@@ -241,6 +242,7 @@ export async function prepareChatTurn(
   const cloudSession = cloudWorkspaceId !== null
   const remote = turnScope.remote
   const extensionCwd = turnScope.extensionCwd
+  setToolResultsHostOnly(session.id, remote)
   if (isCloudWorkspacesEnabled() && !cloudSession) {
     throw new Error(
       'This chat is not bound to a cloud workspace. Start a new chat in a workspace.',
@@ -459,26 +461,25 @@ export async function prepareChatTurn(
     sessionId: session.id,
     session,
     cwd,
-    // Cloud cwd is a POSIX path inside the container, the real boundary; SSH
-    // keeps the local root because a Win32 control plane mangles POSIX paths.
-    permissionContext: createFilesystemPermissionContext(
-      remote && !cloudSession ? extensionCwd : cwd,
-      {
-        extraReadRoots:
-          memoryBinding.roots.read.length > 0
-            ? memoryBinding.roots.read
-            : undefined,
-        extraWriteRoots:
-          memoryBinding.roots.write.length > 0
-            ? memoryBinding.roots.write
-            : undefined,
-        ...permOpts,
-        additionalWorkingDirectories: [
-          ...(permOpts.additionalWorkingDirectories ?? []),
-          ...(session.additionalWorkingDirectories ?? []),
-        ],
-      },
-    ),
+    // Tool inputs resolve against the remote cwd with host path semantics, so
+    // the root must too or every remote path lands outside it. SSH keeps the
+    // host extension dir (skills, agent memory) as an extra working directory.
+    permissionContext: createFilesystemPermissionContext(cwd, {
+      extraReadRoots:
+        memoryBinding.roots.read.length > 0
+          ? memoryBinding.roots.read
+          : undefined,
+      extraWriteRoots:
+        memoryBinding.roots.write.length > 0
+          ? memoryBinding.roots.write
+          : undefined,
+      ...permOpts,
+      additionalWorkingDirectories: [
+        ...(permOpts.additionalWorkingDirectories ?? []),
+        ...(session.additionalWorkingDirectories ?? []),
+        ...(remote && !cloudSession ? [extensionCwd] : []),
+      ],
+    }),
     execution,
   }
 

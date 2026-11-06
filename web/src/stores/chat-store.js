@@ -73,17 +73,44 @@ function syncSessionPickerSelection(get, { mode, agentType }) {
   }
 }
 
-function applyLocalPickerSelection(set, { mode, agentType }) {
-  if (agentType) {
-    localStorage.setItem('coding_agent_type', agentType)
-    localStorage.setItem('coding_agent_mode', 'agent')
-    set({ agentMode: 'agent', agentType })
-  } else {
-    localStorage.setItem('coding_agent_mode', mode || 'agent')
-    localStorage.removeItem('coding_agent_type')
-    set({ agentMode: mode || 'agent', agentType: null })
-  }
+/** Mode/agent a brand-new chat starts with: the workspace picker default. */
+function pickerDefaultSelection(picker) {
+  const def = picker?.default ?? { mode: 'agent', agentType: null }
+  const agentType = def.agentType ?? null
+  return { agentMode: agentType ? 'agent' : def.mode || 'agent', agentType }
 }
+
+/** Identifies the workspace a picker allowlist was loaded for. */
+function pickerKey(handle) {
+  return handle?.environmentId && handle?.cwd
+    ? `${handle.environmentId}\u0000${handle.cwd}`
+    : null
+}
+
+/**
+ * Snap mode/agent to the picker default when the current selection is outside
+ * the allowlist, and sync the live session when there is one.
+ */
+function snapSelectionToPicker(set, get, picker) {
+  const { agentMode, agentType } = get()
+  if (
+    isModeAllowedByPicker(picker, agentMode) &&
+    isAgentTypeAllowedByPicker(picker, agentType)
+  ) {
+    return
+  }
+  const selection = pickerDefaultSelection(picker)
+  set(selection)
+  syncSessionPickerSelection(get, {
+    mode: selection.agentMode,
+    agentType: selection.agentType,
+  })
+}
+
+// Mode used to be remembered globally, so one Ask session leaked Ask into
+// every new chat. It is per-session now; drop the stale keys.
+localStorage.removeItem('coding_agent_mode')
+localStorage.removeItem('coding_agent_type')
 
 export const useChatStore = create((set, get) => {
   const mutators = createAssistantMutators(set, get)
@@ -133,11 +160,15 @@ export const useChatStore = create((set, get) => {
     theme: localStorage.getItem('coding_agent_theme') || 'dark',
 
     // ── Agent mode (Agent / Ask / Plan) ─────────
-    agentMode: localStorage.getItem('coding_agent_mode') || 'agent',
+    agentMode: 'agent',
     /** Main-thread primary agent profile (null = default Agent). */
-    agentType: localStorage.getItem('coding_agent_type') || null,
+    agentType: null,
     /** Last picker allowlist from GET /agents (workspace-scoped). */
     agentPicker: null,
+    /** `pickerKey` of the workspace `agentPicker` was loaded for. */
+    agentPickerFor: null,
+    /** User picked a mode/agent in a chat that has no session yet. */
+    draftSelectionChosen: false,
     /** Primary rows for ModePicker UI (id/label/desc). */
     agentPickerPrimaries: [],
     agentPickerLoaded: false,
@@ -155,8 +186,9 @@ export const useChatStore = create((set, get) => {
 
     /**
      * Apply workspace picker from GET /agents.
-     * If current mode/agentType is outside the allowlist, snap to picker.default
-     * and sync the live session when present.
+     * A new chat the user has not touched starts at picker.default; otherwise
+     * a mode/agentType outside the allowlist snaps to picker.default and the
+     * live session is synced when present.
      */
     applyAgentPicker: picker => {
       if (!picker || typeof picker !== 'object') return
@@ -168,22 +200,11 @@ export const useChatStore = create((set, get) => {
       const allowlist = { modes, primaries, default: def }
       set({ agentPicker: allowlist })
 
-      const { agentMode, agentType } = get()
-      const modeOk = isModeAllowedByPicker(allowlist, agentMode)
-      const typeOk = isAgentTypeAllowedByPicker(allowlist, agentType)
-
-      if (!modeOk || !typeOk) {
-        const nextMode = def.mode || 'agent'
-        const nextType = def.agentType ?? null
-        applyLocalPickerSelection(set, {
-          mode: nextType ? 'agent' : nextMode,
-          agentType: nextType,
-        })
-        syncSessionPickerSelection(get, {
-          mode: nextType ? 'agent' : nextMode,
-          agentType: nextType,
-        })
+      if (!get().currentSessionId && !get().draftSelectionChosen) {
+        set(pickerDefaultSelection(allowlist))
+        return
       }
+      snapSelectionToPicker(set, get, allowlist)
     },
 
     /** Fetch GET /agents and populate picker + ModePicker rows. */
@@ -209,6 +230,7 @@ export const useChatStore = create((set, get) => {
           default: picker?.default ?? { mode: 'agent', agentType: null },
         })
         set({
+          agentPickerFor: pickerKey(target),
           agentPickerPrimaries: primariesUi,
           agentPickerLoaded: true,
         })
@@ -219,6 +241,7 @@ export const useChatStore = create((set, get) => {
             primaries: [],
             default: { mode: 'agent', agentType: null },
           },
+          agentPickerFor: pickerKey(target),
           agentPickerPrimaries: [],
           agentPickerLoaded: true,
         })
@@ -228,11 +251,11 @@ export const useChatStore = create((set, get) => {
     setAgentMode: mode => {
       const picker = get().agentPicker
       if (picker && !isModeAllowedByPicker(picker, mode)) return
+      if (!get().currentSessionId) set({ draftSelectionChosen: true })
 
       const specialistOnly = isSpecialistOnlyPicker(picker)
       // Specialist-only: stay on agent permission but keep current primary.
       if (specialistOnly && mode === 'agent') {
-        localStorage.setItem('coding_agent_mode', 'agent')
         set({ agentMode: 'agent' })
         const { currentSessionId, agentType } = get()
         const { workspace } = workspaceSnapshot()
@@ -257,8 +280,6 @@ export const useChatStore = create((set, get) => {
         return
       }
 
-      localStorage.setItem('coding_agent_mode', mode)
-      localStorage.removeItem('coding_agent_type')
       set({ agentMode: mode, agentType: null })
       const { currentSessionId } = get()
       const { workspace } = workspaceSnapshot()
@@ -286,12 +307,10 @@ export const useChatStore = create((set, get) => {
       const next = agentType || null
       const picker = get().agentPicker
       if (picker && !isAgentTypeAllowedByPicker(picker, next)) return
+      if (!get().currentSessionId) set({ draftSelectionChosen: true })
       if (next) {
-        localStorage.setItem('coding_agent_type', next)
-        localStorage.setItem('coding_agent_mode', 'agent')
         set({ agentType: next, agentMode: 'agent' })
       } else {
-        localStorage.removeItem('coding_agent_type')
         set({ agentType: null })
       }
       const { currentSessionId } = get()
@@ -366,9 +385,6 @@ export const useChatStore = create((set, get) => {
       })
       if (opts.approved) {
         const nextMode = opts.targetMode || 'agent'
-        if (['agent', 'ask', 'plan'].includes(nextMode)) {
-          localStorage.setItem('coding_agent_mode', nextMode)
-        }
         set({
           agentMode: nextMode,
           agentType: null,
@@ -585,7 +601,11 @@ export const useChatStore = create((set, get) => {
               .find(Boolean) || newId()
           : null
         const runAbortController = isActiveRun ? new AbortController() : null
+        const sessionSelection = ['agent', 'ask', 'plan'].includes(data.mode)
+          ? { agentMode: data.mode, agentType: data.agentType ?? null }
+          : {}
         set({
+          ...sessionSelection,
           bubbleOrder: next.bubbleOrder,
           bubblesById: next.bubblesById,
           activeTurnId: resumedTurnId,
@@ -597,6 +617,17 @@ export const useChatStore = create((set, get) => {
           runConnectionStatus: isActiveRun ? 'connected' : 'idle',
           liveNeeded: tasks.length > 0,
         })
+        // A picker loaded for another workspace would snap (and sync) against
+        // the wrong allowlist; the pending reload validates via applyAgentPicker.
+        const { agentPicker, agentPickerLoaded, agentPickerFor } = get()
+        if (
+          agentPicker &&
+          agentPickerLoaded &&
+          agentPickerFor &&
+          agentPickerFor === pickerKey(workspaceSnapshot().handle)
+        ) {
+          snapSelectionToPicker(set, get, agentPicker)
+        }
         if (isActiveRun && runAbortController) {
           get()._setThinking()
           void (async () => {
@@ -667,6 +698,8 @@ export const useChatStore = create((set, get) => {
       void useWorkspaceContextStore.getState().syncFromSession(null)
       localStorage.removeItem('coding_agent_session_id')
       set({
+        ...pickerDefaultSelection(get().agentPicker),
+        draftSelectionChosen: false,
         currentSessionId: null,
         sessionReadOnly: false,
         viewingOwnerEmail: null,
@@ -954,15 +987,11 @@ export const useChatStore = create((set, get) => {
             meta.permissionMode === 'plan' &&
             get().planState?.status === 'building'
           if (!skipPlanSnap) {
-            localStorage.setItem('coding_agent_mode', meta.permissionMode)
             set({ agentMode: meta.permissionMode })
           }
         }
         if (meta.agentType !== undefined) {
-          const nextType = meta.agentType || null
-          if (nextType) localStorage.setItem('coding_agent_type', nextType)
-          else localStorage.removeItem('coding_agent_type')
-          set({ agentType: nextType })
+          set({ agentType: meta.agentType || null })
         }
       } catch (err) {
         if (ownsTurn() && err.name !== 'AbortError') {

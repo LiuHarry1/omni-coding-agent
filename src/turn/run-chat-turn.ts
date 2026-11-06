@@ -90,6 +90,7 @@ import {
   resolveChatAttachments,
   type ChatAttachmentRef,
 } from '../utils/attachments/from-chat-upload.js'
+import { createShellAttachmentStager } from '../utils/attachments/stage-for-shell.js'
 import {
   checkpointDurableRun,
   prepareDurableRunOpening,
@@ -307,6 +308,7 @@ export async function runChatTurn(
     const resolved = await resolveChatAttachments(attachments, {
       sessionId: session.id,
       provider,
+      stageForShell: createShellAttachmentStager(session.workspace, session.id),
     })
     // Degraded attachments already carry an explanation in their prelude
     // message, so the model can tell the user; the log is for operators.

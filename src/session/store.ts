@@ -14,6 +14,7 @@ import { createDefaultPermissionMode } from '../core/permission-mode.js'
 import { resetSessionMemoryState } from '../services/session-memory/state.js'
 import { resetAutoMemoryState } from '../services/auto-memory/state.js'
 import { resetMicroCompactState } from '../services/compact/microCompact.js'
+import { setToolResultsHostOnly } from '../services/tool-storage/index.js'
 import { removeTasksForSession } from '../services/cron/store.js'
 import { removeRunsForSession } from '../services/runs/run-store.js'
 import {
@@ -504,6 +505,7 @@ export function deleteSession(id: string): void {
   resetSessionMemoryState(id)
   resetAutoMemoryState(id)
   resetMicroCompactState(id)
+  setToolResultsHostOnly(id, false)
   try {
     removeTasksForSession(id)
   } catch (err) {
@@ -524,6 +526,7 @@ export function forgetSession(id: string): void {
   resetSessionMemoryState(id)
   resetAutoMemoryState(id)
   resetMicroCompactState(id)
+  setToolResultsHostOnly(id, false)
 }
 
 export function appendMessage(sessionId: string, message: Message): void {

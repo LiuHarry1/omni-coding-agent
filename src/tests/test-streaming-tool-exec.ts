@@ -3,7 +3,7 @@
  */
 import assert from 'node:assert/strict'
 import { StreamingToolExecutor } from '../services/tools/StreamingToolExecutor.js'
-import { allowAllTools } from '../core/can-use-tool.js'
+import { allowAllTools, type CanUseToolFn } from '../core/can-use-tool.js'
 import { createAbortController } from '../utils/abortController.js'
 import type { ToolUseContext } from '../core/agent/tool-use-context.js'
 import type { AnyTool, ToolDefinition } from '../core/types.js'
@@ -158,6 +158,35 @@ async function main(): Promise<void> {
   assert.match(stopped[0]!.result, /tick 2/)
   assert.doesNotMatch(stopped[0]!.result, /rejected/i)
   console.log('[ok] interrupted tool keeps its partial output')
+
+  // One parallel call denied while its sibling still awaits approval.
+  const gate: CanUseToolFn = async (_name, input) => {
+    if ((input as { id: number }).id === 1) {
+      return { behavior: 'deny', message: 'User rejected Read' }
+    }
+    await sleep(50)
+    return { behavior: 'allow' }
+  }
+  const denyCtx: ToolUseContext = {
+    tools: overlapTools,
+    wire: noopWire,
+    abortController: createAbortController(),
+    concurrencyPolicy: () => true,
+    getDefinition: name => defs[name],
+  }
+  const denyExec = new StreamingToolExecutor(gate, denyCtx)
+  denyExec.addTool({ toolCallId: 'd1', toolName: 'Read', input: { id: 1 } })
+  denyExec.addTool({ toolCallId: 'd2', toolName: 'Read', input: { id: 2 } })
+  const denied = []
+  for await (const r of denyExec.getRemainingResults()) denied.push(r)
+  assert.deepEqual(
+    denied.map(r => [r.toolCallId, r.result]),
+    [
+      ['d1', 'User rejected Read'],
+      ['d2', 'read-2'],
+    ],
+  )
+  console.log('[ok] denied call does not stall a sibling awaiting approval')
 }
 
 void main().catch(err => {

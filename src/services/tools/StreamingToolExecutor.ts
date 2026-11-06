@@ -330,13 +330,15 @@ export class StreamingToolExecutor {
 
       tool.status = 'completed'
       this.#updateInterruptibleState()
+    }
+
+    // Every exit path (deny, pre-run abort, normal) must clear the waiter, or
+    // getRemainingResults stops awaiting and spins the event loop.
+    tool.promise = run().finally(() => {
       if (this.#progressResolve) {
         this.#progressResolve()
         this.#progressResolve = undefined
       }
-    }
-
-    tool.promise = run().finally(() => {
       this.#processQueue()
     })
   }

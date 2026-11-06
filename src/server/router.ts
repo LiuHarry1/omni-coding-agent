@@ -409,6 +409,8 @@ export function createRouter({ staticDir }: RouterOptions) {
         )
         sendJSON(res, 200, {
           messages: sessionJsonlToUIMessages(id),
+          mode: session.permissionMode?.mode ?? 'agent',
+          agentType: session.agentType ?? null,
           active_run: activeRun
             ? {
                 run_id: activeRun.runId,

@@ -27,6 +27,13 @@ import {
 import { toModelFilePath } from '../utils/attachments/attachment-to-messages.js'
 import { resolveChatAttachments } from '../utils/attachments/from-chat-upload.js'
 import {
+  createShellAttachmentStager,
+  environmentUploadsDir,
+} from '../utils/attachments/stage-for-shell.js'
+import { ShellFsPort } from '../execution/shell-fs.js'
+import { getAppDirName } from '../utils/app-dir.js'
+import { FILE_READ_TOOL_NAME } from '../constants/tool_names.js'
+import {
   summarizeDelimitedFile,
   splitDelimitedLine,
 } from '../utils/attachments/tabular-summary.js'
@@ -36,6 +43,7 @@ import { attachmentKind as clientAttachmentKind } from '../../web/src/lib/compos
 import { messagesToBubbles } from '../../web/src/lib/bubbles/messages-to-bubbles.js'
 import type { IProvider } from '../core/llm/types.js'
 import type { Message } from '../core/types.js'
+import { buildUserMessage } from '../core/query/helpers.js'
 
 const SESSION_ID = '11111111-2222-3333-4444-555555555555'
 const agentHome = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-att-'))
@@ -273,6 +281,35 @@ try {
     { role: 'user', content: 'inspect these files', files: resolved.files },
   ]) as Array<{ type: string; files?: unknown[] }>
   assert.equal(ui[0]?.files?.length, 4, 'session UI must preserve file chips')
+
+  const expandedSkillMessage = buildUserMessage(
+    'Base directory for this skill: /tmp/demo\n\nFull private skill body',
+    undefined,
+    false,
+    undefined,
+    '/demo-skill do the task',
+  )
+  const skillUi = sessionToUIMessages([expandedSkillMessage]) as Array<{
+    type: string
+    content?: string
+  }>
+  assert.equal(
+    skillUi[0]?.content,
+    '/demo-skill do the task',
+    'session reload must show the original slash invocation, not expanded skill body',
+  )
+  const legacySkillUi = sessionToUIMessages([
+    {
+      role: 'user',
+      content:
+        'Base directory for this skill: /workspace/.ai-agent/skills/demo-skill\n\nPrivate body\n\n---\n\nUser request: do the task',
+    },
+  ]) as Array<{ type: string; content?: string }>
+  assert.equal(
+    legacySkillUi[0]?.content,
+    '/demo-skill do the task',
+    'legacy expanded skill turns should recover a compact slash invocation',
+  )
   const bubbles = messagesToBubbles(ui)
   const restored = bubbles.bubblesById[bubbles.bubbleOrder[0]!] as {
     files?: unknown[]
@@ -422,6 +459,132 @@ try {
   assert.ok(fallbackPdf.preludeMessages.length >= 1)
   assert.ok(renderedText(fallbackPdf.preludeMessages).includes('invoice.pdf'))
   console.log('[ok] pdf: native document part + non-native fallback')
+
+  // ── SSH / cloud: copy into the environment where the shell runs ──
+  assert.equal(createShellAttachmentStager(undefined, SESSION_ID), undefined)
+  assert.equal(
+    createShellAttachmentStager(
+      { environmentId: 'local', cwd: agentHome },
+      SESSION_ID,
+    ),
+    undefined,
+    'local turns share the host disk and need no copy',
+  )
+  const appDir = getAppDirName()
+  assert.equal(
+    environmentUploadsDir('cloud:e8068665c61c6cfe', SESSION_ID),
+    `/workspace/${appDir}/uploads/${SESSION_ID}`,
+    'cloud uploads must live on the persistent volume',
+  )
+  assert.equal(
+    environmentUploadsDir('ssh:dev', SESSION_ID),
+    `~/${appDir}/uploads/${SESSION_ID}`,
+  )
+
+  const remoteRoot = `/home/dev/${appDir}/uploads/${SESSION_ID}`
+  const written = new Map<string, Buffer>()
+  const modes = new Set<number | undefined>()
+  const made: string[] = []
+  const scripts: string[] = []
+  const fakePort = Object.assign(Object.create(ShellFsPort.prototype), {
+    mkdir: async (dir: string) => {
+      made.push(dir)
+    },
+    run: async (script: string) => {
+      scripts.push(script)
+      return { stdout: Buffer.alloc(0), stderr: '', code: 0 }
+    },
+    realpath: async () => remoteRoot,
+    writeFileAtomic: async (
+      dest: string,
+      data: NodeJS.ReadableStream,
+      opts: { mode?: number } = {},
+    ) => {
+      const chunks: Buffer[] = []
+      for await (const chunk of data) chunks.push(Buffer.from(chunk))
+      written.set(dest, Buffer.concat(chunks))
+      modes.add(opts.mode)
+    },
+  }) as ShellFsPort
+  let opened = 0
+  const sshStager = createShellAttachmentStager(
+    { environmentId: 'ssh:dev', cwd: '/home/dev/repo' },
+    SESSION_ID,
+    {
+      openFs: async () => {
+        opened++
+        return fakePort
+      },
+    },
+  )
+  assert.ok(sshStager)
+
+  const remote = await resolveChatAttachments(
+    [
+      { url: docx.url, filename: docx.originalName, mediaType: docx.mediaType },
+      { url: csv.url, filename: csv.originalName, mediaType: csv.mediaType },
+    ],
+    { sessionId: SESSION_ID, provider, stageForShell: sshStager },
+  )
+  assert.equal(opened, 1, 'one connection + mkdir per turn, not per file')
+  assert.deepEqual(made, [`~/${appDir}/uploads/${SESSION_ID}`])
+  assert.deepEqual(
+    scripts,
+    [`chmod 700 "$HOME"/'${appDir}/uploads/${SESSION_ID}'`],
+    'the per-session uploads dir is private to the remote user',
+  )
+  assert.deepEqual(
+    [...modes],
+    [0o600],
+    'staged copies are readable only by the remote user',
+  )
+  const remoteDocx = `${remoteRoot}/${docx.fileName}`
+  const remoteCsv = `${remoteRoot}/${csv.fileName}`
+  assert.deepEqual(
+    written.get(remoteDocx),
+    fs.readFileSync(docx.absPath),
+    'bytes reach the remote copy unchanged',
+  )
+  assert.ok(written.has(remoteCsv), 'text attachments are copied too')
+  const remoteText = renderedText(remote.preludeMessages)
+  assert.ok(
+    remoteText.includes(`The file is saved at ${remoteDocx}`),
+    'binary attachment points the shell at the remote copy',
+  )
+  assert.ok(
+    !remoteText.includes(
+      `The file is saved at ${toModelFilePath(docx.absPath)}`,
+    ),
+    'binary attachment must not point the shell at the host path',
+  )
+  assert.ok(
+    remoteText.includes(`Full file on disk: ${remoteCsv}`),
+    'tabular summary points processing at the remote copy',
+  )
+  assert.ok(
+    remoteText.includes(
+      `Use ${toModelFilePath(csv.absPath)} only with ${FILE_READ_TOOL_NAME}`,
+    ),
+    'Read keeps the host path, which it can serve in every environment',
+  )
+
+  const failing = await resolveChatAttachments(
+    [{ url: docx.url, filename: docx.originalName, mediaType: docx.mediaType }],
+    {
+      sessionId: SESSION_ID,
+      provider,
+      stageForShell: async () => {
+        throw new Error('container is not running')
+      },
+    },
+  )
+  const failingText = renderedText(failing.preludeMessages)
+  assert.ok(failingText.includes('could not be copied into the workspace'))
+  assert.ok(failingText.includes('container is not running'))
+  assert.ok(
+    failing.warnings.some(w => w.includes('copy into the workspace failed')),
+  )
+  console.log('[ok] ssh/cloud: attachments copied where the shell runs')
 } finally {
   clearSessionLocationCache()
   fs.rmSync(agentHome, { recursive: true, force: true })

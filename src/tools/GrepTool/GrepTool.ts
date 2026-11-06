@@ -11,7 +11,6 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import { stat } from 'fs/promises'
-import * as path from 'path'
 import { ripGrep } from '../../utils/ripgrep.js'
 import { resolvePath } from '../utils.js'
 import {
@@ -29,6 +28,10 @@ import { AGENT_TOOL_NAME, GREP_TOOL_NAME } from '../../constants/tool_names.js'
 import { getAvailableShellToolNames } from '../../core/shell/shell-utils.js'
 import { buildRgExcludeGlobs } from '../../constants/file_filters.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import {
+  displayPathFromCwd,
+  readsFromAgentHost,
+} from '../../execution/fs-route.js'
 
 const DEFAULT_HEAD_LIMIT = 250
 
@@ -242,8 +245,7 @@ async function enrichFilesWithCounts(
       const abs = line.slice(0, colonIndex)
       const count = parseInt(line.slice(colonIndex + 1), 10)
       if (Number.isNaN(count)) continue
-      const rel = path.relative(cwd, abs).replaceAll('\\', '/') || abs
-      byRel.set(rel, count)
+      byRel.set(displayPathFromCwd(cwd, abs), count)
     }
     return relativePaths.map(p => ({
       path: p,
@@ -478,13 +480,15 @@ export const definition: ToolDefinition = {
 
         const execution = toolContext.execution
         // Local Worker uses native ripGrep below. Remote (SSH) uses Worker
-        // `rg` RPC — argv spawn, exit 0/1 = success.
+        // `rg` RPC — argv spawn, exit 0/1 = success. Agent-host harness
+        // files are searched natively in every environment.
         const useRemoteRg =
           !!execution &&
           !(
             isWorkerExecutionBackend(execution) &&
             execution.environmentId === 'local'
-          )
+          ) &&
+          !readsFromAgentHost(inputPath)
         if (useRemoteRg && execution) {
           try {
             const abs = execution.resolve(cwd, inputPath ?? '.')
@@ -609,10 +613,7 @@ export const definition: ToolDefinition = {
           return `Error: ${e instanceof Error ? e.message : String(e)}`
         }
 
-        const toRelative = (abs: string): string => {
-          const rel = path.relative(cwd, abs)
-          return (rel === '' ? abs : rel).replaceAll('\\', '/')
-        }
+        const toRelative = (abs: string): string => displayPathFromCwd(cwd, abs)
 
         if (output_mode === 'content') {
           const { items: limitedResults, appliedLimit } = applyHeadLimit(

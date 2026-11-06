@@ -73,22 +73,16 @@ export function applySseEvent(data, { set, get, mutators: m }) {
         case 'init':
           if (data.session_id) store.setSessionId(data.session_id)
           if (data.permission_mode) {
-            localStorage.setItem('coding_agent_mode', data.permission_mode)
             set({ agentMode: data.permission_mode })
           }
           if (data.agent_type !== undefined) {
-            const nextType = data.agent_type || null
-            if (nextType) localStorage.setItem('coding_agent_type', nextType)
-            else localStorage.removeItem('coding_agent_type')
-            set({ agentType: nextType })
+            set({ agentType: data.agent_type || null })
           }
           break
         case 'mode_changed':
           if (data.mode) {
-            localStorage.setItem('coding_agent_mode', data.mode)
             const patch = { agentMode: data.mode }
             if (data.mode === 'ask' || data.mode === 'plan') {
-              localStorage.removeItem('coding_agent_type')
               patch.agentType = null
             }
             set(patch)

@@ -115,16 +115,31 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
     case 'already_read_file':
       return fileAttachmentToMessages(attachment)
 
-    case 'uploaded_binary':
+    case 'uploaded_binary': {
+      const intro =
+        `The user attached ${attachment.displayPath} (${attachment.mediaType}, ${formatFileSize(attachment.fileSize)}). ` +
+        `Its contents cannot be shown inline.`
+      if (attachment.shellCopyError) {
+        return [
+          metaUserMessage(
+            `${intro} It could not be copied into the workspace where ${getDefaultShellToolName()} runs ` +
+              `(${attachment.shellCopyError}), so shell commands cannot open it. ` +
+              `Tell the user and ask them to re-attach the file or upload it into the workspace.`,
+          ),
+        ]
+      }
+      const diskPath = toModelFilePath(
+        attachment.shellPath ?? attachment.filename,
+      )
       return [
         metaUserMessage(
-          `The user attached ${attachment.displayPath} (${attachment.mediaType}, ${formatFileSize(attachment.fileSize)}). ` +
-            `Its contents cannot be shown inline. The file is saved at ${toModelFilePath(attachment.filename)} — ` +
+          `${intro} The file is saved at ${diskPath} — ` +
             `copy or process that on-disk path (do not rebuild it from the original filename). ` +
             `Use ${getDefaultShellToolName()} to inspect or convert it (for example a Python one-liner with python-docx, openpyxl, or python-pptx) ` +
             `before answering questions about it.`,
         ),
       ]
+    }
 
     case 'pdf_reference':
       return [

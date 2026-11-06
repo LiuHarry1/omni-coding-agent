@@ -215,10 +215,10 @@ async function setInitialMode(
     })
     .click()
   await page.waitForFunction(
-    expectedMode =>
-      localStorage.getItem('coding_agent_mode') === expectedMode &&
-      !localStorage.getItem('coding_agent_type'),
-    INITIAL_MODE,
+    expectedLabel =>
+      document.querySelector('.mode-pill__label')?.textContent ===
+      expectedLabel,
+    INITIAL_MODE[0]!.toUpperCase() + INITIAL_MODE.slice(1),
   )
   const response = await api<{ mode: string }>(
     page,
