@@ -3,6 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { registerSessionLocation } from '../../core/session-paths.js'
+import { _setCronStorePathForTest } from '../cron/store.js'
 import { deleteSession, forgetSession } from '../../session/index.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
 import {
@@ -118,15 +119,25 @@ describe('host-only MCP results are rendered for Read and Grep', () => {
 
 describe('host-only flag lifetime', () => {
   it('is dropped when the session is deleted or forgotten', () => {
-    inScope(() => {
-      setToolResultsHostOnly('cloud', true)
-      deleteSession('cloud')
-      expect(isToolResultsHostOnly('cloud')).toBe(false)
+    // deleteSession prunes the process-wide cron store; keep it off real disk.
+    const cronDir = fs.mkdtempSync(path.join(os.tmpdir(), 'baize-mcp-cron-'))
+    cleanup.push(cronDir)
+    _setCronStorePathForTest(path.join(cronDir, 'scheduled_tasks.json'))
+    try {
+      inScope(() => {
+        setToolResultsHostOnly('cloud', true)
+        deleteSession('cloud')
+        expect(isToolResultsHostOnly('cloud')).toBe(false)
 
-      setToolResultsHostOnly('local-inline', true)
-      forgetSession('local-inline')
-      expect(isToolResultsHostOnly('local-inline')).toBe(false)
-    })
+        setToolResultsHostOnly('local-inline', true)
+        forgetSession('local-inline')
+        expect(isToolResultsHostOnly('local-inline')).toBe(false)
+      })
+    } finally {
+      _setCronStorePathForTest(null)
+      setToolResultsHostOnly('cloud', false)
+      setToolResultsHostOnly('local-inline', false)
+    }
   })
 })
 
