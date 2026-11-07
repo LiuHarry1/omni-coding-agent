@@ -16,6 +16,7 @@ function backend(): ExecutionBackend {
     resolve: vi.fn((cwd, filePath) => path.posix.resolve(cwd, filePath)),
     assertInWorkspace: vi.fn(),
     readText: vi.fn(async () => 'container file'),
+    readBytes: vi.fn(),
     writeText: vi.fn(),
     mkdirp: vi.fn(),
     exists: vi.fn(),

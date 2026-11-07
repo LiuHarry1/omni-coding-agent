@@ -21,6 +21,11 @@ import {
   readTextFromString,
 } from '../../utils/read/index.js'
 import type { ReadFileState } from '../../utils/read/types.js'
+import {
+  isBinaryText,
+  needsRemoteBytes,
+  readRemoteFileViaHost,
+} from '../../utils/read/read-remote.js'
 import { readsFromAgentHost } from '../../execution/fs-route.js'
 import {
   assertAccessibleResolved,
@@ -109,7 +114,7 @@ export const definition: ToolDefinition = {
         const state = sessionReadFileState(context)
         const execution = context.execution
         // Local worker still has real disk mtime — use the FS path below for
-        // dedup + images/PDF. Only remote environments use readText RPC.
+        // dedup + images/PDF. Only remote environments use Worker RPC.
         // Agent-host harness files (tool-results, uploads, …) are not in the
         // workspace; `readsFromAgentHost` sends them to the FS path below.
         if (execution && execution.environmentId !== 'local') {
@@ -117,11 +122,23 @@ export const definition: ToolDefinition = {
             try {
               const abs = execution.resolve(cwd, file_path)
               execution.assertInWorkspace(cwd, abs, 'read')
-              if (pages) {
-                return 'Error: PDF page reads are not supported over SSH yet. Use bash to inspect PDFs remotely.'
+              if (needsRemoteBytes(abs)) {
+                const { output, followUpMessages } =
+                  await readRemoteFileViaHost(execution, abs, file_path, {
+                    offset,
+                    limit,
+                    pages,
+                    sessionId: context.sessionId,
+                    supportsNativePdf:
+                      context.provider?.supportsNativePdf?.() === true,
+                  })
+                return { data: output, newMessages: followUpMessages }
               }
               // Remote FS: no reliable local mtime — skip dedup; share slice/gates.
               const text = await execution.readText(abs)
+              if (isBinaryText(text)) {
+                return `Error: binary file detected — cannot display ${file_path}`
+              }
               return {
                 data: readTextFromString(text, file_path, { offset, limit }),
               }

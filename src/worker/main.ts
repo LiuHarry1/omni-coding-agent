@@ -103,6 +103,19 @@ async function runFsOp(op: WorkerFsOp, requestId: string): Promise<unknown> {
   switch (op.op) {
     case 'readText':
       return fs.promises.readFile(op.path, 'utf-8')
+    case 'readBytes': {
+      const stat = await fs.promises.stat(op.path)
+      if (stat.isDirectory()) {
+        throw new Error(`${op.path} is a directory, not a file`)
+      }
+      if (stat.size > op.maxBytes) {
+        throw new Error(
+          `File is too large to read (${stat.size} bytes; max ${op.maxBytes})`,
+        )
+      }
+      const buf = await fs.promises.readFile(op.path)
+      return { base64: buf.toString('base64') }
+    }
     case 'writeText': {
       await fs.promises.mkdir(path.dirname(op.path), { recursive: true })
       await fs.promises.writeFile(op.path, op.content, 'utf-8')

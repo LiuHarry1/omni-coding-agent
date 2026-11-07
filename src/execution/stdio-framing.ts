@@ -2,6 +2,7 @@
  * NDJSON framing for RuntimePort over stdio (one JSON object per line).
  */
 import type { Readable, Writable } from 'stream'
+import { StringDecoder } from 'string_decoder'
 import type {
   RuntimeClientMessage,
   RuntimeServerMessage,
@@ -22,13 +23,18 @@ export function onNdjsonLines(
   onMessage: (msg: AnyRuntimeMessage) => void,
   onError?: (err: Error) => void,
 ): () => void {
-  let buf = ''
+  // Multi-MB lines (readBytes base64) arrive in many chunks: keep partial
+  // pieces in an array and only scan the newest chunk, so a line costs O(n).
+  const decoder = new StringDecoder('utf8')
+  let partial: string[] = []
   const onData = (chunk: Buffer | string) => {
-    buf += typeof chunk === 'string' ? chunk : chunk.toString('utf8')
+    let rest = typeof chunk === 'string' ? chunk : decoder.write(chunk)
     let idx: number
-    while ((idx = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, idx).replace(/\r$/, '')
-      buf = buf.slice(idx + 1)
+    while ((idx = rest.indexOf('\n')) >= 0) {
+      partial.push(rest.slice(0, idx))
+      rest = rest.slice(idx + 1)
+      const line = partial.join('').replace(/\r$/, '')
+      partial = []
       if (!line.trim()) continue
       try {
         onMessage(JSON.parse(line) as AnyRuntimeMessage)
@@ -40,6 +46,7 @@ export function onNdjsonLines(
         )
       }
     }
+    if (rest) partial.push(rest)
   }
   stream.on('data', onData)
   return () => {

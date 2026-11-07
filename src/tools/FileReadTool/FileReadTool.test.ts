@@ -4,6 +4,7 @@ import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
+import { registerSessionLocation } from '../../core/session-paths.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import { getAppDirName } from '../../utils/app-dir.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
@@ -69,5 +70,96 @@ describe('FileRead of host tool-results from a cloud workspace', () => {
 
     expect(remoteReads).toBe(0)
     expect(JSON.stringify(result)).toContain('full mcp output')
+  })
+})
+
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+  'base64',
+)
+
+describe('FileRead of binary files in a cloud workspace', () => {
+  function setup(files: Record<string, Buffer | string>) {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'baize-read-remote-'))
+    cleanup.push(home)
+    const sessionId = `remote-read-${Date.now()}-${Math.random()}`
+    registerSessionLocation(sessionId, { projectKey: 'cloud', agentHome: home })
+    const byteReads: string[] = []
+    const execution = {
+      kind: 'worker',
+      environmentId: 'cloud:abc',
+      resolve: (cwd: string, requested: string) =>
+        path.posix.resolve(cwd, requested),
+      assertInWorkspace: () => {},
+      readText: async (abs: string) => {
+        const file = files[abs]
+        if (file === undefined) throw new Error('missing remote file')
+        return Buffer.from(file).toString('utf8')
+      },
+      readBytes: async (abs: string) => {
+        byteReads.push(abs)
+        const file = files[abs]
+        if (file === undefined) throw new Error('missing remote file')
+        return Buffer.from(file)
+      },
+    } as unknown as ExecutionBackend
+    const tool = definition.create('/workspace/repo', {
+      eventBus: new EventBus(),
+      wire: noopWireEmitter,
+      execution,
+      sessionId,
+    })
+    const execute = tool.execute
+    if (!execute) throw new Error('FileRead has no execute')
+    const read = (file_path: string) =>
+      runWithRequestScope({ agentHome: home, cwd: '/workspace/repo' }, () =>
+        execute({ file_path }, { toolCallId: 'toolu_test', messages: [] }),
+      )
+    return { home, read, byteReads }
+  }
+
+  it('fetches image bytes and attaches the image as a follow-up', async () => {
+    const { read, byteReads } = setup({
+      '/workspace/repo/out/chart.png': PNG_1X1,
+    })
+
+    const result = (await read('out/chart.png')) as {
+      data: { type: string; file: { filePath: string } }
+      newMessages?: Array<{ content: Array<{ type: string }> }>
+    }
+
+    expect(byteReads).toEqual(['/workspace/repo/out/chart.png'])
+    expect(result.data.type).toBe('image')
+    expect(result.data.file.filePath).toBe('out/chart.png')
+    const parts = result.newMessages?.[0]?.content ?? []
+    expect(parts.some(part => part.type === 'image')).toBe(true)
+  })
+
+  it('parses notebooks from fetched bytes', async () => {
+    const notebook = JSON.stringify({
+      cells: [{ cell_type: 'code', source: ['print(1)'], outputs: [] }],
+      metadata: {},
+      nbformat: 4,
+      nbformat_minor: 5,
+    })
+    const { read } = setup({ '/workspace/repo/nb.ipynb': notebook })
+
+    const result = (await read('nb.ipynb')) as {
+      data: { type: string; file: { filePath: string } }
+    }
+
+    expect(result.data.type).toBe('notebook')
+    expect(result.data.file.filePath).toBe('nb.ipynb')
+  })
+
+  it('refuses binary content behind a text extension', async () => {
+    const { read, byteReads } = setup({
+      '/workspace/repo/dump.dat': Buffer.from([0x50, 0x4b, 0x03, 0x00, 0x14]),
+    })
+
+    const result = await read('dump.dat')
+
+    expect(byteReads).toEqual([])
+    expect(result).toBe('Error: binary file detected — cannot display dump.dat')
   })
 })

@@ -242,6 +242,15 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     return this.requestFs<string>({ op: 'readText', path: absPath })
   }
 
+  async readBytes(absPath: string, maxBytes: number): Promise<Buffer> {
+    const data = await this.requestFs<{ base64: string }>({
+      op: 'readBytes',
+      path: absPath,
+      maxBytes,
+    })
+    return Buffer.from(data.base64, 'base64')
+  }
+
   async writeText(absPath: string, content: string): Promise<void> {
     await this.requestFs<null>({ op: 'writeText', path: absPath, content })
   }

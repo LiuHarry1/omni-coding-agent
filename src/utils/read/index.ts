@@ -56,6 +56,8 @@ export interface ReadFileOptions {
    * FileReadTool: allow absolute paths outside cwd; sandbox still gates access.
    */
   allowOutsideWorkspace?: boolean
+  /** Path shown to the model when `filePath` is a host copy of a remote file. */
+  displayPath?: string
 }
 
 export interface ReadFileResult {
@@ -152,7 +154,8 @@ export async function readFileCore(
     allowOutsideWorkspace: options?.allowOutsideWorkspace,
   })
   if ('error' in resolved) throw new Error(resolved.error)
-  const { abs, displayPath } = resolved
+  const abs = resolved.abs
+  const displayPath = options?.displayPath ?? resolved.displayPath
   const ext = fileExtension(abs)
 
   if (isNotebookExtension(ext)) {

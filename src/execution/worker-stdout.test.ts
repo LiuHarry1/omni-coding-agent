@@ -8,6 +8,7 @@ import type {
   RuntimeClientMessage,
   RuntimeServerMessage,
 } from './runtime-protocol.js'
+import { WorkerExecutionBackend } from './worker-execution-backend.js'
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe
 
@@ -90,5 +91,39 @@ describePosix('real Worker stdout framing', () => {
 
     await expect(port.health()).resolves.toBe('ok')
     expect(errors).toEqual([])
+  }, 20_000)
+
+  it('round-trips multi-MB binary files through readBytes', async () => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'omni-worker-bytes-'))
+    child = spawn(
+      path.resolve('node_modules/.bin/tsx'),
+      ['src/worker/entry.ts', '--stdio'],
+      { cwd: path.resolve('.'), stdio: ['pipe', 'pipe', 'pipe'] },
+    )
+    if (!child.stdin || !child.stdout) {
+      throw new Error('Worker stdio was not created')
+    }
+    const workspace = { environmentId: 'local', cwd: dir }
+    port = new StdioRuntimePort({
+      workspace,
+      stdin: child.stdin,
+      stdout: child.stdout,
+      stderr: child.stderr ?? undefined,
+      child,
+    })
+    await bindStdioRuntime(port, workspace, 10_000)
+    const backend = new WorkerExecutionBackend('local', port, 'local', dir)
+
+    const bytes = Buffer.alloc(4 * 1024 * 1024)
+    for (let i = 0; i < bytes.length; i++) bytes[i] = (i * 31) & 0xff
+    const file = path.join(dir, 'chart.png')
+    fs.writeFileSync(file, bytes)
+
+    const read = await backend.readBytes(file, bytes.length)
+    expect(read.equals(bytes)).toBe(true)
+    await expect(backend.readBytes(file, bytes.length - 1)).rejects.toThrow(
+      /too large/,
+    )
+    backend.dispose()
   }, 20_000)
 })

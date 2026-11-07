@@ -15,6 +15,8 @@ export type PermissionDecision =
 /** Filesystem / shell ops executed inside the Worker. */
 export type WorkerFsOp =
   | { op: 'readText'; path: string }
+  /** Raw bytes as base64 (NDJSON carries strings only); rejects above maxBytes. */
+  | { op: 'readBytes'; path: string; maxBytes: number }
   | { op: 'writeText'; path: string; content: string }
   | { op: 'mkdirp'; path: string }
   | { op: 'exists'; path: string }

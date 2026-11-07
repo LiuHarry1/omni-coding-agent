@@ -24,6 +24,8 @@ export interface ExecutionBackend {
     access: 'read' | 'write',
   ): void
   readText(absPath: string): Promise<string>
+  /** Rejects when the file is larger than `maxBytes`. */
+  readBytes(absPath: string, maxBytes: number): Promise<Buffer>
   writeText(absPath: string, content: string): Promise<void>
   mkdirp(dirPath: string): Promise<void>
   exists(absPath: string): Promise<boolean>
