@@ -42,9 +42,7 @@ export function needsRemoteBytes(absPath: string): boolean {
  * UTF-8 decoding unchanged, so the local byte sniff still applies.
  */
 export function isBinaryText(text: string): boolean {
-  return isBinaryContent(
-    Buffer.from(text.slice(0, BINARY_SNIFF_CHARS), 'utf8'),
-  )
+  return isBinaryContent(Buffer.from(text.slice(0, BINARY_SNIFF_CHARS), 'utf8'))
 }
 
 function maxRemoteBytes(ext: string): number {
