@@ -92,6 +92,7 @@ async function testCommitPartialUsesMissingHelper() {
       text: 'Partial',
       toolCalls: [{ toolCallId: 'a', toolName: 'Read', input: { path: 'x' } }],
       toolResults: [],
+      completedCleanly: false,
       aborted: true,
     },
     wire,

@@ -21,6 +21,10 @@ export interface StreamResult {
     input: Record<string, unknown>
   }>
   toolResults: ExecutedToolResult[]
+  /** True only when the provider stream ended with a definitive finish event. */
+  completedCleanly: boolean
+  /** User-facing explanation when completedCleanly is false. */
+  completionError?: string
   /** True when the upstream stream was aborted mid-turn (salvage path). */
   aborted?: boolean
 }
@@ -84,6 +88,10 @@ export async function consumeStream(
   let reasoningStarted = false
   let streamError: unknown
   let hasStreamError = false
+  let streamAborted = false
+  let sawFinish = false
+  let finishReason: string | undefined
+  let rawFinishReason: string | undefined
 
   const previewStates = new Map<string, PreviewState>()
   const startedInputs = new Map<string, string | undefined>()
@@ -238,6 +246,16 @@ export async function consumeStream(
           streamError = event.error
           hasStreamError = true
           break
+
+        case 'abort':
+          streamAborted = true
+          break
+
+        case 'finish':
+          sawFinish = true
+          finishReason = event.finishReason
+          rawFinishReason = event.rawFinishReason
+          break
       }
       // Drain completed tool results after every stream event so
       // the UI sees tool_result while the model is still generating.
@@ -257,10 +275,29 @@ export async function consumeStream(
     for (const [id, toolName] of startedInputs.entries()) {
       synthesizePair(id, toolName ?? 'unknown', {}, 'Interrupted by user')
     }
-    return { text, toolCalls, toolResults, aborted: true }
+    return {
+      text,
+      toolCalls,
+      toolResults,
+      completedCleanly: false,
+      aborted: true,
+    }
   }
 
   flushReasoning()
+
+  if (streamAborted) {
+    for (const [id, toolName] of startedInputs.entries()) {
+      synthesizePair(id, toolName ?? 'unknown', {}, 'Interrupted by user')
+    }
+    return {
+      text,
+      toolCalls,
+      toolResults,
+      completedCleanly: false,
+      aborted: true,
+    }
+  }
 
   // Without content, the SDK's own rejection is a generic NoOutputGeneratedError
   // that hides the cause (e.g. context-length overflow), so the caller could
@@ -271,21 +308,56 @@ export async function consumeStream(
     if (!text && toolCalls.length === 0) {
       throw streamError
     }
-    wire.error(String(streamError))
   }
 
   drainStreamingResults(streamingExecutor, toolResults)
 
-  for (const [id, toolName] of startedInputs.entries()) {
-    synthesizePair(
-      id,
-      toolName ?? 'unknown',
-      {},
-      'Error: Tool call was started but never completed ' +
-        '(upstream stream interrupted before arguments finished — ' +
-        'likely a proxy timeout or the model hit its output token limit).',
-    )
+  const incompleteToolNames = [
+    ...new Set(
+      [...startedInputs.values()].map(toolName => toolName ?? 'unknown'),
+    ),
+  ]
+  const hasIncompleteToolInput = incompleteToolNames.length > 0
+  const hasAmbiguousFinish =
+    finishReason === 'other' && rawFinishReason === undefined
+  const completedCleanly =
+    sawFinish &&
+    !hasStreamError &&
+    !hasIncompleteToolInput &&
+    finishReason !== 'error' &&
+    !hasAmbiguousFinish
+
+  let completionError: string | undefined
+  if (hasIncompleteToolInput) {
+    completionError =
+      `Upstream stream ended before tool arguments completed ` +
+      `(${incompleteToolNames.join(', ')}).`
+  } else if (hasStreamError) {
+    completionError = `Upstream stream failed after partial output: ${String(
+      streamError,
+    )}`
+  } else if (!sawFinish) {
+    completionError =
+      'Upstream stream ended before a finish signal was received.'
+  } else if (finishReason === 'error') {
+    completionError = 'Upstream stream finished with an error.'
+  } else if (hasAmbiguousFinish) {
+    completionError =
+      'Upstream stream ended without a definitive finish reason.'
   }
 
-  return { text, toolCalls, toolResults }
+  // Partial tool inputs are preview-only. Never turn them into model history:
+  // there is no complete tool call to pair with a synthetic result.
+  for (const id of startedInputs.keys()) {
+    previewStates.delete(id)
+  }
+  startedInputs.clear()
+
+  return {
+    text,
+    toolCalls,
+    toolResults,
+    completedCleanly,
+    ...(completionError ? { completionError } : {}),
+  }
 }

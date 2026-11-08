@@ -14,6 +14,7 @@ vi.mock('./query/run-step.js', () => ({
     aborted: false,
     text: 'step complete',
     toolCalls: [],
+    completedCleanly: true,
   }),
 }))
 

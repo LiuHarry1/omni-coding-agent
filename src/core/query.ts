@@ -246,6 +246,20 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         return finalizeQuery('aborted', text)
       }
 
+      if (!stepResult.completedCleanly) {
+        // runStep has already committed every complete assistant/tool pair.
+        // Persist that valid prefix, but never turn an interrupted stream into
+        // a successful turn or replay tools that may already have side effects.
+        await onStepCommitted?.(messages)
+        const text =
+          extractPartialResult(messages) ?? (finalText || stepResult.text || '')
+        wire.error(
+          stepResult.completionError ??
+            'Upstream stream ended before the response completed.',
+        )
+        return finalizeQuery('error', text)
+      }
+
       // Tools are settled; show planning while the step is committed so the UI
       // has no status gap between the last tool row and the next request.
       if (stepResult.toolCalls.length > 0) wire.thinking()

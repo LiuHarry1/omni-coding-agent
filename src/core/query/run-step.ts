@@ -375,6 +375,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           text: '',
           toolCalls: [],
           toolResults: [],
+          completedCleanly: false,
           aborted: true,
         }
       }
