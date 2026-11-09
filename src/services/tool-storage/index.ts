@@ -33,9 +33,10 @@ export const PREVIEW_SIZE_CHARS = 2_000
 const DEFAULT_PERSIST_THRESHOLD_CHARS = 32_768
 
 /**
- * Sessions whose shell runs outside the agent host (cloud container, SSH).
- * Spill files live on the agent host, so their instructions must steer the
- * model to Read/Grep. Subagents share the parent's sessionId.
+ * Sessions whose shell cannot see the agent host's session files (SSH, or a
+ * cloud container that mounts another user's `.ai-agent`). Spill files live
+ * on the agent host, so their instructions must steer the model to Read/Grep.
+ * Subagents share the parent's sessionId.
  */
 const hostOnlySessions = new Set<string>()
 

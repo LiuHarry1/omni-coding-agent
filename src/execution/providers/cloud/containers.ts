@@ -1,4 +1,9 @@
 import type { ChildProcess } from 'child_process'
+import * as fs from 'fs'
+import * as path from 'path'
+import { slugifyEmail } from '../../../server/auth/identity.js'
+import { getAppDirName } from '../../../utils/app-dir.js'
+import { claimForSandboxUser } from '../../../utils/sandbox-owner.js'
 import type { CloudWorkspaceConfig } from './config.js'
 import {
   DockerError,
@@ -25,6 +30,17 @@ function assertWorkspaceId(id: string): void {
   if (!isValidWorkspaceId(id)) {
     throw new Error(`Invalid workspace id: ${JSON.stringify(id)}`)
   }
+}
+
+function ownerSlug(ownerEmail: string): string {
+  const slug = slugifyEmail(ownerEmail)
+  if (!slug || (slug === 'user' && !ownerEmail.trim())) {
+    throw new Error('Cloud workspace is missing an owner email')
+  }
+  if (slug.includes('/') || slug.includes('..')) {
+    throw new Error(`Refusing user directory slug: ${JSON.stringify(slug)}`)
+  }
+  return slug
 }
 
 function errorMessage(err: unknown): string {
@@ -64,6 +80,7 @@ export class WorkspaceContainers {
 
   /** Fail startup early when the explicitly enabled Cloud backend is unusable. */
   async preflight(): Promise<void> {
+    this.userMountRoots()
     try {
       await dockerOk(this.run, ['version', '--format', '{{.Server.Version}}'], {
         timeoutMs: 10_000,
@@ -110,8 +127,140 @@ export class WorkspaceContainers {
     }
   }
 
-  runArgs(id: string): string[] {
+  /**
+   * Bind only the owner's `.ai-agent` into the sandbox at the same absolute
+   * path the agent uses (`/workspace/users/<slug>/.ai-agent`), so skill and
+   * memory paths need no translation. The source is a host path: dockerd
+   * does not see the agent container's mount namespace. `WORKSPACES_HOST_PATH`
+   * is the host directory the agent sees at `WORKSPACES_ROOT` (`/workspace`),
+   * so the user directory is `<that>/users/<slug>`, not `<that>/<slug>`.
+   */
+  userBindMount(ownerEmail: string): string {
+    const { hostRoot, usersRoot, rel } = this.userMountRoots()
+    const slug = ownerSlug(ownerEmail)
+    const appDir = getAppDirName()
+    const source =
+      rel && rel !== '.'
+        ? `${hostRoot}/${rel}/${slug}/${appDir}`
+        : `${hostRoot}/${slug}/${appDir}`
+    const dest = `${usersRoot}/${slug}/${appDir}`
+    return `type=bind,src=${source},dst=${dest}`
+  }
+
+  /** `<USERS_ROOT>/<slug>`: the user directory whose `.ai-agent` is mounted. */
+  mountedUserHome(ownerEmail: string): string {
+    const { usersRoot } = this.userMountRoots()
+    return `${usersRoot}/${ownerSlug(ownerEmail)}`
+  }
+
+  /**
+   * `WORKSPACES_HOST_PATH` and `USERS_ROOT` together locate a user's
+   * `.ai-agent` on the host and in the sandbox. Both are required.
+   */
+  private userMountRoots(): {
+    hostRoot: string
+    usersRoot: string
+    rel: string
+  } {
+    const hostRoot = this.config.workspacesHostPath?.replace(/\/+$/, '')
+    if (
+      !hostRoot ||
+      !hostRoot.startsWith('/') ||
+      hostRoot.split('/').includes('..')
+    ) {
+      throw new Error(
+        'WORKSPACES_HOST_PATH is not set to an absolute host path. ' +
+          'Set it to the host directory mounted at /workspace in the agent container ' +
+          'before starting a cloud workspace.',
+      )
+    }
+    const usersRoot = this.config.usersRoot
+    if (!usersRoot) {
+      throw new Error(
+        'USERS_ROOT is not set. Cloud workspaces mount <USERS_ROOT>/<user>/.ai-agent ' +
+          'and need the same users root the agent uses, e.g. USERS_ROOT=/workspace/users.',
+      )
+    }
+    const rel = path.posix.relative(this.config.workspacesRoot, usersRoot)
+    if (rel.startsWith('..') || path.posix.isAbsolute(rel)) {
+      throw new Error(
+        `USERS_ROOT ${usersRoot} is outside WORKSPACES_ROOT ${this.config.workspacesRoot}, ` +
+          'so its host path under WORKSPACES_HOST_PATH is unknown',
+      )
+    }
+    return { hostRoot, usersRoot, rel }
+  }
+
+  /**
+   * The control plane runs as root and creates `.ai-agent` files mode 600.
+   * The sandbox user cannot delete those files unless it owns them. Hand the
+   * mounted `.ai-agent` to that user. Symlinks are left untouched.
+   * A bind source must exist, so `.ai-agent` is created for a known user.
+   */
+  ensureSandboxOwnsAppDir(ownerEmail: string): void {
+    const slug = slugifyEmail(ownerEmail)
+    const [uidRaw, gidRaw] = this.config.user.split(':')
+    const uid = Number(uidRaw)
+    const gid = Number(gidRaw)
+    const usersRoot = this.config.usersRoot
+    if (
+      !usersRoot ||
+      !Number.isInteger(uid) ||
+      !Number.isInteger(gid) ||
+      uid < 0 ||
+      gid < 0
+    ) {
+      return
+    }
+    const userDir = path.join(usersRoot, slug)
+    const appDir = path.join(userDir, getAppDirName())
+    let stat: fs.Stats
+    try {
+      const userStat = fs.lstatSync(userDir)
+      if (!userStat.isDirectory() || userStat.isSymbolicLink()) return
+      fs.mkdirSync(appDir, { mode: 0o700 })
+    } catch {
+      // Missing user directory, or `.ai-agent` already exists.
+    }
+    try {
+      stat = fs.lstatSync(appDir)
+    } catch {
+      return
+    }
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return
+    const stack = [appDir]
+    while (stack.length > 0) {
+      const current = stack.pop()!
+      let currentStat: fs.Stats
+      try {
+        currentStat = fs.lstatSync(current)
+      } catch {
+        continue
+      }
+      if (currentStat.isSymbolicLink()) continue
+      claimForSandboxUser(current, uid, gid)
+      const bits = currentStat.mode & 0o777
+      const ownerCanWrite = currentStat.isDirectory()
+        ? (bits & 0o300) === 0o300
+        : (bits & 0o200) !== 0
+      if (!ownerCanWrite) {
+        const mode = currentStat.isDirectory() ? bits | 0o700 : bits | 0o600
+        try {
+          fs.chmodSync(current, mode)
+        } catch {
+          // Ownership is what the sandbox needs; mode is a fallback.
+        }
+      }
+      if (!currentStat.isDirectory()) continue
+      for (const name of fs.readdirSync(current)) {
+        stack.push(path.join(current, name))
+      }
+    }
+  }
+
+  runArgs(id: string, ownerEmail: string): string[] {
     const c = this.config
+    const userMount = this.userBindMount(ownerEmail)
     return [
       'run',
       '--detach',
@@ -139,6 +288,8 @@ export class WorkspaceContainers {
       c.network,
       '--mount',
       `type=volume,src=${this.volumeName(id)},dst=${c.volumeMount}`,
+      '--mount',
+      userMount,
       '--restart',
       'no',
       '--init',
@@ -183,15 +334,16 @@ export class WorkspaceContainers {
   }
 
   /** Start a container for `id`, recreating a stopped one from the current image. */
-  async ensureRunning(id: string): Promise<void> {
+  async ensureRunning(id: string, ownerEmail: string): Promise<void> {
     this.assertAvailable(id)
+    this.ensureSandboxOwnsAppDir(ownerEmail)
     const pending = this.starting.get(id)
     if (pending) {
       await pending
       this.assertAvailable(id)
       return
     }
-    const started = this.startIfNeeded(id)
+    const started = this.startIfNeeded(id, ownerEmail)
       .catch(async error => {
         if (this.tombstones.has(id)) {
           await this.removeContainer(id).catch(() => {})
@@ -207,7 +359,7 @@ export class WorkspaceContainers {
     this.assertAvailable(id)
   }
 
-  private async startIfNeeded(id: string): Promise<void> {
+  private async startIfNeeded(id: string, ownerEmail: string): Promise<void> {
     this.assertAvailable(id)
     const current = await this.state(id)
     this.assertAvailable(id)
@@ -217,7 +369,9 @@ export class WorkspaceContainers {
     this.assertAvailable(id)
     await this.ensureVolume(id)
     this.assertAvailable(id)
-    await dockerOk(this.run, this.runArgs(id), { timeoutMs: 120_000 })
+    await dockerOk(this.run, this.runArgs(id, ownerEmail), {
+      timeoutMs: 120_000,
+    })
     this.assertAvailable(id)
   }
 

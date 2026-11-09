@@ -5,6 +5,7 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { randomUUID } from 'crypto'
 import matter from 'gray-matter'
+import { claimAiAgentPath } from '../../utils/sandbox-owner.js'
 import {
   AUTO_MEM_ENTRYPOINT,
   getAutoMemEntrypoint,
@@ -222,6 +223,7 @@ export function repairMemoryFrontmatterFiles(
         continue
       }
       fs.renameSync(tmp, filePath)
+      claimAiAgentPath(filePath)
       repaired++
       console.warn(`[auto-memory] repaired frontmatter file=${filePath}`)
     } finally {
@@ -316,6 +318,7 @@ export function ensureIndexEntry(
     ? `${raw.replace(/\n*$/, '')}\n${line}\n`
     : `${line}\n`
   fs.writeFileSync(entry, next, { encoding: 'utf-8', mode: 0o600 })
+  claimAiAgentPath(entry)
   return true
 }
 
@@ -328,10 +331,12 @@ export function rebuildIndex(memPath: string): void {
     return `- [${title}](${f.filename})${hook ? ` — ${hook}` : ''}`
   })
   const body = lines.length ? lines.join('\n') + '\n' : ''
-  fs.writeFileSync(getAutoMemEntrypoint(memPath), body, {
+  const entry = getAutoMemEntrypoint(memPath)
+  fs.writeFileSync(entry, body, {
     encoding: 'utf-8',
     mode: 0o600,
   })
+  claimAiAgentPath(entry)
 }
 
 /** Read a file capped by line and/or byte limits (for surfacing memories). */

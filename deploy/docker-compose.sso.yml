@@ -111,6 +111,9 @@ services:
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required and must match the auth service}"
       JWT_ALGORITHM: "HS256"
       USERS_ROOT: /workspace/users
+      # Host path of ./workspaces. dockerd resolves bind sources on the host,
+      # not at the /workspace path seen inside this container.
+      WORKSPACES_HOST_PATH: ${WORKSPACES_HOST_PATH:-/var/local/baix/baix-service/dice-zero-service/coding-agent/workspaces}
       WORKSPACE_SEED_DIR: "/opt/workspace-seed"
       QUOTA_ENABLED: "${QUOTA_ENABLED:-false}"
       ANALYTICS_URL: "${ANALYTICS_URL:-http://analytics:8200}"

@@ -36,16 +36,6 @@ export interface SkillDefinition {
    */
   baseDir?: string
   /**
-   * Path to the same package in the active execution environment. The body
-   * and metadata still load from `baseDir` on the control plane.
-   */
-  runtimeBaseDir?: string
-  /**
-   * Lazily make the package available in the active execution environment.
-   * Remote turns use this to keep package copies off the first-token path.
-   */
-  prepareRuntimeBaseDir?: () => Promise<string | undefined>
-  /**
    * Body comes from a sandboxed workspace (cloud container). `!cmd` and
    * `@file` directives would run on the control plane, so they stay literal.
    */

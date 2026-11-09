@@ -241,7 +241,12 @@ export class CloudWorkspaceManager {
       lookup: id => {
         const record = this.get(id)
         return record
-          ? { id, name: record.name, ready: record.status === 'ready' }
+          ? {
+              id,
+              name: record.name,
+              ready: record.status === 'ready',
+              ownerEmail: record.ownerEmail,
+            }
           : undefined
       },
       onActivity: id => this.touch(id),
@@ -370,7 +375,7 @@ export class CloudWorkspaceManager {
       if (this.deleting.has(record.id)) {
         throw new Error(`Cloud workspace was deleted: ${record.id}`)
       }
-      await containers.ensureRunning(record.id)
+      await containers.ensureRunning(record.id, record.ownerEmail)
       if (this.deleting.has(record.id)) {
         throw new Error(`Cloud workspace was deleted: ${record.id}`)
       }

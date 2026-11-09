@@ -73,7 +73,12 @@ let manager: CloudWorkspaceManager
 
 function build(env: NodeJS.ProcessEnv = {}): CloudWorkspaceManager {
   const containers = new WorkspaceContainers(
-    loadCloudWorkspaceConfig({ WORKSPACE_MAX_PER_USER: '2', ...env }),
+    loadCloudWorkspaceConfig({
+      WORKSPACE_MAX_PER_USER: '2',
+      WORKSPACES_HOST_PATH: '/var/workspaces',
+      USERS_ROOT: '/workspace/users',
+      ...env,
+    }),
     docker.run,
     () => {
       throw new Error('spawn not used in these tests')
@@ -103,8 +108,10 @@ describe('repository input validation', () => {
       'https://github.com/a/b.git',
     )
     expect(
-      validateRepoUrl('http://git.example.internal/team/service.git'),
-    ).toBe('http://git.example.internal/team/service.git')
+      validateRepoUrl(
+        'http://atc-gitlab.advantest.com/speedx/chat-service.git',
+      ),
+    ).toBe('http://atc-gitlab.advantest.com/speedx/chat-service.git')
     for (const bad of [
       'git@github.com:a/b.git',
       'file:///etc',
@@ -130,7 +137,10 @@ describe('repository input validation', () => {
 
 describe('container template', () => {
   it('runs hardened, resource-capped, on the isolated network', () => {
-    const args = manager.containers.runArgs('abcdef0123456789')
+    const args = manager.containers.runArgs(
+      'abcdef0123456789',
+      'bob@example.com',
+    )
     expect(args).toEqual(
       expect.arrayContaining([
         '--user',
@@ -143,14 +153,24 @@ describe('container template', () => {
         '--network',
         'agent-ws',
         'type=volume,src=agent-ws-abcdef0123456789,dst=/workspace',
+        'type=bind,src=/var/workspaces/users/bob_example.com/.ai-agent,dst=/workspace/users/bob_example.com/.ai-agent',
       ]),
     )
     expect(args.join(' ')).not.toMatch(/privileged|docker\.sock|--volume/)
   })
 
+  it('refuses to start when the host workspaces path is missing', () => {
+    const bare = build({ WORKSPACES_HOST_PATH: '' })
+    expect(() =>
+      bare.containers.runArgs('abcdef0123456789', 'bob@example.com'),
+    ).toThrow(/WORKSPACES_HOST_PATH/)
+  })
+
   it('labels objects with the instance and sweeps only its own containers', async () => {
     const own = build({ WORKSPACE_INSTANCE: 'prod' })
-    expect(own.containers.runArgs('abcdef0123456789')).toEqual(
+    expect(
+      own.containers.runArgs('abcdef0123456789', 'bob@example.com'),
+    ).toEqual(
       expect.arrayContaining(['--label', 'agent.workspace.instance=prod']),
     )
     await own.containers.listRunning()
@@ -308,7 +328,10 @@ describe('workspace lifecycle', () => {
     const blank = manager.create({ ownerEmail: 'bob@example.com' })
     await manager.waitReady(blank.id)
 
-    const serialized = docker.calls.map(args => args.join(' ')).join('\n')
+    const serialized = docker.calls
+      .filter(args => args[0] === 'exec')
+      .map(args => args.join(' '))
+      .join('\n')
     expect(serialized).not.toContain('.ai-agent')
     expect(serialized).not.toContain('AGENTS.md')
   })
@@ -335,7 +358,7 @@ describe('workspace lifecycle', () => {
     const ws = await manager.ensureDefault('bob@example.com')
     const name = manager.containers.containerName(ws.id)
     docker.containers.set(name, false)
-    await manager.containers.ensureRunning(ws.id)
+    await manager.containers.ensureRunning(ws.id, 'bob@example.com')
     expect(docker.calls.some(c => c[0] === 'rm' && c.includes(name))).toBe(true)
     expect(docker.containers.get(name)).toBe(true)
   })
@@ -386,9 +409,9 @@ describe('workspace lifecycle', () => {
     expect(manager.get(created.id)).toBeUndefined()
 
     const callsAfterDelete = docker.calls.length
-    await expect(manager.containers.ensureRunning(created.id)).rejects.toThrow(
-      /deleted/,
-    )
+    await expect(
+      manager.containers.ensureRunning(created.id, 'bob@example.com'),
+    ).rejects.toThrow(/deleted/)
     expect(docker.calls).toHaveLength(callsAfterDelete)
     expect(docker.containers.size).toBe(0)
   })

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, renameSync } from 'node:fs'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -83,11 +83,35 @@ const dataRoot = path.resolve(
     path.join(homedir(), '.ai-agent', 'cloud-dev'),
   ),
 )
-const isolatedHome = path.join(dataRoot, 'home')
+if (process.platform === 'win32') {
+  console.error(
+    '[cloud-dev] Windows is not supported: workspace containers mount the ' +
+      "user's .ai-agent at the same absolute path, which a Windows path cannot be.",
+  )
+  process.exit(1)
+}
+
+// The control plane runs on the Docker host, so its paths are host paths.
+// Cloud workspaces mount <USERS_ROOT>/<slug>/.ai-agent; HOME must be that
+// user directory for skill and memory paths to match inside the container.
+// `local_localhost` is the slug of the auth-disabled owner `local@localhost`.
+const usersRoot = path.join(dataRoot, 'users')
+const isolatedHome = path.join(usersRoot, 'local_localhost')
+const legacyHome = path.join(dataRoot, 'home')
 const processDataDir = path.join(dataRoot, 'runtime')
 const controlPlaneWorkspace = path.join(dataRoot, 'control-plane')
 
-for (const directory of [isolatedHome, processDataDir, controlPlaneWorkspace]) {
+if (existsSync(legacyHome) && !existsSync(isolatedHome)) {
+  mkdirSync(usersRoot, { recursive: true })
+  renameSync(legacyHome, isolatedHome)
+  console.log(`[cloud-dev] Moved local data ${legacyHome} -> ${isolatedHome}`)
+}
+
+for (const directory of [
+  path.join(isolatedHome, '.ai-agent'),
+  processDataDir,
+  controlPlaneWorkspace,
+]) {
   mkdirSync(directory, { recursive: true })
 }
 
@@ -107,7 +131,10 @@ const env = {
   HOST: '127.0.0.1',
   PORT: valueOr('PORT', '4567'),
   SERVE_STATIC: '1',
+  USERS_ROOT: usersRoot,
   WORKSPACE: controlPlaneWorkspace,
+  WORKSPACES_HOST_PATH: dataRoot,
+  WORKSPACES_ROOT: dataRoot,
   WORKSPACE_IMAGE: image,
   WORKSPACE_INSTANCE: valueOr('WORKSPACE_INSTANCE', 'baize-local-cloud'),
   WORKSPACE_NETWORK: valueOr(
@@ -115,10 +142,6 @@ const env = {
     'baize-local-cloud-workspaces',
   ),
   WORKSPACE_SEED_DIR: '',
-}
-
-if (process.platform === 'win32') {
-  env.USERPROFILE = isolatedHome
 }
 
 console.log(`[cloud-dev] Local data: ${dataRoot}`)

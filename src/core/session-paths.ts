@@ -242,21 +242,28 @@ function isUnderRoot(absPath: string, root: string): boolean {
 
 /**
  * Internal readable roots for the current agent home only
- * (projects + plans + scratch + browser-logs + uploads). No substring matching across tenants.
+ * (projects + plans + scratch + browser-logs + uploads + skills + plugins).
+ * settings.json and session transcripts outside projects/ stay excluded.
+ * No substring matching across tenants.
  */
 export function isReadableInternalPath(absPath: string): boolean {
   const normalized = path.normalize(path.resolve(absPath))
   try {
     const home = resolveAgentHome()
+    const app = getAppDirName()
     const projects = getProjectsRoot(home)
-    const plans = path.join(home, getAppDirName(), 'plans')
-    const scratch = path.join(home, getAppDirName(), 'scratch')
+    const plans = path.join(home, app, 'plans')
+    const scratch = path.join(home, app, 'scratch')
+    const skills = path.join(home, app, 'skills')
+    const plugins = path.join(home, app, 'plugins')
     const browserLogs = getBrowserLogsDir(home)
     const uploads = getChatUploadsRoot(home)
     return (
       isUnderRoot(normalized, projects) ||
       isUnderRoot(normalized, plans) ||
       isUnderRoot(normalized, scratch) ||
+      isUnderRoot(normalized, skills) ||
+      isUnderRoot(normalized, plugins) ||
       isUnderRoot(normalized, browserLogs) ||
       isUnderRoot(normalized, uploads)
     )

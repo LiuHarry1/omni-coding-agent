@@ -296,6 +296,39 @@ try {
 
   process.env.AUTH_ENABLED = 'true'
   await runWithRequestScope({ agentHome: root, cwd: root }, async () => {
+    const skillScript = path.join(root, '.ai-agent', 'skills', 'demo', 'run.sh')
+    fs.mkdirSync(path.dirname(skillScript), { recursive: true })
+    fs.writeFileSync(skillScript, 'echo ok\n')
+    if (!isReadableInternalPath(skillScript)) {
+      throw new Error('user skills should be readable from the agent host')
+    }
+    const pluginReference = path.join(
+      root,
+      '.ai-agent',
+      'plugins',
+      'pdf-tools',
+      'skills',
+      'fill-form',
+      'reference.md',
+    )
+    fs.mkdirSync(path.dirname(pluginReference), { recursive: true })
+    fs.writeFileSync(pluginReference, '# reference\n')
+    if (!isReadableInternalPath(pluginReference)) {
+      throw new Error(
+        'plugin skill files should be readable from the agent host',
+      )
+    }
+    const lookalike = path.join(root, '.ai-agent', 'plugins-evil', 'x.md')
+    fs.mkdirSync(path.dirname(lookalike), { recursive: true })
+    fs.writeFileSync(lookalike, 'x')
+    if (isReadableInternalPath(lookalike)) {
+      throw new Error('a sibling of plugins/ must not match the plugins root')
+    }
+    const settingsFile = path.join(root, '.ai-agent', 'settings.json')
+    fs.writeFileSync(settingsFile, '{}')
+    if (isReadableInternalPath(settingsFile)) {
+      throw new Error('settings.json must stay outside the skill read root')
+    }
     const cloud = createFilesystemPermissionContext(root)
     if (cloud.mode !== 'dontAsk') throw new Error('cloud mode')
     assertAccessible(inside, cloud, 'read')

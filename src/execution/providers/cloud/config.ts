@@ -1,3 +1,4 @@
+import * as path from 'path'
 import { WORKER_BUNDLE_NAME } from '../../../brand.js'
 
 /**
@@ -29,6 +30,25 @@ export type CloudWorkspaceConfig = {
   homeDir: string
   /** Volume mount point; the only persistent path in a container. */
   volumeMount: string
+  /**
+   * Host path of the directory the agent sees at `workspacesRoot`. Cloud
+   * sandboxes bind `<this>/<USERS_ROOT relative to workspacesRoot>/<slug>/.ai-agent`
+   * at the same absolute path the agent uses. Empty when unset; starting a
+   * workspace then fails closed.
+   */
+  workspacesHostPath: string | undefined
+  /**
+   * Agent-side path of `WORKSPACES_HOST_PATH`. `/workspace` when the agent runs
+   * in a container; the same path as `WORKSPACES_HOST_PATH` when it runs
+   * directly on the Docker host (cloud-dev).
+   */
+  workspacesRoot: string
+  /**
+   * In-container users root, read from the same `USERS_ROOT` the agent uses
+   * for agent homes. No default: a different fallback would mount a directory
+   * that skill and memory paths do not point at. Unset fails closed.
+   */
+  usersRoot: string | undefined
   /** Project checkout inside the volume; the Session cwd. */
   repoDir: string
   workerPath: string
@@ -53,6 +73,23 @@ function positiveInt(raw: string | undefined, fallback: number): number {
 function nonEmpty(raw: string | undefined, fallback: string): string {
   const v = raw?.trim()
   return v ? v : fallback
+}
+
+/** Absolute container path. Rejects relative values so a mount cannot escape. */
+function absoluteContainerPath(
+  raw: string | undefined,
+  name: string,
+): string | undefined {
+  const trimmed = raw?.trim()
+  if (!trimmed) return undefined
+  if (
+    !trimmed.startsWith('/') ||
+    trimmed.includes('\0') ||
+    trimmed.split('/').includes('..')
+  ) {
+    throw new Error(`Invalid ${name}: ${JSON.stringify(raw)}`)
+  }
+  return path.posix.normalize(trimmed).replace(/(.)\/+$/, '$1')
 }
 
 const INSTANCE_RE = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,62}$/
@@ -81,6 +118,11 @@ export function loadCloudWorkspaceConfig(
     user: '1000:1000',
     homeDir: '/home/agent',
     volumeMount: '/workspace',
+    workspacesHostPath: env.WORKSPACES_HOST_PATH?.trim() || undefined,
+    workspacesRoot:
+      absoluteContainerPath(env.WORKSPACES_ROOT, 'WORKSPACES_ROOT') ??
+      '/workspace',
+    usersRoot: absoluteContainerPath(env.USERS_ROOT, 'USERS_ROOT'),
     repoDir: '/workspace/repo',
     workerPath: `/opt/agent/dist/worker/${WORKER_BUNDLE_NAME}`,
     cloneTimeoutMs: 10 * 60_000,

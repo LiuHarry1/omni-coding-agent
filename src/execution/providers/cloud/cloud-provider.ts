@@ -41,6 +41,7 @@ export type CloudWorkspaceSummary = {
   id: string
   name: string
   ready: boolean
+  ownerEmail: string
 }
 
 export type CloudProviderOptions = {
@@ -71,6 +72,14 @@ class CloudConnection implements EnvironmentConnection {
     this.opts.onActivity?.(this.workspaceId)
   }
 
+  private ownerEmail(): string {
+    const email = this.opts.lookup(this.workspaceId)?.ownerEmail?.trim()
+    if (!email) {
+      throw new Error(`Cloud workspace has no owner: ${this.workspaceId}`)
+    }
+    return email
+  }
+
   private assertReady(): void {
     const record = this.opts.lookup(this.workspaceId)
     if (!record?.ready) {
@@ -93,7 +102,7 @@ class CloudConnection implements EnvironmentConnection {
   async openRuntime(cwd: string, _auth: RuntimeAuth): Promise<RuntimePort> {
     const { containers } = this.opts
     this.assertReady()
-    await containers.ensureRunning(this.workspaceId)
+    await containers.ensureRunning(this.workspaceId, this.ownerEmail())
     this.assertReady()
     this.touch()
     const child = containers.spawnExec(
@@ -125,7 +134,7 @@ class CloudConnection implements EnvironmentConnection {
       this.fsPort = new ShellFsPort({
         ready: async () => {
           this.assertReady()
-          await containers.ensureRunning(id)
+          await containers.ensureRunning(id, this.ownerEmail())
           this.assertReady()
         },
         spawn: script => {

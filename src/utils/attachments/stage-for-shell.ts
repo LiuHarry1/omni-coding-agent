@@ -2,9 +2,11 @@
  * Copy composer uploads into the environment where shell commands run.
  *
  * Uploads are stored on the agent host (`{agentHome}/.ai-agent/uploads/`).
- * Local turns share that disk. SSH hosts and cloud containers do not, so a
- * host path handed to the model is a dead end for Bash there. Same idea as
- * Claude Code's bridge attachments: write the bytes where the tools run and
+ * Local turns share that disk, and so does a cloud container whose mounted
+ * `.ai-agent` belongs to the session's agent home. SSH hosts, and a cloud
+ * container opened by someone other than its owner, do not, so a host path
+ * handed to the model is a dead end for Bash there. Same idea as Claude
+ * Code's bridge attachments: write the bytes where the tools run and
  * reference that path.
  *
  * The Read tool keeps the host path: it serves agent-host uploads directly

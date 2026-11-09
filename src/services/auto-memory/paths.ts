@@ -2,6 +2,7 @@
  * Auto-memory path resolution helpers.
  */
 import * as fs from 'fs'
+import { claimAiAgentPath } from '../../utils/sandbox-owner.js'
 import * as path from 'path'
 import { getAgentHome } from '../../utils/request-scope.js'
 import { getAppDirName, getUserAppDir } from '../../utils/app-dir.js'
@@ -155,12 +156,14 @@ function repairMemoryDirTreePermissions(memPath: string): void {
 export function ensureAutoMemDir(memPath: string): void {
   fs.mkdirSync(memPath, { recursive: true, mode: AUTO_MEM_DIR_MODE })
   repairMemoryDirTreePermissions(memPath)
+  claimAiAgentPath(memPath)
   const entry = getAutoMemEntrypoint(memPath)
   if (!fs.existsSync(entry)) {
     fs.writeFileSync(entry, '', {
       encoding: 'utf-8',
       mode: AUTO_MEM_FILE_MODE,
     })
+    claimAiAgentPath(entry)
   }
 }
 

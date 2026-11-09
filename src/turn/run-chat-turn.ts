@@ -21,7 +21,10 @@ import {
   resolveAutoMemoryConfig,
 } from '../core/settings-manager.js'
 import { isRemoteWorkspace } from '../execution/index.js'
-import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
+import {
+  cloudSandboxSeesSessionFiles,
+  resolveTurnWorkspaceScope,
+} from '../services/cloud-workspaces/turn-scope.js'
 import { generateSessionTitle } from '../services/sessionTitle.js'
 import {
   setSessionTitle,
@@ -308,7 +311,9 @@ export async function runChatTurn(
     const resolved = await resolveChatAttachments(attachments, {
       sessionId: session.id,
       provider,
-      stageForShell: createShellAttachmentStager(session.workspace, session.id),
+      stageForShell: cloudSandboxSeesSessionFiles(session.workspace, session.id)
+        ? undefined
+        : createShellAttachmentStager(session.workspace, session.id),
     })
     // Degraded attachments already carry an explanation in their prelude
     // message, so the model can tell the user; the log is for operators.
@@ -706,14 +711,13 @@ export async function runChatTurn(
       mainModelId,
       defaultTier: 'small',
     })
-    const remote = isRemoteWorkspace(session.workspace)
     const memoryHooks = createMemoryLifecycleHooks({
       sessionMemory: resolvedSettings.config.sessionMemory,
       sessionMemoryModelId: sessionMemorySide.modelId,
       sessionMemoryProvider: sessionMemorySide.provider,
-      autoMemory: remote
-        ? { ...autoMemoryConfig, enabled: false }
-        : autoMemoryConfig,
+      autoMemory: prepared.memoryBinding.extract.enabled
+        ? autoMemoryConfig
+        : { ...autoMemoryConfig, enabled: false },
       autoMemoryModelId: autoMemorySide.modelId,
       autoMemoryProvider: autoMemorySide.provider,
       runAgent,

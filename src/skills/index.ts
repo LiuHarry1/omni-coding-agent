@@ -108,10 +108,6 @@ export interface RegisterSkillsOptions {
   candidateFiles?: readonly string[]
   /** Rewrites each project-scope disk skill before registration. */
   mapProjectSkill?: (skill: SkillDefinition) => SkillDefinition
-  /** Rewrites/materializes the final merged skill set before filtering. */
-  transformSkills?: (
-    skills: SkillDefinition[],
-  ) => SkillDefinition[] | Promise<SkillDefinition[]>
   /** Workspace cwd used only for `paths:` matching. Defaults to `cwd`. */
   filterCwd?: string
 }
@@ -142,10 +138,10 @@ export async function registerSkills(
   errors: Array<{ filePath: string; error: string }>
 }> {
   let errors: Array<{ filePath: string; error: string }>
-  let mergedSkills: SkillDefinition[]
+  let skills: SkillDefinition[]
   if (options.preloadedSkills) {
     errors = []
-    mergedSkills = [...options.preloadedSkills]
+    skills = [...options.preloadedSkills]
   } else {
     const loaded = await loadSkillsFromDisk(cwd)
     errors = loaded.errors
@@ -154,11 +150,8 @@ export async function registerSkills(
       ? loaded.skills.map(s => (s.source === 'project' ? mapProject(s) : s))
       : loaded.skills
     // Plugin skills first (lowest priority) → disk skills override on collision.
-    mergedSkills = mergeSkillsByName(options.pluginSkills ?? [], diskSkills)
+    skills = mergeSkillsByName(options.pluginSkills ?? [], diskSkills)
   }
-  const skills = options.transformSkills
-    ? await options.transformSkills(mergedSkills)
-    : mergedSkills
   const activeSkills = filterSkillsByPaths(
     skills,
     options.candidateFiles,

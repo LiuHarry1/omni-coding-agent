@@ -1,29 +1,27 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { expandSkillBody } from './expand.js'
 import type { SkillDefinition } from './types.js'
 
-describe('lazy skill runtime preparation', () => {
-  it('materializes a skill package only when the body is expanded', async () => {
-    const prepareRuntimeBaseDir = vi
-      .fn()
-      .mockResolvedValue('/workspace/.skills/chart')
+describe('skill base directory', () => {
+  it('expands SKILL_DIR to the skill baseDir', async () => {
     const skill: SkillDefinition = {
       name: 'chart',
       description: 'Generate charts',
-      source: 'project',
-      baseDir: '/control/skills/chart',
-      prepareRuntimeBaseDir,
+      source: 'user',
+      baseDir: '/workspace/users/alice/.ai-agent/skills/chart',
       untrustedBody: true,
       context: 'inline',
       argumentNames: [],
       loadBody: async () => 'Open ${SKILL_DIR}/template.html',
     }
 
-    expect(prepareRuntimeBaseDir).not.toHaveBeenCalled()
-
     const result = await expandSkillBody(skill, '', '/workspace/repo')
 
-    expect(prepareRuntimeBaseDir).toHaveBeenCalledOnce()
-    expect(result.combined).toContain('/workspace/.skills/chart/template.html')
+    expect(result.preamble).toContain(
+      'Base directory for this skill: /workspace/users/alice/.ai-agent/skills/chart',
+    )
+    expect(result.combined).toContain(
+      '/workspace/users/alice/.ai-agent/skills/chart/template.html',
+    )
   })
 })

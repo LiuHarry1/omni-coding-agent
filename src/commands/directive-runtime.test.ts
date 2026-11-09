@@ -84,24 +84,22 @@ describe('turn directive backend sharing', () => {
     expect(execution.exec).toHaveBeenCalledTimes(2)
   })
 
-  it('expands a mapped SKILL_DIR before backend command execution', async () => {
+  it('expands SKILL_DIR before backend command execution', async () => {
     const execution = backend()
     const skill: SkillDefinition = {
-      name: 'mapped-skill',
-      description: 'mapped cloud skill',
+      name: 'mounted-skill',
+      description: 'cloud skill under the mounted .ai-agent',
       source: 'user',
       context: 'inline',
       argumentNames: [],
-      baseDir: '/host/.ai-agent/skills/mapped-skill',
-      runtimeBaseDir:
-        '/tmp/baize-extension-session-ws/snapshot/skills/mapped-skill',
+      baseDir: '/workspace/users/alice/.ai-agent/skills/mounted-skill',
       loadBody: async () => '!`${SKILL_DIR}/scripts/x.sh`',
     }
 
     await expandSkillBody(skill, '', '/workspace/repo', execution)
 
     expect(execution.exec).toHaveBeenCalledWith(
-      '/tmp/baize-extension-session-ws/snapshot/skills/mapped-skill/scripts/x.sh',
+      '/workspace/users/alice/.ai-agent/skills/mounted-skill/scripts/x.sh',
       {
         cwd: '/workspace/repo',
         timeoutMs: 15_000,

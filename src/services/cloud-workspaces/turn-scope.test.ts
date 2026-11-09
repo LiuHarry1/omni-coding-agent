@@ -1,8 +1,21 @@
+import * as fs from 'fs'
+import * as os from 'os'
 import * as path from 'path'
-import { describe, expect, it } from 'vitest'
-import { getDefaultWorkspace } from '../../core/workspace.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
+  registerSessionLocation,
+  unregisterSessionLocation,
+} from '../../core/session-paths.js'
+import { getDefaultWorkspace } from '../../core/workspace.js'
+import { loadCloudWorkspaceConfig } from '../../execution/providers/cloud/config.js'
+import { WorkspaceContainers } from '../../execution/providers/cloud/containers.js'
+import { runWithRequestScope } from '../../utils/request-scope.js'
+import { setCloudWorkspaceManagerForTesting } from './index.js'
+import { CloudWorkspaceManager } from './manager.js'
+import { CloudWorkspaceStore } from './store.js'
+import {
+  cloudSandboxSeesAgentHome,
+  cloudSandboxSeesSessionFiles,
   filterCloudMCPServers,
   resolveTurnWorkspaceScope,
 } from './turn-scope.js'
@@ -72,6 +85,115 @@ describe('cloud turn scope', () => {
       settingsCwd: getDefaultWorkspace(),
       remote: true,
     })
+  })
+})
+
+describe('cloudSandboxSeesAgentHome', () => {
+  const id = 'abcdef0123456789'
+  const workspace = { environmentId: `cloud:${id}`, cwd: '/workspace/repo' }
+  let dir: string
+
+  function install(env: NodeJS.ProcessEnv): void {
+    const store = new CloudWorkspaceStore(dir)
+    store.put({
+      version: 1,
+      id,
+      ownerEmail: 'Alice@Example.com',
+      name: 'repo',
+      source: { kind: 'empty' },
+      status: 'ready',
+      createdAt: 1,
+      updatedAt: 1,
+      lastUsedAt: 1,
+    })
+    setCloudWorkspaceManagerForTesting(
+      new CloudWorkspaceManager({
+        store,
+        containers: new WorkspaceContainers(
+          loadCloudWorkspaceConfig(env),
+          async () => ({ stdout: '', stderr: '', code: 0 }),
+        ),
+      }),
+    )
+  }
+
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cloud-sees-home-'))
+  })
+
+  afterEach(() => {
+    setCloudWorkspaceManagerForTesting(null)
+    fs.rmSync(dir, { recursive: true, force: true })
+  })
+
+  const mounted = {
+    WORKSPACES_HOST_PATH: '/var/workspaces',
+    USERS_ROOT: '/workspace/users',
+  }
+
+  it('is true for the owner whose .ai-agent is mounted', () => {
+    install(mounted)
+    expect(
+      cloudSandboxSeesAgentHome(
+        workspace,
+        '/workspace/users/alice_example.com',
+      ),
+    ).toBe(true)
+  })
+
+  it('is false for another user in the same workspace', () => {
+    install(mounted)
+    expect(
+      cloudSandboxSeesAgentHome(workspace, '/workspace/users/root_example.com'),
+    ).toBe(false)
+  })
+
+  it('is false without the mount configuration', () => {
+    install({ WORKSPACES_HOST_PATH: '/var/workspaces' })
+    expect(
+      cloudSandboxSeesAgentHome(
+        workspace,
+        '/workspace/users/alice_example.com',
+      ),
+    ).toBe(false)
+  })
+
+  it('is false for unknown workspaces, SSH and local', () => {
+    install(mounted)
+    const home = '/workspace/users/alice_example.com'
+    expect(
+      cloudSandboxSeesAgentHome(
+        { environmentId: 'cloud:0000000000000000', cwd: '/workspace/repo' },
+        home,
+      ),
+    ).toBe(false)
+    expect(
+      cloudSandboxSeesAgentHome(
+        { environmentId: 'ssh:dev', cwd: '/srv' },
+        home,
+      ),
+    ).toBe(false)
+    expect(cloudSandboxSeesAgentHome(undefined, home)).toBe(false)
+  })
+
+  it('checks session files against the session agent home', () => {
+    install(mounted)
+    const session = 'sees-session-files'
+    try {
+      expect(cloudSandboxSeesSessionFiles(workspace, session)).toBe(false)
+      registerSessionLocation(session, {
+        projectKey: 'k',
+        agentHome: '/workspace/users/alice_example.com',
+      })
+      expect(cloudSandboxSeesSessionFiles(workspace, session)).toBe(true)
+      registerSessionLocation(session, {
+        projectKey: 'k',
+        agentHome: '/workspace/users/root_example.com',
+      })
+      expect(cloudSandboxSeesSessionFiles(workspace, session)).toBe(false)
+    } finally {
+      unregisterSessionLocation(session)
+    }
   })
 })
 

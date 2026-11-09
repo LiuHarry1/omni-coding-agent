@@ -9,6 +9,7 @@ import {
   WRITE_FILE_TOOL_NAME,
 } from '../../constants/tool_names.js'
 import { resolveToolFilePath } from '../../core/forked-agent.js'
+import { claimAiAgentPath } from '../../utils/sandbox-owner.js'
 import { isAutoMemPath } from './paths.js'
 
 function allowedPath(filePath: string, memoryDir: string): string | undefined {
@@ -22,6 +23,7 @@ function atomicWrite(filePath: string, content: string): void {
   try {
     fs.writeFileSync(tmp, content, { encoding: 'utf-8', mode: 0o600 })
     fs.renameSync(tmp, filePath)
+    claimAiAgentPath(filePath)
   } finally {
     try {
       fs.rmSync(tmp, { force: true })

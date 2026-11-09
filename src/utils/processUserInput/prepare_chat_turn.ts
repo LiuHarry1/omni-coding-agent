@@ -65,12 +65,8 @@ import { warmExtensionRelay } from '../../browser/manager.js'
 import { profileSpan } from '../startupProfiler.js'
 import { loadSlashRegistry } from '../../commands/slashRegistry.js'
 import type { DirectiveRuntime } from '../../commands/promptExpansion.js'
-import type { SkillDefinition } from '../../skills/types.js'
 import {
-  materializeCloudSkills,
-  requireShellFsPort,
-} from '../../services/cloud-workspaces/skill-materializer.js'
-import {
+  cloudSandboxSeesSessionFiles,
   filterCloudMCPServers,
   resolveTurnWorkspaceScope,
 } from '../../services/cloud-workspaces/turn-scope.js'
@@ -242,7 +238,10 @@ export async function prepareChatTurn(
   const cloudSession = cloudWorkspaceId !== null
   const remote = turnScope.remote
   const extensionCwd = turnScope.extensionCwd
-  setToolResultsHostOnly(session.id, remote)
+  setToolResultsHostOnly(
+    session.id,
+    remote && !cloudSandboxSeesSessionFiles(session.workspace, session.id),
+  )
   if (isCloudWorkspacesEnabled() && !cloudSession) {
     throw new Error(
       'This chat is not bound to a cloud workspace. Start a new chat in a workspace.',
@@ -282,69 +281,11 @@ export async function prepareChatTurn(
   }
   const directiveRuntime = remote ? execution : undefined
 
-  let cloudSkillPortPromise:
-    Promise<ReturnType<typeof requireShellFsPort>> | undefined
-  const transformCloudSkills = cloudSession
-    ? async (skills: SkillDefinition[]): Promise<SkillDefinition[]> => {
-        if (
-          !session.workspace ||
-          !cloudWorkspaceId ||
-          !turnScope.extensionRoot
-        ) {
-          throw new Error('Cloud skill materialization has no workspace')
-        }
-        return skills.map(skill => {
-          if (
-            (skill.source !== 'user' && skill.source !== 'plugin') ||
-            !skill.baseDir
-          ) {
-            return skill
-          }
-          let prepared: Promise<string | undefined> | undefined
-          return {
-            ...skill,
-            prepareRuntimeBaseDir: () => {
-              if (prepared) return prepared
-              prepared = profileSpan(
-                'turn_cloud_skill_materialize',
-                async () => {
-                  wire.turnState(
-                    'preparing',
-                    'skills.materialize',
-                    `Loading ${skill.name}`,
-                  )
-                  cloudSkillPortPromise ??= getExecutionPlane()
-                    .workspaces.ensureFs(session.workspace!.environmentId)
-                    .then(requireShellFsPort)
-                  const snapshot = await materializeCloudSkills({
-                    workspaceId: cloudWorkspaceId,
-                    skills: [skill],
-                    port: await cloudSkillPortPromise,
-                    sourceRoot: turnScope.extensionRoot,
-                  })
-                  const skipped = snapshot.skipped.find(
-                    item => item.name === skill.name,
-                  )
-                  if (skipped) {
-                    throw new Error(
-                      `Skill "${skill.name}" could not be loaded: ${skipped.error}`,
-                    )
-                  }
-                  return snapshot.skills[0]?.runtimeBaseDir
-                },
-              )
-              return prepared
-            },
-          }
-        })
-      }
-    : undefined
-
+  // User and plugin skills stay at their baseDir under the mounted `.ai-agent`.
+  // The sandbox sees that path; nothing is copied to /tmp.
   const preloadedSlash =
     cloudSession && message.trimStart().startsWith('/')
-      ? await loadSlashRegistry(extensionCwd, {
-          transformSkills: transformCloudSkills,
-        })
+      ? await loadSlashRegistry(extensionCwd)
       : undefined
   const slash = await resolveSlashCommand(message, cwd, session, {
     preloaded: preloadedSlash,
@@ -381,7 +322,6 @@ export async function prepareChatTurn(
       candidateFiles,
       pluginSkills: preloadedSlash ? undefined : plugins.skills,
       preloadedSkills: preloadedSlash?.skills,
-      transformSkills: preloadedSlash ? undefined : transformCloudSkills,
       filterCwd: cloudSession ? cwd : undefined,
     },
   )
@@ -424,7 +364,7 @@ export async function prepareChatTurn(
     profile: earlyProfile,
     agents: activeAgents,
     queryText: slash.effectiveMessage,
-    remote,
+    remote: remote && !cloudSession,
   })
   const memoryGuide = buildMemorySystemAppend(memoryBinding)
   const projectRules =

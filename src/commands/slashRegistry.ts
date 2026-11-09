@@ -115,9 +115,6 @@ export async function loadSlashRegistry(
   cwd: string,
   opts: {
     mapProjectSkill?: (skill: SkillDefinition) => SkillDefinition
-    transformSkills?: (
-      skills: SkillDefinition[],
-    ) => SkillDefinition[] | Promise<SkillDefinition[]>
   } = {},
 ): Promise<{
   entries: SlashEntry[]
@@ -138,10 +135,7 @@ export async function loadSlashRegistry(
     ...contributions.commandFiles,
     ...commandFiles,
   ]).commands
-  const mergedSkills = mergeSkillsByName(contributions.skills, diskSkills)
-  const skills = opts.transformSkills
-    ? await opts.transformSkills(mergedSkills)
-    : mergedSkills
+  const skills = mergeSkillsByName(contributions.skills, diskSkills)
 
   const byName = new Map<string, SlashEntry>()
 
