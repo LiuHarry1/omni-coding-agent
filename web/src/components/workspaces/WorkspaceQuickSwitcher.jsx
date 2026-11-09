@@ -19,6 +19,17 @@ import {
   resolveWorkspaceCreateMethods,
 } from './workspace-hub-model.js'
 
+function workspaceMeta(item, cloud) {
+  if (!cloud) {
+    return `${item.kind === 'ssh' ? 'SSH' : 'Local'} · ${item.handle.cwd}`
+  }
+  if (item.pending) return 'Importing repository…'
+  if (item.source?.kind === 'git') {
+    return item.sourceDisplay.label.replace(/^Git · /, '')
+  }
+  return 'Empty workspace'
+}
+
 function WorkspaceRow({ item, cloud, busy, onSelect }) {
   const unavailable = cloud && item.status !== 'ready'
   const monoMeta = !cloud || item.source?.kind === 'git'
@@ -27,11 +38,7 @@ function WorkspaceRow({ item, cloud, busy, onSelect }) {
       ? 'git'
       : 'cloud'
     : item.kind
-  const meta = cloud
-    ? item.pending
-      ? 'Importing repository…'
-      : item.sourceDisplay.label
-    : `${item.kind === 'ssh' ? 'SSH' : 'Local'} · ${item.handle.cwd}`
+  const meta = workspaceMeta(item, cloud)
 
   return (
     <button
@@ -48,7 +55,10 @@ function WorkspaceRow({ item, cloud, busy, onSelect }) {
       aria-current={item.current ? 'true' : undefined}
       onClick={() => onSelect(item)}
     >
-      <span className='workspace-quick-row__icon' aria-hidden='true'>
+      <span
+        className={`workspace-quick-row__icon is-${iconKind}`}
+        aria-hidden='true'
+      >
         <WorkspaceTypeIcon kind={iconKind} />
       </span>
       <span className='workspace-quick-row__copy'>
@@ -61,7 +71,9 @@ function WorkspaceRow({ item, cloud, busy, onSelect }) {
       </span>
       {item.current ? (
         <span className='workspace-quick-row__check' aria-label='Current'>
-          ✓
+          <svg viewBox='0 0 16 16' aria-hidden='true'>
+            <path d='M3.2 8.2 6.3 11.2 12.8 4.6' />
+          </svg>
         </span>
       ) : item.pending ? (
         <StatusBadge status='importing'>Importing</StatusBadge>
@@ -220,7 +232,7 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
           <header className='workspace-quick-switcher__head'>
             <div>
               <strong>Workspaces</strong>
-              <span>Choose where the next chat runs</span>
+              <span>The next chat runs here</span>
             </div>
             <button
               type='button'
