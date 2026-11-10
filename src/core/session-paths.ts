@@ -7,7 +7,6 @@
  */
 import * as path from 'path'
 import { getAppDirName, getProcessAppDir } from '../utils/app-dir.js'
-import { findCanonicalGitRoot } from '../utils/git-root.js'
 import { resolveAgentHome } from '../utils/request-scope.js'
 import { sanitizePath } from '../utils/sanitize-path.js'
 import { getDefaultWorkspace } from './workspace.js'
@@ -70,8 +69,11 @@ export function getProjectSessionDir(
 }
 
 /**
- * Project bucket key (shared with Auto Memory for local cwd).
- * Remote SSH: `environmentId:cwd` without host git canonicalization.
+ * Session bucket key, decided when a session is created or bound and then
+ * read back from the session index — never recomputed to locate a session.
+ * Like Claude Code's `getProjectDir(originalCwd)`, local keys use the cwd
+ * itself (no git lookup); Auto Memory separately keys on the git root.
+ * Remote: `environmentId:cwd`.
  */
 export function computeProjectKey(
   workspace?: { environmentId: string; cwd: string } | null,
@@ -84,14 +86,7 @@ export function computeProjectKey(
   const cwd = workspace?.cwd
     ? normalizeWorkspacePath(workspace.cwd)
     : path.resolve(fallbackCwd ?? getDefaultWorkspace())
-  const base = findCanonicalGitRoot(cwd) ?? cwd
-  return sanitizePath(base)
-}
-
-/** Local auto-memory / session bucket from a cwd (no remote env). */
-export function computeLocalProjectKey(cwd: string): string {
-  const resolved = path.resolve(cwd)
-  return sanitizePath(findCanonicalGitRoot(resolved) ?? resolved)
+  return sanitizePath(cwd)
 }
 
 export function requireSessionLocation(sessionId: string): SessionLocation {

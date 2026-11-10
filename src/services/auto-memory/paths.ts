@@ -83,7 +83,8 @@ export function getAutoMemPath(opts: AutoMemPathOptions): string {
     )
   }
   const base = findCanonicalGitRoot(opts.cwd) ?? path.resolve(opts.cwd)
-  // Same sanitize as session computeLocalProjectKey / computeProjectKey(local).
+  // Keyed on the canonical git root so every worktree shares one memory dir;
+  // session buckets use the raw cwd instead (computeProjectKey).
   return path.join(
     getUserAppDir(),
     'projects',

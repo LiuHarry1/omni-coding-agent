@@ -328,7 +328,7 @@ Auto Memory is a project-wide collection of cross-session topic files shared by 
 └── <topic-b>.md
 ```
 
-For local workspaces, `projectKey` is derived from the canonical git root; worktrees are normalized to the main repository. Non-git workspaces use the normalized `cwd`, processed by `sanitizePath()`.
+For local workspaces, the memory `projectKey` is derived from the canonical git root; worktrees are normalized to the main repository. Non-git workspaces use the normalized `cwd`, processed by `sanitizePath()`. Session transcript buckets are keyed differently: like Claude Code, they use the bound `cwd` itself, fixed when the session is created or bound and then read back from `session-index.json`.
 
 `autoMemory.directory` / `autoMemoryDirectory` can override the default directory, but only **user** settings (and managed / policy settings) are trusted. Directory overrides in **project** and **local** (`settings.local.json`) settings are removed by `stripUntrustedAutoMemoryDirectory()`, preventing a repository or shareable local configuration from turning an arbitrary system path into an allowlisted read/write location. Other Auto Memory switches, such as `enabled` and `prefetchEnabled`, can still be set by project / local configuration.
 

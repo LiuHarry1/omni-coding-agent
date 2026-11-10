@@ -456,7 +456,6 @@ async function handleChatRequest(
         environmentId: workspaceContext.environmentId,
         cwd: workspaceContext.workspaceRoot,
       },
-      projectKey: workspaceContext.projectKey,
       cwd,
       mode: session.permissionMode.mode,
       agentType: session.agentType,

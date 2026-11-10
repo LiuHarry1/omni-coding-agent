@@ -31,8 +31,6 @@ export interface DurableRunState {
   agentHome: string
   /** Stable environment + workspace root captured when the Run was accepted. */
   workspace?: WorkspaceHandle
-  /** Persistence bucket that must agree with the Session workspace binding. */
-  projectKey?: string
   /** Effective execution cwd; retained for v1 compatibility. */
   cwd: string
   mode?: string
@@ -68,7 +66,6 @@ export interface CreateDurableRunInput {
   ownerRole?: string
   agentHome: string
   workspace?: WorkspaceHandle
-  projectKey?: string
   cwd: string
   mode?: string
   agentType?: string | null

@@ -283,7 +283,6 @@ export function setSessionWorkspace(
   appendLine(sessionId, {
     type: 'workspace_bound',
     workspace: bound,
-    projectKey: newKey,
     timestamp: Date.now(),
   })
 }
@@ -732,22 +731,12 @@ function restoreFromDisk(id: string): Session {
         typeof w.environmentId === 'string' &&
         typeof w.cwd === 'string'
       ) {
-        const bound = {
+        // The session index already located this file; older events may also
+        // carry a projectKey, which is ignored like any other diagnostic.
+        session.workspace = {
           environmentId: w.environmentId,
           cwd: normalizeWorkspacePath(w.cwd),
         }
-        const expectedProjectKey = computeProjectKey(bound)
-        if (
-          typeof line.projectKey === 'string' &&
-          line.projectKey !== expectedProjectKey
-        ) {
-          console.warn(
-            `[session] ignored inconsistent workspace binding for ${id}: ` +
-              `event projectKey=${line.projectKey} expected=${expectedProjectKey}`,
-          )
-          continue
-        }
-        session.workspace = bound
       }
     }
   }

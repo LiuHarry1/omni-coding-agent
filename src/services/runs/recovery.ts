@@ -99,7 +99,6 @@ function reconcileRecoveryWorkspace(
     state.version !== 2 ||
     state.workspace?.environmentId !== context.environmentId ||
     state.workspace?.cwd !== context.workspaceRoot ||
-    state.projectKey !== context.projectKey ||
     state.cwd !== context.executionCwd
   if (changed) {
     state.version = 2
@@ -107,7 +106,6 @@ function reconcileRecoveryWorkspace(
       environmentId: context.environmentId,
       cwd: context.workspaceRoot,
     }
-    state.projectKey = context.projectKey
     state.cwd = context.executionCwd
     state.updatedAt = Date.now()
     writeRunState(state)
