@@ -144,8 +144,48 @@ describe('Worker channel loss', () => {
 
     await expect(command).resolves.toMatchObject({
       code: 0,
+      stderr: 'Shell cwd was reset to /workspace/repo',
       cwdAfter: '/workspace/repo',
     })
+    backend.dispose()
+  })
+
+  it('keeps a cwd inside an approved additional working directory', async () => {
+    const runtime = new FakeRuntime()
+    const additional: string[] = []
+    const backend = new WorkerExecutionBackend(
+      'ssh:test',
+      runtime,
+      'posix',
+      '/workspace/repo',
+      undefined,
+      () => additional,
+    )
+    expect(() =>
+      backend.assertInWorkspace('/workspace/repo', '/data/shared/a.csv', 'read'),
+    ).toThrow(/outside the workspace root/)
+
+    additional.push('/data/shared')
+    backend.assertInWorkspace('/workspace/repo', '/data/shared/a.csv', 'read')
+    const command = backend.exec('cd /data/shared/out', {
+      cwd: '/workspace/repo',
+    })
+    const request = runtime.messages.at(-1)
+    if (request?.type !== 'fs_op') throw new Error('missing fs_op')
+    runtime.emit({
+      type: 'fs_op_result',
+      requestId: request.requestId,
+      ok: true,
+      data: { stdout: '', stderr: '', code: 0, cwdAfter: '/data/shared/out' },
+    })
+
+    await expect(command).resolves.toMatchObject({
+      stderr: '',
+      cwdAfter: '/data/shared/out',
+    })
+    expect(backend.resolve('/data/shared/out', 'b.csv')).toBe(
+      '/data/shared/out/b.csv',
+    )
     backend.dispose()
   })
 

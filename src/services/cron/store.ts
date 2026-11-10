@@ -106,9 +106,6 @@ function parseTask(t: unknown): ScheduledTask | null {
     ...(typeof row.lastFiredAt === 'number'
       ? { lastFiredAt: row.lastFiredAt }
       : {}),
-    ...(typeof row.failureCount === 'number'
-      ? { failureCount: row.failureCount }
-      : {}),
   }
 }
 

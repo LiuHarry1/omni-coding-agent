@@ -7,7 +7,6 @@ import { FsOpError } from './fs-ops.js'
 export const MAX_PREVIEW_BYTES = 5 * 1024 * 1024
 export const MAX_OFFICE_PREVIEW_BYTES = 20 * 1024 * 1024
 
-const DEFAULT_GOTENBERG_URL = 'http://10.150.10.210:8030'
 const DEFAULT_GOTENBERG_TIMEOUT_SECONDS = 60
 
 const PREVIEW_CONTENT_TYPES: Record<string, string> = {
@@ -96,9 +95,14 @@ export async function convertOfficePreviewToPdf(
   body: Buffer,
   fileName: string,
 ): Promise<Buffer> {
-  const baseUrl = (
-    process.env.GOTENBERG_URL?.trim() || DEFAULT_GOTENBERG_URL
-  ).replace(/\/+$/, '')
+  const configuredUrl = process.env.GOTENBERG_URL?.trim()
+  if (!configuredUrl) {
+    throw new FsOpError(
+      'EIO',
+      'PPTX preview is not configured: set GOTENBERG_URL to a Gotenberg service',
+    )
+  }
+  const baseUrl = configuredUrl.replace(/\/+$/, '')
   const timeoutSeconds = Number.parseInt(
     process.env.GOTENBERG_TIMEOUT_SECONDS || '',
     10,

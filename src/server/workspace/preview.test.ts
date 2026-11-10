@@ -33,7 +33,18 @@ describe('PPTX workspace preview conversion', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
   })
 
+  it('fails fast when Gotenberg is not configured', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(
+      convertOfficePreviewToPdf(Buffer.from('pptx'), 'deck.pptx'),
+    ).rejects.toThrow('PPTX preview is not configured')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('rejects a non-PDF conversion response', async () => {
+    process.env.GOTENBERG_URL = 'http://gotenberg.test'
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => {

@@ -23,7 +23,6 @@ export type ScheduledTask = {
   recurring: boolean
   createdAt: number
   lastFiredAt?: number
-  failureCount?: number
   nextRunAtMs: number
 }
 

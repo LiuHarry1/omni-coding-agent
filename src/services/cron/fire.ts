@@ -31,9 +31,6 @@ import {
   type ScheduledTask,
 } from './types.js'
 
-const ERROR_RETRY_BASE_MS = 30_000
-const ERROR_RETRY_MAX_MS = 15 * 60_000
-
 export function isScheduledWorkspaceAvailable(
   session: Pick<Session, 'workspace'>,
   manager: CloudWorkspaceManager | null = getCloudWorkspaceManager(),
@@ -133,18 +130,9 @@ export async function fireScheduledTask(
     console.warn(
       `[cron] fire ${task.id} failed: ${err instanceof Error ? err.message : err}`,
     )
-    const failureCount = (task.failureCount ?? 0) + 1
-    const delay = Math.min(
-      ERROR_RETRY_BASE_MS * 2 ** Math.min(failureCount - 1, 10),
-      ERROR_RETRY_MAX_MS,
-    )
-    updateCronTask(task.id, {
-      failureCount,
-      nextRunAtMs: nowMs + delay,
-    })
-    console.warn(
-      `[cron] task ${task.id} retry=${failureCount} backoffMs=${delay}`,
-    )
+    // At-most-once: the turn may already have run side-effecting tools, so a
+    // failure is never replayed. Recurring tasks wait for their next slot.
+    advanceAfterFire(task, nowMs)
     return 'error'
   } finally {
     endTurn(session.id)
@@ -153,16 +141,18 @@ export async function fireScheduledTask(
     void flushUsage()
   }
 
-  const aged = isRecurringTaskAged(task, nowMs)
-  if (task.recurring && !aged) {
+  advanceAfterFire(task, nowMs)
+  return 'fired'
+}
+
+function advanceAfterFire(task: ScheduledTask, nowMs: number): void {
+  if (task.recurring && !isRecurringTaskAged(task, nowMs)) {
     const next = computeNextRunAtMs(task, nowMs)
     updateCronTask(task.id, {
       lastFiredAt: nowMs,
-      failureCount: 0,
       nextRunAtMs: next ?? Number.POSITIVE_INFINITY,
     })
   } else {
     removeCronTasks([task.id])
   }
-  return 'fired'
 }

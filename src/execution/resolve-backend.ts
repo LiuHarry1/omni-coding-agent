@@ -35,6 +35,7 @@ export async function resolveExecutionBackend(
     handle.environmentId === 'local' ? 'local' : 'posix',
     handle.cwd,
     lspServers,
+    () => session.additionalWorkingDirectories ?? [],
   )
   if (lspServers && Object.keys(lspServers).length > 0) {
     await backend.configureLsp(lspServers)

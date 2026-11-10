@@ -76,6 +76,8 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       : 'posix',
     private cwd: string = '',
     private lspServers?: Record<string, LspServerConfig>,
+    /** Read on every check: approvals can add directories mid-turn. */
+    private additionalRoots: () => readonly string[] = () => [],
   ) {
     this.workspaceKey = getLspWorkspaceKey(this.cwd, this.lspServers)
     this.unsub = runtime.onMessage(msg => {
@@ -253,27 +255,23 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     _access: 'read' | 'write',
   ): void {
     this.assertExecutionCwd(cwd)
-    const ok =
-      this.pathStyle === 'posix'
-        ? posixInWorkspace(this.cwd, absPath)
-        : localInWorkspace(this.cwd, absPath)
-    if (!ok) {
+    if (!this.isInAllowedRoots(absPath)) {
       throw new Error(
         `Refused: "${absPath}" is outside the workspace root "${this.cwd}".`,
       )
     }
   }
 
-  private isExecutionCwdAllowed(cwd: string): boolean {
-    return (
-      this.pathStyle === 'posix'
-        ? posixInWorkspace(this.cwd, cwd)
-        : localInWorkspace(this.cwd, cwd)
+  private isInAllowedRoots(target: string): boolean {
+    const inRoot =
+      this.pathStyle === 'posix' ? posixInWorkspace : localInWorkspace
+    return [this.cwd, ...this.additionalRoots()].some(root =>
+      inRoot(root, target),
     )
   }
 
   private assertExecutionCwd(cwd: string): void {
-    if (!this.isExecutionCwdAllowed(cwd)) {
+    if (!this.isInAllowedRoots(cwd)) {
       throw new Error(
         `Workspace context mismatch: execution cwd "${cwd}" is outside ` +
           `the Worker workspace root "${this.cwd}" (${this.environmentId}).`,
@@ -340,13 +338,15 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       opts.signal,
     )
     // A command may temporarily enter AgentHome to inspect or execute a Skill.
-    // Do not persist that external directory as the next shell call's cwd:
-    // subsequent Worker calls are intentionally rooted at the project workspace.
-    if (
-      result.cwdAfter &&
-      !this.isExecutionCwdAllowed(result.cwdAfter)
-    ) {
-      return { ...result, cwdAfter: opts.cwd }
+    // Do not persist that external directory as the next shell call's cwd,
+    // and tell the model so its view of the cwd stays accurate.
+    if (result.cwdAfter && !this.isInAllowedRoots(result.cwdAfter)) {
+      const notice = `Shell cwd was reset to ${opts.cwd}`
+      return {
+        ...result,
+        stderr: result.stderr ? `${result.stderr.trimEnd()}\n${notice}` : notice,
+        cwdAfter: opts.cwd,
+      }
     }
     return result
   }

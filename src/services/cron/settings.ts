@@ -28,10 +28,35 @@ export type ScheduledTaskContext = {
   enabled: boolean
 }
 
+function workspaceMismatch(
+  task: ScheduledTask,
+  bound: Session['workspace'],
+): string | null {
+  if (
+    task.workspace &&
+    bound &&
+    task.workspace.environmentId !== bound.environmentId
+  ) {
+    return `task workspace ${task.workspace.environmentId} does not match session workspace ${bound.environmentId}`
+  }
+  if (task.workspace && task.workspace.environmentId !== 'local' && !bound) {
+    return `session has no binding for task workspace ${task.workspace.environmentId}`
+  }
+  if (
+    task.environmentId &&
+    bound &&
+    task.environmentId !== bound.environmentId
+  ) {
+    return `legacy task environment ${task.environmentId} does not match session workspace ${bound.environmentId}`
+  }
+  return null
+}
+
 /**
  * Resolve a persisted task through its owning session before reading settings.
  * This is safe to call from the process-level scheduler where no request ALS
- * exists yet.
+ * exists yet. Returns null for an orphaned task: its session is gone or now
+ * bound to a different workspace, so the task can never fire again.
  */
 export function resolveScheduledTaskContext(
   task: ScheduledTask,
@@ -49,34 +74,10 @@ export function resolveScheduledTaskContext(
         agentHome: location.agentHome,
       })
       if (!session) return null
-      if (
-        task.workspace &&
-        session.workspace &&
-        task.workspace.environmentId !== session.workspace.environmentId
-      ) {
-        throw new Error(
-          `task workspace ${task.workspace.environmentId} does not match ` +
-            `session workspace ${session.workspace.environmentId}`,
-        )
-      }
-      if (
-        task.workspace?.environmentId !== 'local' &&
-        task.workspace &&
-        !session.workspace
-      ) {
-        throw new Error(
-          `task ${task.id} has no matching Session workspace binding`,
-        )
-      }
-      if (
-        task.environmentId &&
-        session.workspace &&
-        task.environmentId !== session.workspace.environmentId
-      ) {
-        throw new Error(
-          `legacy task environment ${task.environmentId} does not match ` +
-            `session workspace ${session.workspace.environmentId}`,
-        )
+      const mismatch = workspaceMismatch(task, session.workspace)
+      if (mismatch) {
+        console.warn(`[cron] task ${task.id} is orphaned: ${mismatch}`)
+        return null
       }
       const workspace = session.workspace ?? task.workspace
       const turnScope = resolveTurnWorkspaceScope(
