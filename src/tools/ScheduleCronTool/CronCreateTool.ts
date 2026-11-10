@@ -5,7 +5,7 @@ import { CRON_CREATE_TOOL_NAME } from '../../constants/tool_names.js'
 // Import the leaf module: the cron barrel also exports the scheduler, whose
 // fire path imports run-chat-turn -> tools.ts and creates an ESM cycle here.
 import { scheduleCronTask } from '../../services/cron/schedule.js'
-import { resolveTurnWorkspaceScope } from '../../services/cloud-workspaces/turn-scope.js'
+import { resolveWorkspaceContext } from '../../services/cloud-workspaces/turn-scope.js'
 import { CRON_CREATE_DESCRIPTION, CRON_CREATE_PROMPT } from './prompt.js'
 
 export const CronCreateOutputSchema = z.object({
@@ -70,14 +70,10 @@ export const definition: ToolDefinition = {
         if (!session?.id) {
           throw new Error('CronCreate requires an active session')
         }
-        const workspaceContext = resolveTurnWorkspaceScope(
-          session.workspace,
-          cwd,
-          session.additionalWorkingDirectories,
-        )
+        const workspaceContext = resolveWorkspaceContext(session.workspace, cwd)
 
         const result = scheduleCronTask({
-          cwd: workspaceContext.executionCwd,
+          cwd: workspaceContext.cwd,
           settingsCwd: workspaceContext.settingsCwd,
           sessionId: session.id,
           prompt,

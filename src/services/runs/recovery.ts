@@ -16,7 +16,10 @@ import {
 } from '../../server/quota.js'
 import { attachUsageTelemetry, flushUsage } from '../../server/telemetry.js'
 import { getCloudWorkspaceManager } from '../cloud-workspaces/index.js'
-import { resolveTurnWorkspaceScope } from '../cloud-workspaces/turn-scope.js'
+import {
+  resolveWorkspaceContext,
+  type WorkspaceContext,
+} from '../cloud-workspaces/turn-scope.js'
 import {
   appendMessage,
   appendUnknownToolResults,
@@ -60,7 +63,7 @@ type EventRepairResult = {
 function reconcileRecoveryWorkspace(
   state: DurableRunState,
   session: NonNullable<ReturnType<typeof getSession>>,
-): string {
+): WorkspaceContext {
   const bound = session.workspace
   if (
     state.workspace &&
@@ -90,23 +93,19 @@ function reconcileRecoveryWorkspace(
     }
   }
 
-  const context = resolveTurnWorkspaceScope(
-    workspace,
-    state.cwd,
-    session.additionalWorkingDirectories,
-  )
+  const context = resolveWorkspaceContext(workspace, state.cwd)
   const changed =
     state.version !== 2 ||
     state.workspace?.environmentId !== context.environmentId ||
-    state.workspace?.cwd !== context.workspaceRoot ||
-    state.cwd !== context.executionCwd
+    state.workspace?.cwd !== context.projectRoot ||
+    state.cwd !== context.cwd
   if (changed) {
     state.version = 2
     state.workspace = {
       environmentId: context.environmentId,
-      cwd: context.workspaceRoot,
+      cwd: context.projectRoot,
     }
-    state.cwd = context.executionCwd
+    state.cwd = context.cwd
     state.updatedAt = Date.now()
     writeRunState(state)
     console.warn(
@@ -115,12 +114,12 @@ function reconcileRecoveryWorkspace(
         runId: state.runId,
         sessionId: state.sessionId,
         environmentId: context.environmentId,
-        workspaceRoot: context.workspaceRoot,
-        executionCwd: context.executionCwd,
+        projectRoot: context.projectRoot,
+        cwd: context.cwd,
       }),
     )
   }
-  return context.executionCwd
+  return context
 }
 
 /**
@@ -360,9 +359,9 @@ async function recoverOne(
         failDurableRun(state, 'Session missing during run recovery')
         return
       }
-      let recoveryCwd: string
+      let recoveryWorkspace: WorkspaceContext
       try {
-        recoveryCwd = reconcileRecoveryWorkspace(state, session)
+        recoveryWorkspace = reconcileRecoveryWorkspace(state, session)
       } catch (error) {
         failDurableRun(
           state,
@@ -458,7 +457,7 @@ ${
                   ? recoveryPrompt
                   : state.requestPayload!.message,
                 session,
-                cwd: recoveryCwd,
+                workspace: recoveryWorkspace,
                 runAgent,
                 transport,
                 images: hasOpeningMessage

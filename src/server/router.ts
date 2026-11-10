@@ -67,7 +67,7 @@ import { getExecutionPlane } from '../execution/bootstrap.js'
 import { ShellFsPort } from '../execution/shell-fs.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { WorkerExecutionBackend } from '../execution/worker-execution-backend.js'
-import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
+import { resolveWorkspaceContext } from '../services/cloud-workspaces/turn-scope.js'
 import { initCodePlugins } from '../core/plugins/index.js'
 import { bumpUserConfigGeneration } from '../services/user-config-generation.js'
 import { handleChat } from './routes/chat.js'
@@ -778,10 +778,7 @@ export function createRouter({ staticDir }: RouterOptions) {
         }
         let settingsCwd: string
         try {
-          settingsCwd = resolveTurnWorkspaceScope(
-            handle,
-            handle.cwd,
-          ).settingsCwd
+          settingsCwd = resolveWorkspaceContext(handle, handle.cwd).settingsCwd
         } catch (error) {
           sendJSON(res, 500, { error: (error as Error).message })
           return

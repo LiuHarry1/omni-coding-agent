@@ -4,7 +4,10 @@ import type { Session } from '../../core/types.js'
 import { getSession } from '../../session/store.js'
 import { findSessionLocation } from '../../session/session-index.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
-import { resolveTurnWorkspaceScope } from '../cloud-workspaces/turn-scope.js'
+import {
+  resolveWorkspaceContext,
+  type WorkspaceContext,
+} from '../cloud-workspaces/turn-scope.js'
 import type { ScheduledTask } from './types.js'
 
 /** Project/user settings: `scheduledTasks.enabled`. Omitted = on. */
@@ -23,8 +26,7 @@ export function isScheduledTasksEnabled(
 export type ScheduledTaskContext = {
   agentHome: string
   session: Session
-  cwd: string
-  settingsCwd: string
+  workspace: WorkspaceContext
   enabled: boolean
 }
 
@@ -79,18 +81,15 @@ export function resolveScheduledTaskContext(
         console.warn(`[cron] task ${task.id} is orphaned: ${mismatch}`)
         return null
       }
-      const workspace = session.workspace ?? task.workspace
-      const turnScope = resolveTurnWorkspaceScope(
-        workspace,
+      const workspace = resolveWorkspaceContext(
+        session.workspace ?? task.workspace,
         task.cwd,
-        session.additionalWorkingDirectories,
       )
       return {
         agentHome: location.agentHome,
         session,
-        cwd: turnScope.executionCwd,
-        settingsCwd: turnScope.settingsCwd,
-        enabled: isScheduledTasksEnabled(turnScope.settingsCwd, true),
+        workspace,
+        enabled: isScheduledTasksEnabled(workspace.settingsCwd, true),
       }
     },
   )

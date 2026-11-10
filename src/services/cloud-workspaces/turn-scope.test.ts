@@ -17,7 +17,7 @@ import {
   cloudSandboxSeesAgentHome,
   cloudSandboxSeesSessionFiles,
   filterCloudMCPServers,
-  resolveTurnWorkspaceScope,
+  resolveWorkspaceContext,
 } from './turn-scope.js'
 
 describe('cloud turn scope', () => {
@@ -25,21 +25,17 @@ describe('cloud turn scope', () => {
     const home = path.resolve('/srv/users/alice')
     runWithRequestScope({ agentHome: home, cwd: home }, () => {
       expect(
-        resolveTurnWorkspaceScope(
+        resolveWorkspaceContext(
           {
             environmentId: 'cloud:abcdef0123456789',
             cwd: '/workspace/repo',
           },
           '/workspace/repo',
         ),
-      ).toMatchObject({
-        agentHome: home,
+      ).toEqual({
         environmentId: 'cloud:abcdef0123456789',
-        workspaceRoot: '/workspace/repo',
-        executionCwd: '/workspace/repo',
-        requestedCwd: '/workspace/repo',
-        cwdDrifted: false,
-        toolCwd: '/workspace/repo',
+        projectRoot: '/workspace/repo',
+        cwd: '/workspace/repo',
         extensionCwd: home,
         settingsCwd: home,
         extensionRoot: path.join(home, '.ai-agent'),
@@ -52,7 +48,7 @@ describe('cloud turn scope', () => {
   it('uses the remote binding when an entry point supplies agentHome as cwd', () => {
     const home = path.resolve('/srv/users/alice')
     runWithRequestScope({ agentHome: home, cwd: home }, () => {
-      const scope = resolveTurnWorkspaceScope(
+      const scope = resolveWorkspaceContext(
         {
           environmentId: 'cloud:abcdef0123456789',
           cwd: '/workspace/repo',
@@ -60,11 +56,8 @@ describe('cloud turn scope', () => {
         home,
       )
       expect(scope).toMatchObject({
-        requestedCwd: home,
-        workspaceRoot: '/workspace/repo',
-        executionCwd: '/workspace/repo',
-        toolCwd: '/workspace/repo',
-        cwdDrifted: true,
+        projectRoot: '/workspace/repo',
+        cwd: '/workspace/repo',
       })
     })
   })
@@ -72,7 +65,7 @@ describe('cloud turn scope', () => {
   it('allows a remote execution cwd below the stable workspace root', () => {
     const home = path.resolve('/srv/users/alice')
     runWithRequestScope({ agentHome: home, cwd: home }, () => {
-      const scope = resolveTurnWorkspaceScope(
+      const scope = resolveWorkspaceContext(
         {
           environmentId: 'cloud:abcdef0123456789',
           cwd: '/workspace/repo',
@@ -80,9 +73,8 @@ describe('cloud turn scope', () => {
         '/workspace/repo/packages/web',
       )
       expect(scope).toMatchObject({
-        workspaceRoot: '/workspace/repo',
-        executionCwd: '/workspace/repo/packages/web',
-        cwdDrifted: false,
+        projectRoot: '/workspace/repo',
+        cwd: '/workspace/repo/packages/web',
       })
     })
   })
@@ -92,7 +84,7 @@ describe('cloud turn scope', () => {
     process.env.AUTH_ENABLED = 'true'
     try {
       expect(() =>
-        resolveTurnWorkspaceScope(
+        resolveWorkspaceContext(
           {
             environmentId: 'cloud:abcdef0123456789',
             cwd: '/workspace/repo',
@@ -108,23 +100,32 @@ describe('cloud turn scope', () => {
 
   it('keeps local and SSH control-plane roots unchanged', () => {
     expect(
-      resolveTurnWorkspaceScope(
+      resolveWorkspaceContext(
         { environmentId: 'local', cwd: '/project' },
-        '/project',
+        '/project/sub',
       ),
-    ).toMatchObject({
-      toolCwd: '/project',
-      extensionCwd: '/project',
-      settingsCwd: '/project',
+    ).toEqual({
+      environmentId: 'local',
+      projectRoot: '/project',
+      cwd: '/project/sub',
+      extensionCwd: '/project/sub',
+      settingsCwd: '/project/sub',
+      cloudWorkspaceId: null,
+      remote: false,
+    })
+    expect(resolveWorkspaceContext(undefined, '/elsewhere')).toMatchObject({
+      projectRoot: '/elsewhere',
+      cwd: '/elsewhere',
       remote: false,
     })
     expect(
-      resolveTurnWorkspaceScope(
+      resolveWorkspaceContext(
         { environmentId: 'ssh:dev', cwd: '/srv/project' },
         '/srv/project',
       ),
     ).toMatchObject({
-      toolCwd: '/srv/project',
+      projectRoot: '/srv/project',
+      cwd: '/srv/project',
       extensionCwd: getDefaultWorkspace(),
       settingsCwd: getDefaultWorkspace(),
       remote: true,

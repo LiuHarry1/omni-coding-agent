@@ -1,8 +1,5 @@
 import * as path from 'path'
-import {
-  computeProjectKey,
-  requireSessionLocation,
-} from '../../core/session-paths.js'
+import { requireSessionLocation } from '../../core/session-paths.js'
 import {
   getDefaultWorkspace,
   normalizeWorkspacePath,
@@ -16,34 +13,21 @@ import { getCloudWorkspaceManager } from './index.js'
 export { filterHttpMCPServers as filterCloudMCPServers } from '../../core/mcp-policy.js'
 
 export type WorkspaceContext = {
-  /** User-owned configuration and persistence root on the control plane. */
-  agentHome?: string
   /** Execution environment selected by the session. */
   environmentId: string
-  /** Stable project anchor inside the selected environment. */
-  workspaceRoot: string
-  /** Per-turn cwd, constrained to workspaceRoot for remote environments. */
-  executionCwd: string
-  /** Stable persistence identity derived from environmentId + workspaceRoot. */
-  projectKey: string
-  /** Explicitly approved roots outside workspaceRoot. */
-  additionalRoots: string[]
-  /** The cwd supplied by the entry point, retained for drift diagnostics. */
-  requestedCwd: string
-  cwdDrifted: boolean
-  /** Tool paths always stay inside the selected execution environment. */
-  toolCwd: string
-  /** Host cwd passed to extension loaders. */
-  extensionCwd: string
+  /** Stable project anchor: the bound workspace cwd, else the requested cwd. */
+  projectRoot: string
+  /** Cwd for this turn's tools, kept under projectRoot for remote environments. */
+  cwd: string
   /** Host cwd passed to the layered settings resolver. */
   settingsCwd: string
+  /** Host cwd passed to extension loaders. */
+  extensionCwd: string
   /** Exact cloud user configuration root, when this is a cloud turn. */
   extensionRoot?: string
   cloudWorkspaceId: string | null
   remote: boolean
 }
-
-export type TurnWorkspaceScope = WorkspaceContext
 
 /** Request-scoped agent home, or HOME for single-user local cloud dev. */
 function cloudAgentHome(): string | undefined {
@@ -60,30 +44,29 @@ function cloudAgentHome(): string | undefined {
 }
 
 /**
- * Keep control-plane configuration paths separate from the execution cwd.
+ * Resolve once per entry point and pass the result down. Keeps control-plane
+ * configuration paths separate from the execution cwd.
  *
  * Cloud turns are intentionally strict: without a request-scoped agent home,
  * loading extensions could fall back to another tenant or the server account.
  */
-export function resolveTurnWorkspaceScope(
+export function resolveWorkspaceContext(
   workspace: WorkspaceHandle | undefined,
-  toolCwd: string,
-  additionalRoots: string[] = [],
-): TurnWorkspaceScope {
+  requestedCwd: string,
+): WorkspaceContext {
   const environmentId = workspace?.environmentId ?? 'local'
   const remote = Boolean(workspace && environmentId !== 'local')
-  const requestedCwd = normalizeWorkspacePath(toolCwd)
-  const workspaceRoot = normalizeWorkspacePath(
-    remote ? workspace!.cwd : requestedCwd,
-  )
-  const executionCwd =
-    remote && !isPathAtOrBelow(requestedCwd, workspaceRoot)
-      ? workspaceRoot
-      : requestedCwd
-  const normalizedWorkspace = {
-    environmentId,
-    cwd: workspaceRoot,
+  const requested = normalizeWorkspacePath(requestedCwd)
+  const projectRoot = normalizeWorkspacePath(workspace?.cwd ?? requested)
+  let cwd = requested
+  if (remote && !isPathAtOrBelow(requested, projectRoot)) {
+    cwd = projectRoot
+    console.warn(
+      '[workspace] cwd outside the remote project root; using the root',
+      JSON.stringify({ environmentId, requestedCwd: requested, projectRoot }),
+    )
   }
+
   const cloudWorkspaceId = parseCloudEnvironmentId(workspace?.environmentId)
   if (cloudWorkspaceId) {
     const agentHome = cloudAgentHome()
@@ -93,40 +76,24 @@ export function resolveTurnWorkspaceScope(
       )
     }
     return {
-      agentHome,
       environmentId,
-      workspaceRoot,
-      executionCwd,
-      projectKey: computeProjectKey(normalizedWorkspace),
-      additionalRoots: additionalRoots.map(normalizeWorkspacePath),
-      requestedCwd,
-      cwdDrifted: requestedCwd !== executionCwd,
-      toolCwd: executionCwd,
-      extensionCwd: agentHome,
+      projectRoot,
+      cwd,
       settingsCwd: agentHome,
+      extensionCwd: agentHome,
       extensionRoot: path.join(agentHome, getAppDirName()),
       cloudWorkspaceId,
       remote: true,
     }
   }
 
-  const controlPlaneCwd = remote ? getDefaultWorkspace() : executionCwd
-  const agentHome = getRequestScope()?.agentHome
+  const controlPlaneCwd = remote ? getDefaultWorkspace() : cwd
   return {
-    agentHome,
     environmentId,
-    workspaceRoot,
-    executionCwd,
-    projectKey: computeProjectKey(
-      remote ? normalizedWorkspace : undefined,
-      executionCwd,
-    ),
-    additionalRoots: additionalRoots.map(normalizeWorkspacePath),
-    requestedCwd,
-    cwdDrifted: requestedCwd !== executionCwd,
-    toolCwd: executionCwd,
-    extensionCwd: controlPlaneCwd,
+    projectRoot,
+    cwd,
     settingsCwd: controlPlaneCwd,
+    extensionCwd: controlPlaneCwd,
     cloudWorkspaceId: null,
     remote,
   }

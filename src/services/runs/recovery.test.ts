@@ -10,6 +10,7 @@ import {
   getSession,
 } from '../../session/index.js'
 import { upsertSessionIndexEntry } from '../../session/session-index.js'
+import type { RunChatTurnInput } from '../../turn/run-chat-turn.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
 import {
   getDurableRunState,
@@ -188,8 +189,7 @@ describe('durable run semantic recovery', () => {
       }
       createRunState(state)
 
-      let recoveryInput:
-        { message: string; isMeta?: boolean; durableRunId?: string } | undefined
+      let recoveryInput: RunChatTurnInput | undefined
       const count = await recoverDurableRuns(async () => '', {
         agentHomes: [agentHome],
         runTurn: async input => {
@@ -202,6 +202,10 @@ describe('durable run semantic recovery', () => {
       expect(recoveryInput?.isMeta).toBe(true)
       expect(recoveryInput?.message).toContain('previous agent process stopped')
       expect(recoveryInput?.durableRunId).toBe(state.runId)
+      expect(recoveryInput?.workspace).toMatchObject({
+        environmentId: 'local',
+        cwd: '/workspace',
+      })
       const recovered = getDurableRunState(state.runId, agentHome)
       expect(recovered?.attempt).toBe(2)
       expect(recovered?.status).toBe('finished')

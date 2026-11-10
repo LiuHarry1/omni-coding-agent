@@ -60,7 +60,7 @@ export async function fireScheduledTask(
     return 'missing'
   }
   if (!context.enabled) return 'disabled'
-  const { agentHome, session, cwd } = context
+  const { agentHome, session, workspace } = context
 
   if (!tryBeginTurn(session.id, agentHome)) return 'busy'
 
@@ -114,11 +114,11 @@ export async function fireScheduledTask(
     const transport = createSessionLiveTransport(session.id)
     const prompt = formatScheduledPrompt(task, new Date(nowMs))
     transport.emit(scheduledTurnMessage(prompt, { session_id: session.id }))
-    await runWithRequestScope({ agentHome, cwd }, () =>
+    await runWithRequestScope({ agentHome, cwd: workspace.cwd }, () =>
       runChatTurn({
         message: prompt,
         session,
-        cwd,
+        workspace,
         runAgent,
         transport,
         emitHandshake: false,

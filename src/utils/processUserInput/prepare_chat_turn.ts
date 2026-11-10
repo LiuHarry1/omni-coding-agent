@@ -68,7 +68,7 @@ import type { DirectiveRuntime } from '../../commands/promptExpansion.js'
 import {
   cloudSandboxSeesSessionFiles,
   filterCloudMCPServers,
-  resolveTurnWorkspaceScope,
+  type WorkspaceContext,
 } from '../../services/cloud-workspaces/turn-scope.js'
 import { setToolResultsHostOnly } from '../../services/tool-storage/index.js'
 
@@ -202,7 +202,7 @@ export interface PreparedChatTurn {
 
 export interface PrepareChatTurnInput {
   message: string
-  cwd: string
+  workspace: WorkspaceContext
   session: Session
   registry: IToolRegistry
   config: AppConfig
@@ -220,7 +220,7 @@ export async function prepareChatTurn(
 ): Promise<PreparedChatTurn> {
   const {
     message,
-    cwd: requestedCwd,
+    workspace,
     session,
     registry,
     config,
@@ -233,29 +233,8 @@ export async function prepareChatTurn(
     turnProfiler,
   } = input
 
-  const turnScope = resolveTurnWorkspaceScope(
-    session.workspace,
-    requestedCwd,
-    session.additionalWorkingDirectories,
-  )
-  const cwd = turnScope.executionCwd
-  if (turnScope.cwdDrifted) {
-    console.warn(
-      '[workspace] normalized preparation cwd',
-      JSON.stringify({
-        agentHome: turnScope.agentHome,
-        requestedCwd: turnScope.requestedCwd,
-        workspaceRoot: turnScope.workspaceRoot,
-        executionCwd: turnScope.executionCwd,
-        environmentId: turnScope.environmentId,
-        sessionId: session.id,
-      }),
-    )
-  }
-  const cloudWorkspaceId = turnScope.cloudWorkspaceId
+  const { cwd, cloudWorkspaceId, remote, extensionCwd } = workspace
   const cloudSession = cloudWorkspaceId !== null
-  const remote = turnScope.remote
-  const extensionCwd = turnScope.extensionCwd
   setToolResultsHostOnly(
     session.id,
     remote && !cloudSandboxSeesSessionFiles(session.workspace, session.id),

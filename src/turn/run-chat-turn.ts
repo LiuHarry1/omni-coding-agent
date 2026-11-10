@@ -23,7 +23,7 @@ import {
 import { isRemoteWorkspace } from '../execution/index.js'
 import {
   cloudSandboxSeesSessionFiles,
-  resolveTurnWorkspaceScope,
+  type WorkspaceContext,
 } from '../services/cloud-workspaces/turn-scope.js'
 import { generateSessionTitle } from '../services/sessionTitle.js'
 import {
@@ -106,7 +106,8 @@ import {
 export interface RunChatTurnInput {
   message: string
   session: Session
-  cwd: string
+  /** Resolved once by the entry point; see resolveWorkspaceContext. */
+  workspace: WorkspaceContext
   runAgent: RunAgentFn
   /** Protocol sink -- use noop transport when the client wants buffered JSON. */
   transport: SSETransport
@@ -229,7 +230,7 @@ export async function runChatTurn(
   const {
     message,
     session,
-    cwd: requestedCwd,
+    workspace,
     runAgent,
     transport,
     images,
@@ -248,27 +249,8 @@ export async function runChatTurn(
   turnProfile.checkpoint('first_status_emitted', {
     remote: isRemoteWorkspace(session.workspace) ? 1 : 0,
   })
-  const turnScope = resolveTurnWorkspaceScope(
-    session.workspace,
-    requestedCwd,
-    session.additionalWorkingDirectories,
-  )
-  const cwd = turnScope.executionCwd
-  if (turnScope.cwdDrifted) {
-    console.warn(
-      '[workspace] normalized turn cwd',
-      JSON.stringify({
-        agentHome: turnScope.agentHome,
-        requestedCwd: turnScope.requestedCwd,
-        workspaceRoot: turnScope.workspaceRoot,
-        executionCwd: turnScope.executionCwd,
-        environmentId: turnScope.environmentId,
-        sessionId: session.id,
-        runId: durableRunId,
-      }),
-    )
-  }
-  const resolvedSettings = resolveSettings(turnScope.settingsCwd)
+  const { cwd } = workspace
+  const resolvedSettings = resolveSettings(workspace.settingsCwd)
   const models = createModelRegistry(resolvedSettings.config.models)
   const provider = models.provider('large')
 
@@ -371,7 +353,7 @@ export async function runChatTurn(
   const prepared = await profileSpan('turn_prepare', () =>
     prepareChatTurn({
       message,
-      cwd,
+      workspace,
       session,
       registry: defaultRegistry.fork(),
       config: resolvedSettings.config,

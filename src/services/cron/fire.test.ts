@@ -13,6 +13,7 @@ vi.mock('../../turn/run-chat-turn.js', () => ({
 }))
 
 import { resetSettingsCache } from '../../core/settings-manager.js'
+import { runChatTurn } from '../../turn/run-chat-turn.js'
 import {
   createSession,
   deleteSession,
@@ -96,6 +97,12 @@ describe('fireScheduledTask failure handling', () => {
 
     expect(await fireScheduledTask(scheduled)).toBe('error')
     expect(readCronTasks()).toHaveLength(0)
+    expect(vi.mocked(runChatTurn).mock.lastCall?.[0].workspace).toMatchObject({
+      environmentId: 'local',
+      projectRoot: repo,
+      cwd: repo,
+      remote: false,
+    })
   })
 
   it('moves a failed recurring task to its next slot', async () => {

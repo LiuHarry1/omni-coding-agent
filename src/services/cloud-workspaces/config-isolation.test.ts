@@ -10,7 +10,7 @@ import { loadAgentPickerWorkspace } from '../../core/agent-picker-workspace.js'
 import { loadSkillsFromDisk } from '../../skills/loadSkillsDir.js'
 import { loadUserAgentRules } from '../../utils/rules-loader.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
-import { resolveTurnWorkspaceScope } from './turn-scope.js'
+import { resolveWorkspaceContext } from './turn-scope.js'
 
 let tmp: string
 let previousAuth: string | undefined
@@ -59,7 +59,7 @@ describe('cloud configuration isolation', () => {
     write(path.join(repo, '.ai-agent/rules/repo.md'), 'REPO_RULE_SENTINEL')
 
     await runWithRequestScope({ agentHome: home, cwd: home }, async () => {
-      const scope = resolveTurnWorkspaceScope(
+      const scope = resolveWorkspaceContext(
         {
           environmentId: 'cloud:abcdef0123456789',
           cwd: '/workspace/repo',

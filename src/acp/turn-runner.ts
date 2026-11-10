@@ -6,6 +6,7 @@ import type { AcpTurnSink } from './translate-outbound.js'
 import { createAcpTransport } from './translate-outbound.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { parseCloudEnvironmentId } from '../execution/providers/cloud/cloud-provider.js'
+import { resolveWorkspaceContext } from '../services/cloud-workspaces/turn-scope.js'
 
 export interface AcpSessionRecord {
   session: Session
@@ -73,11 +74,14 @@ export async function runAcpPromptTurn(input: {
       'ACP cannot run in the Cloud profile without a bound Cloud WorkspaceHandle.',
     )
   }
-  const cwd = record.session.workspace?.cwd ?? record.cwd
+  const workspace = resolveWorkspaceContext(
+    record.session.workspace,
+    record.session.workspace?.cwd ?? record.cwd,
+  )
 
   if (record.emitHandshake) {
     await sink.emitInitHandshake(
-      cwd,
+      workspace.cwd,
       record.session.permissionMode?.mode ?? 'agent',
     )
     record.emitHandshake = false
@@ -92,7 +96,7 @@ export async function runAcpPromptTurn(input: {
     const result = await runChatTurn({
       message,
       session: record.session,
-      cwd,
+      workspace,
       runAgent,
       transport,
       images,

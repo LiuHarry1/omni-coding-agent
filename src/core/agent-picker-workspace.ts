@@ -4,7 +4,7 @@
 import { resolveSettings } from './settings-manager.js'
 import { loadWorkspaceContributions } from './workspace-load.js'
 import type { WorkspaceHandle } from '../execution/types.js'
-import { resolveTurnWorkspaceScope } from '../services/cloud-workspaces/turn-scope.js'
+import { resolveWorkspaceContext } from '../services/cloud-workspaces/turn-scope.js'
 import {
   isAgentTypeAllowedByPicker,
   isModeAllowedByPicker,
@@ -21,7 +21,7 @@ export async function loadAgentPickerWorkspace(
   workspace: WorkspaceHandle | undefined,
   toolCwd: string,
 ) {
-  const scope = resolveTurnWorkspaceScope(workspace, toolCwd)
+  const scope = resolveWorkspaceContext(workspace, toolCwd)
   const settings = resolveSettings(scope.settingsCwd)
   const contributions = await loadWorkspaceContributions(scope.extensionCwd)
   return {

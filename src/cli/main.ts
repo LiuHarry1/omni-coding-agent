@@ -17,6 +17,7 @@ import { readStdioClientMessages } from '../server/stdio-input.js'
 import { runChatTurn } from '../turn/run-chat-turn.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { parseCloudEnvironmentId } from '../execution/providers/cloud/cloud-provider.js'
+import { resolveWorkspaceContext } from '../services/cloud-workspaces/turn-scope.js'
 
 export async function startStdioAgent(runAgent: RunAgentFn): Promise<void> {
   const cwd = resolveDefaultWorkspace()
@@ -43,12 +44,15 @@ export async function startStdioAgent(runAgent: RunAgentFn): Promise<void> {
         'CLI cannot run in the Cloud profile without a bound Cloud WorkspaceHandle.',
       )
     }
-    const turnCwd = session.workspace?.cwd ?? cwd
+    const workspace = resolveWorkspaceContext(
+      session.workspace,
+      session.workspace?.cwd ?? cwd,
+    )
 
     await runChatTurn({
       message: msg.text,
       session,
-      cwd: turnCwd,
+      workspace,
       runAgent,
       transport,
       images: msg.images,

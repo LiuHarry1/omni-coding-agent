@@ -28,7 +28,7 @@ import {
   setSessionWorkspace,
 } from '../session.js'
 import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
-import { resolveTurnWorkspaceScope } from '../../services/cloud-workspaces/turn-scope.js'
+import { resolveWorkspaceContext } from '../../services/cloud-workspaces/turn-scope.js'
 import { resolveCloudSessionBinding } from './cloud-workspaces.js'
 
 function pathnameOf(url: string | undefined): string {
@@ -55,7 +55,7 @@ function resolveSettingsCwd(
   cwd: string,
 ): string {
   return session
-    ? resolveTurnWorkspaceScope(session.workspace, cwd).settingsCwd
+    ? resolveWorkspaceContext(session.workspace, cwd).settingsCwd
     : cwd
 }
 
