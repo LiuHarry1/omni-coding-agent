@@ -1,0 +1,103 @@
+{
+  "title": "受控试点可以将周报准备时间降低三分之一",
+  "subtitle": "工程报告自动化建议",
+  "author": "BaiX Cloud Coding Agent",
+  "language": "zh-CN",
+  "audience": "工程管理团队",
+  "objective": "批准一个团队开展四周试点",
+  "narrative": "当前瓶颈 → 试点证据 → 控制措施 → 决策",
+  "slides": [
+    {
+      "type": "content",
+      "title": "手工收集而非分析占用了大部分准备时间",
+      "takeaway": "应优先自动化数据收集和格式整理。",
+      "bullets": [
+        "数据需要从三个系统分别导出。",
+        "每周都要重新调整相同的报告格式。",
+        "审阅者仍需人工追溯关键数字。"
+      ],
+      "callout": "主要瓶颈",
+      "source": "Source: workflow workshop"
+    },
+    {
+      "type": "two_column",
+      "title": "目标流程将工作重点从收集转向验证",
+      "takeaway": "自动化不会取消人工审批。",
+      "left": {
+        "heading": "当前流程",
+        "bullets": ["导出数据", "复制粘贴", "调整格式", "人工核对"]
+      },
+      "right": {
+        "heading": "目标流程",
+        "bullets": ["自动汇总", "异常标记", "人工验证", "批准发布"]
+      }
+    },
+    {
+      "type": "cards",
+      "title": "三项控制措施限制试点风险",
+      "takeaway": "试点范围小、过程可审计、结果可停止。",
+      "cards": [
+        {"heading": "限制范围", "body": "仅覆盖一个团队的一项周报流程。"},
+        {"heading": "保留审批", "body": "所有输出仍需负责人确认后发布。"},
+        {"heading": "记录证据", "body": "保存输入、来源和每次人工修改。"}
+      ]
+    },
+    {
+      "type": "process",
+      "title": "分阶段推进确保扩展前获得真实证据",
+      "takeaway": "每个阶段都有明确退出条件。",
+      "steps": [
+        {"title": "准备", "detail": "确认范围并记录当前基线。"},
+        {"title": "试点", "detail": "连续运行四个报告周期。"},
+        {"title": "评估", "detail": "比较质量、时间和采用率。"},
+        {"title": "决策", "detail": "批准、调整或停止。"}
+      ]
+    },
+    {
+      "type": "metrics",
+      "title": "初步试验达到了效率和质量门槛",
+      "takeaway": "节省时间的同时保留了可验证性。",
+      "metrics": [
+        {"value": "37%", "label": "准备时间减少", "detail": "四周观察"},
+        {"value": "96%", "label": "首次核对准确率", "detail": "124 条记录"},
+        {"value": "0", "label": "未经审批发布", "detail": "试点期间"}
+      ],
+      "source": "Source: pilot log"
+    },
+    {
+      "type": "chart",
+      "title": "活跃使用人数在四周内持续增长",
+      "takeaway": "团队无需额外培训即可采用新流程。",
+      "chart_kind": "line",
+      "categories": ["W1", "W2", "W3", "W4"],
+      "series": [{"name": "Active users", "values": [12, 21, 34, 48]}],
+      "unit": "Users",
+      "source": "Source: pilot usage log"
+    },
+    {
+      "type": "table",
+      "title": "受控试点提供了最佳风险收益平衡",
+      "takeaway": "小范围试点比立即全面推广更可逆。",
+      "columns": ["选项", "投入", "风险", "证据"],
+      "rows": [
+        ["保持现状", "高", "低", "无新增证据"],
+        ["受控试点", "中", "低", "四周真实数据"],
+        ["全面推广", "高", "高", "假设为主"]
+      ]
+    },
+    {
+      "type": "quote",
+      "title": "审阅者更看重可追溯性而不仅是速度",
+      "takeaway": "每个关键数字都必须可以回到来源。",
+      "quote": "我需要清楚看到每个数字来自哪里。",
+      "attribution": "试点审阅者"
+    },
+    {
+      "type": "summary",
+      "title": "建议批准一个团队开展四周受控试点",
+      "takeaway": "下一步决策规模小且完全可逆。",
+      "bullets": ["确认流程负责人", "记录时间和质量基线", "四周后召开评审"],
+      "closing": "需要批准"
+    }
+  ]
+}
