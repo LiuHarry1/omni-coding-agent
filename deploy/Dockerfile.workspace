@@ -57,6 +57,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip install --no-cache-dir --break-system-packages python-pptx \
   && python3 -c "import docx, openpyxl, pptx, pypdf, xlrd"
 
+# Presentation authoring and visual-QA runtime. Keep these packages pinned so
+# Skills never need network access or package installation while they run.
+RUN npm install --prefix /opt/pptx-tools --omit=dev --no-audit --no-fund \
+      pptxgenjs@4.0.1 \
+      sharp@0.33.5 \
+      skia-canvas@4.0.0 \
+      linebreak@2.0.0 \
+      fontkit@2.0.4 \
+  && NODE_PATH=/opt/pptx-tools/node_modules node -e \
+      "require('pptxgenjs'); require('sharp'); require('skia-canvas'); require('linebreak'); require('fontkit');"
+
 # The node image's uid 1000 user becomes `agent`, matching `--user 1000:1000`.
 RUN groupmod --new-name agent node \
   && usermod --login agent --home /home/agent --move-home node \
@@ -82,6 +93,7 @@ RUN set -eu; \
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     AGENT_ROOT=/opt/agent/dist/worker \
+    NODE_PATH=/opt/pptx-tools/node_modules \
     HOME=/home/agent
 
 USER agent

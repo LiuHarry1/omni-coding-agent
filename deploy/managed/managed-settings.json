@@ -15,8 +15,8 @@
     "small": {
       "provider": "openai-compatible",
       "baseURL": "http://localhost:4141/v1",
-      "apiKey": "xxx",
-      "model": "qwen3.6-35b-a3b"
+      "apiKey": "sk-xxx",
+      "model": "gpt-4o-mini"
     }
   },
   "compaction": {

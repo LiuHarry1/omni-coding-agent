@@ -30,7 +30,8 @@
 #     /workspace HTTP refuse paths outside the user dir (application-layer;
 #     bash is not OS-isolated).
 #
-# Cloud workspaces are opt-in. Layer the Cloud override on this base:
+# Cloud workspaces are enabled in this file (BAIZE_RUNTIME_PROFILE=cloud and
+# the host docker.sock mount on the agent service):
 #
 #     agent ──docker.sock──▶ host dockerd ──▶ agent-ws-<id>  (per workspace)
 #       │                                      ├ /workspace  ← volume agent-ws-<id>
@@ -47,10 +48,8 @@
 #       npm run build:worker
 #       docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 #       docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
-#   • Start with:
-#       docker compose -f deploy/docker-compose.sso.yml \
-#         -f deploy/docker-compose.sso.cloud.yml --env-file deploy/.env up -d
 #
+
 # Required setup (split-origin):
 #   • JWT_SECRET MUST equal the secret your auth-service signs with — that is
 #     the trust anchor (the agent verifies tokens statelessly, no DB/network).
@@ -80,7 +79,7 @@ services:
       MYSQL_HOST: '${MYSQL_HOST:-localhost}'
       MYSQL_PORT: '${MYSQL_PORT:-3306}'
       MYSQL_USER: '${MYSQL_USER:-root}'
-      MYSQL_PASSWORD: '${MYSQL_PASSWORD:-xxx}'
+      MYSQL_PASSWORD: '${MYSQL_PASSWORD:-company@123456#}'
       MYSQL_DATABASE: '${MYSQL_DATABASE:-knowbot}'
     restart: unless-stopped
     healthcheck:
@@ -95,25 +94,25 @@ services:
 
   agent:
     image: ai-agent-tenant:latest
-    # Published (NOT just `expose`) — in split mode the browser reaches the
-    # agent directly at ${AGENT_PUBLIC_URL}, which must map to this port.
     ports:
       - "${AGENT_PORT:-4567}:4567"
     environment:
       NODE_ENV: production
       PORT: "4567"
       WORKSPACE: /workspace
+      AI_AGENT_DATA_DIR: /app/.ai-agent
       SERVE_STATIC: "0"
-      ALLOWED_ORIGINS: "${FRONTEND_ORIGIN:-http://localhost:8090}"
-      AGENT_PUBLIC_URL: "${AGENT_PUBLIC_URL:-http://localhost:4567}"
+      ALLOWED_ORIGINS: "${FRONTEND_ORIGIN:-https://baize.company.com}"
+      AGENT_PUBLIC_URL: "${AGENT_PUBLIC_URL:-https://baize.company.com/code}"
+      GOTENBERG_URL: "${GOTENBERG_URL:-http://localhost:8030}"
+      GOTENBERG_TIMEOUT_SECONDS: "${GOTENBERG_TIMEOUT_SECONDS:-60}"
       AUTH_ENABLED: "true"
-      # MUST match the KnowBot auth-service secret. Set it in deploy/.env.
-      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET is required and must match the auth service}"
+      JWT_SECRET: "9afd313591dc5a84dcf3022cb9f9bea05023672ca24716d1d7d9743d9be5d95d"
       JWT_ALGORITHM: "HS256"
       USERS_ROOT: /workspace/users
       # Host path of ./workspaces. dockerd resolves bind sources on the host,
       # not at the /workspace path seen inside this container.
-      WORKSPACES_HOST_PATH: ${WORKSPACES_HOST_PATH:-/var/local/baix/baix-service/dice-zero-service/coding-agent/workspaces}
+      WORKSPACES_HOST_PATH: ${WORKSPACES_HOST_PATH:-/var/local/baize/baize-service/dice-zero-service/coding-agent/workspaces}
       WORKSPACE_SEED_DIR: "/opt/workspace-seed"
       QUOTA_ENABLED: "${QUOTA_ENABLED:-false}"
       ANALYTICS_URL: "${ANALYTICS_URL:-http://analytics:8200}"
@@ -134,7 +133,7 @@ services:
       WORKSPACE_MEMORY: 2g
       WORKSPACE_CPUS: "2"
       WORKSPACE_IDLE_MINUTES: "30"
-      WORKSPACE_MAX_PER_USER: "5"
+      WORKSPACE_MAX_PER_USER: "15"
     volumes:
       - ./workspaces:/workspace:rw
       - ./agent-data:/app/.ai-agent:rw
@@ -150,6 +149,7 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
       start_period: 15s
 
   web:
@@ -160,7 +160,7 @@ services:
     environment:
       AUTH_ENABLED: "true"
       API_BASE: ""
-      AUTH_BASE: "${AUTH_BASE:-http://localhost:52320}"
+      AUTH_BASE: "${AUTH_BASE:-https://baize.company.com}"
       REMOTE_ENABLED: "false"
     volumes:
       - ./nginx.sso-proxy.conf:/etc/nginx/conf.d/default.conf:ro
@@ -175,4 +175,3 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-

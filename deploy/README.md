@@ -30,9 +30,17 @@ docker build -f deploy/Dockerfile.agent-base -t ai-agent-base:latest .
 docker build -f deploy/Dockerfile.agent-tenant --build-arg BASE_TAG=latest -t ai-agent-tenant:latest .
 # 默认镜像: harbor.advantest.com/dice-zero/ai-agent-base:${BASE_TAG}
 
-# 3. web 镜像(vite 构建 → nginx 静态站)
+# 3. Cloud Workspace 镜像（必须使用上面同一次 build:worker 的产物）
+docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
+
+# 4. web 镜像(vite 构建 → nginx 静态站)
 docker build -f deploy/Dockerfile.web -t ai-agent-web:latest .
 ```
+
+Control Plane、tenant 和 workspace 镜像必须使用同一版 Worker 协议。升级后重建
+现有 Workspace Container（保留 Volume）。SSO 部署还必须保证
+`WORKSPACES_HOST_PATH` 是 `./workspaces:/workspace` 对应的宿主绝对路径，
+`USERS_ROOT=/workspace/users`，并固定 `WORKSPACE_INSTANCE` 与镜像 tag。
 
 > 密钥(`OPENAI_API_KEY` 等)**不要**打进镜像,放在 `deploy/.env`,compose 会注入容器。
 
@@ -132,32 +140,27 @@ Microsoft 应用或 callback。登录成功后 auth-service 会回跳
 
 每个用户被锁定到 `/workspace/users/<email>`,首次登录会从 `deploy/workspace-seed/`(打进 tenant 镜像)复制一份初始内容。
 
-### 可选 Cloud Workspace
+### Cloud Workspace
 
-基础 SSO stack 默认不启用 Cloud Workspace，也不会挂载 `docker.sock`。先构建 worker 和 workspace 镜像，再显式叠加 Cloud override。这个 override 会把 `BAIZE_RUNTIME_PROFILE` 设为 `cloud`，并挂载宿主 `docker.sock`。KnowBot 生产用的镜像标签、实例名和 `docker.sock` 已经写在 `deploy/docker-compose.sso.yml` 里。
+`deploy/docker-compose.sso.yml` 已直接启用 Cloud Workspace：agent 服务设置了 `BAIZE_RUNTIME_PROFILE=cloud`，并挂载宿主 `docker.sock`。KnowBot 生产用的镜像标签、实例名也写在这个文件里，不需要再叠加额外的 override 文件。先构建 worker 和 workspace 镜像，再启动：
 
 ```bash
 npm run build:worker
 docker build -f deploy/Dockerfile.workspace -t agent-workspace:latest .
 
-docker compose -f deploy/docker-compose.sso.yml \
-  -f deploy/docker-compose.sso.cloud.yml \
-  --env-file deploy/.env up -d
+docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env up -d
 ```
 
-可通过 `WORKSPACE_IMAGE`、`WORKSPACE_MEMORY`、`WORKSPACE_CPUS`、`WORKSPACE_IDLE_MINUTES` 等环境变量覆盖默认值。Agent 启动时会检查 Docker daemon 和 workspace 镜像；缺失时会直接给出构建提示。
+`WORKSPACE_IMAGE`、`WORKSPACE_INSTANCE`、`WORKSPACE_MEMORY`、`WORKSPACE_CPUS`、`WORKSPACE_IDLE_MINUTES` 等值直接写在 `deploy/docker-compose.sso.yml` 的 agent 服务里，需要调整时改这个文件。不要随意改 `WORKSPACE_INSTANCE`，否则 agent 找不到已有的 workspace 容器和 volume。Agent 启动时会检查 Docker daemon 和 workspace 镜像；缺失时会直接给出构建提示。
 
-这里的安全边界面向可信内部用户：用户代码在独立 workspace 容器内执行，保留公网、RFC1918 内网以及内部 HTTP/SSE MCP 访问，以支持 clone、包安装和内部服务；已知云 metadata 地址会被拒绝。Cloud override 会把宿主 `docker.sock` 挂给控制面，因此只能部署在受控主机，不能向不可信用户开放。
+这里的安全边界面向可信内部用户：用户代码在独立 workspace 容器内执行，保留公网、RFC1918 内网以及内部 HTTP/SSE MCP 访问，以支持 clone、包安装和内部服务；已知云 metadata 地址会被拒绝。宿主 `docker.sock` 挂给了控制面，因此只能部署在受控主机，不能向不可信用户开放。
 
-已有的 local/legacy 历史会话不会自动绑定到空白 Cloud Workspace；继续使用基础 SSO 模式，或新建 Cloud 会话。这个行为不会删除原会话或文件。
+已有的 local/legacy 历史会话不会自动绑定到空白 Cloud Workspace；需要新建 Cloud 会话。这个行为不会删除原会话或文件。
 
-回滚时使用相同的 compose 文件停止 Cloud stack，再只启动基础 SSO stack；不要加 `-v`，已有 workspace volume 会保留：
+停止服务时不要加 `-v`，已有 workspace volume 会保留：
 
 ```bash
-docker compose -f deploy/docker-compose.sso.yml \
-  -f deploy/docker-compose.sso.cloud.yml \
-  --env-file deploy/.env down
-docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env up -d
+docker compose -f deploy/docker-compose.sso.yml --env-file deploy/.env down
 ```
 
 生产容器显式监听 `0.0.0.0`，浏览器来源仍必须列在 `FRONTEND_ORIGIN` / `ALLOWED_ORIGINS`。本地 `npm run cloud:start` 只监听 `127.0.0.1`。

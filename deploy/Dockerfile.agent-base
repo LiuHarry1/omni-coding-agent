@@ -83,7 +83,7 @@ RUN python3 -m venv "${VIRTUAL_ENV}" \
   && pip install --no-cache-dir --default-timeout=600 --upgrade pip \
   && pip install --no-cache-dir --default-timeout=600 -r requirements.txt \
   && python -c "import matplotlib; print('[agent-base] matplotlib', matplotlib.__version__)" \
-  && echo "[agent-base] mcp_server_fetch OK ($(python -c 'import mcp_server_fetch; print(getattr(mcp_server_fetch,\"__file__\",\"ok\"))'))"
+  && python -c "import mcp_server_fetch; print('[agent-base] mcp_server_fetch', mcp_server_fetch.__file__)"
 
 COPY package.json package-lock.json ./
 # The root package declares npm workspaces (web, protocol, sdks/typescript).

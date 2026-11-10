@@ -43,7 +43,7 @@
 
 services:
   agent:
-    image: ai-agent-tenant:latest
+    image: 10.150.115.69/dice-zero/ai-agent-tenant:latest
     # Published (NOT just `expose`) — in split mode the browser reaches the
     # agent directly at ${AGENT_PUBLIC_URL}, which must map to this port.
     # Keep this port on a private network / behind a firewall (see header).
@@ -65,9 +65,9 @@ services:
       # ── Headless: do NOT serve the SPA; the web service owns the frontend ─
       SERVE_STATIC: "0"
       # ── CORS allowlist: the browser calls this API from the web origin ────
-      ALLOWED_ORIGINS: "${FRONTEND_ORIGIN:-http://localhost:9999}"
+      ALLOWED_ORIGINS: "${FRONTEND_ORIGIN:-http://10.150.117.195:9999}"
       # ── Public URL for ECharts preview links (GET /workspace/preview) ───
-      AGENT_PUBLIC_URL: "${AGENT_PUBLIC_URL:-http://localhost:4567}"
+      AGENT_PUBLIC_URL: "${AGENT_PUBLIC_URL:-http://10.150.117.195:4567}"
       # ── Provider secrets (pass via host env or deploy/.env) ──────────────
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
@@ -91,7 +91,7 @@ services:
       start_period: 15s
 
   web:
-    image: ai-agent-web:latest
+    image: 10.150.115.69/dice-zero/ai-agent-web:latest
     # The image serves the SPA as a static site (nginx.static.conf is baked
     # in) — no agent upstream, so this container is independent of the agent
     # and starts even if the agent is unreachable.
@@ -100,13 +100,13 @@ services:
       # WEB_PASSWORD non-empty → nginx requires Basic Auth before serving the
       # SPA. Override via host env / .env.
       WEB_USERNAME: "${WEB_USERNAME:-admin}"
-      WEB_PASSWORD: "${WEB_PASSWORD:-admin}"
+      WEB_PASSWORD: "${WEB_PASSWORD:-advantest}"
       # ── No SSO: plain password mode (no bearer tokens) ───────────────────
       # AUTH_ENABLED intentionally unset → SPA does not run the SSO flow.
       # Hide Remote SSH picker in admin tenant deploys.
       REMOTE_ENABLED: "false"
       # Browser → agent API origin (cross-origin). Baked into app-config.js.
-      API_BASE: "${AGENT_PUBLIC_URL:-http://localhost:4567}"
+      API_BASE: "${AGENT_PUBLIC_URL:-http://10.150.117.195:4567}"
     ports:
       - "${WEB_PORT:-9999}:80"
     restart: unless-stopped
