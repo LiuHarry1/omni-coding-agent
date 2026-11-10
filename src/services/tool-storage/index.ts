@@ -115,6 +115,18 @@ export function generatePreview(content: string, maxChars: number): string {
   return content.slice(0, cutPoint)
 }
 
+function writeFileIfAbsentAtomic(filePath: string, content: string): void {
+  if (fs.existsSync(filePath)) return
+  const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`
+  fs.writeFileSync(tmp, content, 'utf-8')
+  try {
+    if (fs.existsSync(filePath)) return
+    fs.renameSync(tmp, filePath)
+  } finally {
+    fs.rmSync(tmp, { force: true })
+  }
+}
+
 /**
  * Write full output to `.sessions/{id}/tool-results/{toolCallId}.txt`.
  * Returns absolute path, or null on failure / below threshold / no session.
@@ -143,9 +155,7 @@ export function writeToolResultFile(
     const filePath = getToolResultFilePath(sessionId, toolCallId)
     fs.mkdirSync(path.dirname(filePath), { recursive: true })
     // toolCallId is unique per invocation -- skip rewrite if already persisted.
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, content, 'utf-8')
-    }
+    writeFileIfAbsentAtomic(filePath, content)
     console.log(
       `[tool-storage] PERSIST ${toolName} ${toolCallId.slice(0, 12)}... -- ` +
         `${formatBytes(content.length)} -> ${filePath} (inline content replaced by preview)`,
@@ -254,7 +264,7 @@ export function offloadReferenceForCompact(
     if (!fs.existsSync(filePath)) {
       try {
         fs.mkdirSync(path.dirname(filePath), { recursive: true })
-        fs.writeFileSync(filePath, content, 'utf-8')
+        writeFileIfAbsentAtomic(filePath, content)
         console.log(
           `[tool-storage] PERSIST (on compact) ${toolName} ${toolCallId.slice(0, 12)}... -> ${filePath}`,
         )

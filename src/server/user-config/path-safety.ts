@@ -15,9 +15,13 @@ export type UserConfigRoot = (typeof USER_CONFIG_ROOTS)[number]
 const ROOT_SET = new Set<string>(USER_CONFIG_ROOTS)
 const MAX_TREE_ENTRIES = 10_000
 export const USER_CONFIG_INTERNAL_STAGE_PREFIX = '.user-config-stage-'
+const USER_CONFIG_IGNORED_NAMES = new Set(['node_modules'])
 
 export function isUserConfigInternalName(name: string): boolean {
-  return name.startsWith(USER_CONFIG_INTERNAL_STAGE_PREFIX)
+  return (
+    name.startsWith(USER_CONFIG_INTERNAL_STAGE_PREFIX) ||
+    USER_CONFIG_IGNORED_NAMES.has(name)
+  )
 }
 
 export interface ParsedUserConfigPath {

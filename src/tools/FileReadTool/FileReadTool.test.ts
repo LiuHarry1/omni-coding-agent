@@ -79,11 +79,22 @@ const PNG_1X1 = Buffer.from(
 )
 
 describe('FileRead of binary files in a cloud workspace', () => {
-  function setup(files: Record<string, Buffer | string>) {
+  function setup(
+    files: Record<string, Buffer | string>,
+    options: { withSession?: boolean } = {},
+  ) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'baize-read-remote-'))
     cleanup.push(home)
-    const sessionId = `remote-read-${Date.now()}-${Math.random()}`
-    registerSessionLocation(sessionId, { projectKey: 'cloud', agentHome: home })
+    const sessionId =
+      options.withSession === false
+        ? undefined
+        : `remote-read-${Date.now()}-${Math.random()}`
+    if (sessionId) {
+      registerSessionLocation(sessionId, {
+        projectKey: 'cloud',
+        agentHome: home,
+      })
+    }
     const byteReads: string[] = []
     const execution = {
       kind: 'worker',
@@ -133,6 +144,23 @@ describe('FileRead of binary files in a cloud workspace', () => {
     expect(result.data.file.filePath).toBe('out/chart.png')
     const parts = result.newMessages?.[0]?.content ?? []
     expect(parts.some(part => part.type === 'image')).toBe(true)
+  })
+
+  it('provides an environment preview when no session upload is available', async () => {
+    const { read } = setup(
+      { '/workspace/repo/scratch/render/montage.png': PNG_1X1 },
+      { withSession: false },
+    )
+
+    const result = (await read(
+      '/workspace/repo/scratch/render/montage.png',
+    )) as {
+      data: { type: string; file: { previewUrl?: string } }
+    }
+
+    expect(result.data.file.previewUrl).toBe(
+      '/workspace/preview?environmentId=cloud%3Aabc&path=%2Fworkspace%2Frepo%2Fscratch%2Frender%2Fmontage.png',
+    )
   })
 
   it('parses notebooks from fetched bytes', async () => {

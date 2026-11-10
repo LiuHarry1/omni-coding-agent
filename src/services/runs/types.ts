@@ -1,4 +1,5 @@
 import type { OutgoingMessage } from '../../../protocol/src/wire.js'
+import type { WorkspaceHandle } from '../../execution/types.js'
 import type { ChatAttachmentRef } from '../../utils/attachments/from-chat-upload.js'
 
 export type DurableRunStatus =
@@ -13,7 +14,8 @@ export type DurableRunStatus =
   | 'interrupted'
 
 export interface DurableRunState {
-  version: 1
+  /** v1 stored only cwd; v2 also snapshots the atomic workspace binding. */
+  version: 1 | 2
   runId: string
   sessionId: string
   status: DurableRunStatus
@@ -27,6 +29,11 @@ export interface DurableRunState {
   ownerEmail?: string
   ownerRole?: string
   agentHome: string
+  /** Stable environment + workspace root captured when the Run was accepted. */
+  workspace?: WorkspaceHandle
+  /** Persistence bucket that must agree with the Session workspace binding. */
+  projectKey?: string
+  /** Effective execution cwd; retained for v1 compatibility. */
   cwd: string
   mode?: string
   agentType?: string | null
@@ -60,6 +67,8 @@ export interface CreateDurableRunInput {
   ownerEmail?: string
   ownerRole?: string
   agentHome: string
+  workspace?: WorkspaceHandle
+  projectKey?: string
   cwd: string
   mode?: string
   agentType?: string | null

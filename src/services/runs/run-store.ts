@@ -35,6 +35,69 @@ function runIndexPath(agentHome?: string): string {
   )
 }
 
+function rebuildRunIndex(agentHome: string): RunIndex {
+  const rebuilt = emptyRunIndex()
+  const sessionIndex = readSessionIndex(agentHome)
+  for (const [sessionId, sessionEntry] of Object.entries(
+    sessionIndex.sessions,
+  )) {
+    const runsDir = path.join(
+      getSessionDataDir(sessionId, sessionEntry.projectKey, agentHome),
+      'runs',
+    )
+    let runIds: string[] = []
+    try {
+      runIds = fs.readdirSync(runsDir)
+    } catch {
+      continue
+    }
+    for (const runId of runIds) {
+      const statePath = path.join(runsDir, runId, 'state.json')
+      try {
+        const state = JSON.parse(
+          fs.readFileSync(statePath, 'utf8'),
+        ) as DurableRunState
+        if (
+          (state.version !== 1 && state.version !== 2) ||
+          state.runId !== runId ||
+          state.sessionId !== sessionId
+        ) {
+          continue
+        }
+        rebuilt.runs[runId] = {
+          sessionId,
+          createdAt: state.createdAt,
+        }
+      } catch {
+        // A partial state is not recoverable and remains available for diagnosis.
+      }
+    }
+  }
+  rebuildActivePointers(rebuilt, agentHome)
+  return rebuilt
+}
+
+function recoverRunIndex(
+  filePath: string,
+  agentHome: string,
+  reason: string,
+): RunIndex {
+  const backup = `${filePath}.corrupt.${Date.now()}`
+  try {
+    fs.renameSync(filePath, backup)
+  } catch {
+    // Preserve the original when backup is not possible.
+  }
+  const rebuilt = rebuildRunIndex(agentHome)
+  writeRunIndex(rebuilt, agentHome)
+  calibratedHomes.add(path.resolve(agentHome))
+  console.warn(
+    `[runs] recovered ${Object.keys(rebuilt.runs).length} run(s) after ${reason}; ` +
+      `corrupt index backed up to ${backup}`,
+  )
+  return rebuilt
+}
+
 function readRunIndex(agentHome?: string): RunIndex {
   const home = resolveAgentHome(agentHome)
   const filePath = runIndexPath(agentHome)
@@ -49,7 +112,7 @@ function readRunIndex(agentHome?: string): RunIndex {
       typeof parsed.runs !== 'object' ||
       Array.isArray(parsed.runs)
     ) {
-      return emptyRunIndex()
+      return recoverRunIndex(filePath, home, 'invalid schema')
     }
     const index: RunIndex = {
       version: 1,
@@ -67,8 +130,12 @@ function readRunIndex(agentHome?: string): RunIndex {
       calibratedHomes.add(path.resolve(home))
     }
     return index
-  } catch {
-    return emptyRunIndex()
+  } catch (error) {
+    return recoverRunIndex(
+      filePath,
+      home,
+      error instanceof Error ? error.message : String(error),
+    )
   }
 }
 
@@ -125,7 +192,7 @@ function readIndexedState(
       fs.readFileSync(filePath, 'utf8'),
     ) as DurableRunState
     if (
-      state?.version !== 1 ||
+      (state?.version !== 1 && state?.version !== 2) ||
       state.runId !== runId ||
       state.sessionId !== entry.sessionId
     ) {
@@ -178,6 +245,9 @@ function eventsPathForState(state: DurableRunState): string {
 }
 
 export function createRunState(state: DurableRunState): void {
+  // Publish the state before the index so a crash can only leave an orphan
+  // sidecar, which index recovery can discover. Never publish a dangling index.
+  atomicWriteJson(statePathForState(state), state)
   const index = readRunIndex(state.agentHome)
   index.runs[state.runId] = {
     sessionId: state.sessionId,
@@ -187,7 +257,6 @@ export function createRunState(state: DurableRunState): void {
     index.activeBySession[state.sessionId] = state.runId
   }
   writeRunIndex(index, state.agentHome)
-  writeRunState(state)
 }
 
 export function writeRunState(state: DurableRunState): void {

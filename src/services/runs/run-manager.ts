@@ -2,6 +2,8 @@ import { randomUUID } from 'crypto'
 import type { ServerResponse } from 'http'
 import { abortTurn, clearTurnAbort } from '../../core/turn-abort-registry.js'
 import type { QueryStopReason } from '../../core/query/types.js'
+import { computeProjectKey } from '../../core/session-paths.js'
+import { normalizeWorkspacePath } from '../../core/workspace.js'
 import { endTurn, tryBeginTurn } from '../../session/store.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
 import {
@@ -106,8 +108,17 @@ export function createDurableRun(
     )
   }
   const now = Date.now()
+  const workspace = input.workspace
+    ? {
+        environmentId: input.workspace.environmentId,
+        cwd: normalizeWorkspacePath(input.workspace.cwd),
+      }
+    : {
+        environmentId: 'local',
+        cwd: normalizeWorkspacePath(input.cwd),
+      }
   const state: DurableRunState = {
-    version: 1,
+    version: 2,
     runId: randomUUID(),
     sessionId: input.sessionId,
     status: 'creating',
@@ -117,7 +128,9 @@ export function createDurableRun(
     ownerEmail: input.ownerEmail,
     ownerRole: input.ownerRole,
     agentHome: input.agentHome,
-    cwd: input.cwd,
+    workspace,
+    projectKey: input.projectKey ?? computeProjectKey(workspace),
+    cwd: normalizeWorkspacePath(input.cwd),
     mode: input.mode,
     agentType: input.agentType,
     requestPayload: input.requestPayload,

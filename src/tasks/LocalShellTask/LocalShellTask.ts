@@ -110,6 +110,27 @@ async function watchUntilDone(opts: {
 }): Promise<void> {
   const { sessionId, taskId, description, toolUseId, execution } = opts
   const pollMs = 400
+  const markUnknown = (reason: 'worker_lost' | 'task_missing') => {
+    updateTaskState(sessionId, taskId, task => ({
+      ...task,
+      status: 'unknown',
+      endTime: Date.now(),
+      result: {
+        code: null,
+        interrupted: true,
+        reason,
+      },
+    }))
+    enqueueShellNotification(
+      sessionId,
+      taskId,
+      description,
+      'unknown',
+      null,
+      toolUseId,
+    )
+    void evictTaskOutput(taskId)
+  }
 
   for (;;) {
     await new Promise(r => setTimeout(r, pollMs))
@@ -123,27 +144,13 @@ async function watchUntilDone(opts: {
         done = p.done
         exitCode = p.exitCode
         killed = !!p.killed
+        if (p.unknown) {
+          markUnknown('task_missing')
+          return
+        }
       } catch (err) {
         if (isWorkerChannelLostError(err)) {
-          updateTaskState(sessionId, taskId, task => ({
-            ...task,
-            status: 'unknown',
-            endTime: Date.now(),
-            result: {
-              code: null,
-              interrupted: true,
-              reason: 'worker_lost',
-            },
-          }))
-          enqueueShellNotification(
-            sessionId,
-            taskId,
-            description,
-            'unknown',
-            null,
-            toolUseId,
-          )
-          void evictTaskOutput(taskId)
+          markUnknown('worker_lost')
           return
         }
         continue

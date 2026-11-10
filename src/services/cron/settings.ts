@@ -40,23 +40,56 @@ export function resolveScheduledTaskContext(
   if (!location) return null
 
   return runWithRequestScope(
-    { agentHome: location.agentHome, cwd: task.cwd },
+    {
+      agentHome: location.agentHome,
+      cwd: task.workspace?.cwd ?? task.cwd,
+    },
     () => {
       const session = getSession(task.sessionId, {
         agentHome: location.agentHome,
       })
       if (!session) return null
-      const cwd = session.workspace?.cwd ?? task.cwd
-      const settingsCwd = resolveTurnWorkspaceScope(
-        session.workspace,
-        cwd,
-      ).settingsCwd
+      if (
+        task.workspace &&
+        session.workspace &&
+        task.workspace.environmentId !== session.workspace.environmentId
+      ) {
+        throw new Error(
+          `task workspace ${task.workspace.environmentId} does not match ` +
+            `session workspace ${session.workspace.environmentId}`,
+        )
+      }
+      if (
+        task.workspace?.environmentId !== 'local' &&
+        task.workspace &&
+        !session.workspace
+      ) {
+        throw new Error(
+          `task ${task.id} has no matching Session workspace binding`,
+        )
+      }
+      if (
+        task.environmentId &&
+        session.workspace &&
+        task.environmentId !== session.workspace.environmentId
+      ) {
+        throw new Error(
+          `legacy task environment ${task.environmentId} does not match ` +
+            `session workspace ${session.workspace.environmentId}`,
+        )
+      }
+      const workspace = session.workspace ?? task.workspace
+      const turnScope = resolveTurnWorkspaceScope(
+        workspace,
+        task.cwd,
+        session.additionalWorkingDirectories,
+      )
       return {
         agentHome: location.agentHome,
         session,
-        cwd,
-        settingsCwd,
-        enabled: isScheduledTasksEnabled(settingsCwd, true),
+        cwd: turnScope.executionCwd,
+        settingsCwd: turnScope.settingsCwd,
+        enabled: isScheduledTasksEnabled(turnScope.settingsCwd, true),
       }
     },
   )

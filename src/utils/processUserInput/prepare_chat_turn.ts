@@ -220,7 +220,7 @@ export async function prepareChatTurn(
 ): Promise<PreparedChatTurn> {
   const {
     message,
-    cwd,
+    cwd: requestedCwd,
     session,
     registry,
     config,
@@ -233,7 +233,25 @@ export async function prepareChatTurn(
     turnProfiler,
   } = input
 
-  const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
+  const turnScope = resolveTurnWorkspaceScope(
+    session.workspace,
+    requestedCwd,
+    session.additionalWorkingDirectories,
+  )
+  const cwd = turnScope.executionCwd
+  if (turnScope.cwdDrifted) {
+    console.warn(
+      '[workspace] normalized preparation cwd',
+      JSON.stringify({
+        agentHome: turnScope.agentHome,
+        requestedCwd: turnScope.requestedCwd,
+        workspaceRoot: turnScope.workspaceRoot,
+        executionCwd: turnScope.executionCwd,
+        environmentId: turnScope.environmentId,
+        sessionId: session.id,
+      }),
+    )
+  }
   const cloudWorkspaceId = turnScope.cloudWorkspaceId
   const cloudSession = cloudWorkspaceId !== null
   const remote = turnScope.remote
@@ -277,6 +295,14 @@ export async function prepareChatTurn(
         { cause: err },
       )
     }
+    wire.turnState(
+      'preparing',
+      'execution.degraded',
+      'Worker unavailable; using local execution fallback',
+    )
+    console.warn(
+      `[server] local Worker unavailable; execution is degraded for session ${session.id}`,
+    )
     execution = undefined
   }
   const directiveRuntime = remote ? execution : undefined

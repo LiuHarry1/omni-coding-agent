@@ -47,6 +47,12 @@ function localInWorkspace(cwd: string, absPath: string): boolean {
   return !rel.startsWith('..') && !path.isAbsolute(rel)
 }
 
+/**
+ * One slow request only fails itself; this many timeouts with no Worker
+ * response in between means the Worker is hung and the channel is recycled.
+ */
+const MAX_CONSECUTIVE_TIMEOUTS = 3
+
 export class WorkerExecutionBackend implements ExecutionBackend {
   readonly kind = 'worker' as const
   private seq = 0
@@ -60,6 +66,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
   private unsub: () => void
   private workspaceKey: string
   private channelFailure: WorkerChannelLostError | undefined
+  private consecutiveTimeouts = 0
 
   constructor(
     readonly environmentId: string,
@@ -94,6 +101,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
         return
       }
       if (msg.type !== 'fs_op_result' && msg.type !== 'lsp_op_result') return
+      this.consecutiveTimeouts = 0
       const p = this.pending.get(msg.requestId)
       if (!p) return
       this.pending.delete(msg.requestId)
@@ -109,6 +117,33 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
     return error
+  }
+
+  private timeOutRequest(requestId: string, message: string): void {
+    const pending = this.pending.get(requestId)
+    if (!pending) return
+    this.pending.delete(requestId)
+    pending.reject(new Error(message))
+    this.consecutiveTimeouts += 1
+    if (this.consecutiveTimeouts >= MAX_CONSECUTIVE_TIMEOUTS) {
+      this.failChannel(
+        `Worker unresponsive after ${this.consecutiveTimeouts} consecutive timeouts`,
+      )
+      void this.runtime.close().catch(() => {})
+    }
+  }
+
+  private sendExecCancel(targetRequestId: string): void {
+    try {
+      this.runtime.send({
+        type: 'fs_op',
+        requestId: `fs-${++this.seq}-${Date.now()}`,
+        op: { op: 'exec_cancel', targetRequestId },
+      })
+    } catch (err) {
+      this.failChannel(err instanceof Error ? err.message : String(err))
+      void this.runtime.close().catch(() => {})
+    }
   }
 
   private requestFs<T>(
@@ -131,28 +166,19 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       }
       const timer = setTimeout(() => {
         if (!this.pending.has(requestId)) return
-        this.failChannel(`Worker fs_op timed out: ${op.op}`)
-        void this.runtime.close().catch(() => {})
+        if (sent && op.op === 'exec' && !cancellationTimer) {
+          this.sendExecCancel(requestId)
+        }
+        this.timeOutRequest(requestId, `Worker fs_op timed out: ${op.op}`)
       }, timeoutMs)
       const onAbort = () => {
         if (!sent || op.op !== 'exec' || !this.pending.has(requestId)) return
         if (cancellationTimer) return
         cancellationTimer = setTimeout(() => {
-          if (!this.pending.has(requestId)) return
-          this.failChannel('Worker exec cancellation timed out')
-          void this.runtime.close().catch(() => {})
+          this.timeOutRequest(requestId, 'Worker exec cancellation timed out')
         }, 5_000)
         cancellationTimer.unref?.()
-        try {
-          this.runtime.send({
-            type: 'fs_op',
-            requestId: `fs-${++this.seq}-${Date.now()}`,
-            op: { op: 'exec_cancel', targetRequestId: requestId },
-          })
-        } catch (err) {
-          this.failChannel(err instanceof Error ? err.message : String(err))
-          void this.runtime.close().catch(() => {})
-        }
+        this.sendExecCancel(requestId)
       }
       signal?.addEventListener('abort', onAbort, { once: true })
       this.pending.set(requestId, {
@@ -188,9 +214,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
         return
       }
       const timer = setTimeout(() => {
-        if (!this.pending.has(requestId)) return
-        this.failChannel(`Worker lsp_op timed out: ${op.op}`)
-        void this.runtime.close().catch(() => {})
+        this.timeOutRequest(requestId, `Worker lsp_op timed out: ${op.op}`)
       }, timeoutMs)
       this.pending.set(requestId, {
         resolve: v => {
@@ -216,6 +240,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
   }
 
   resolve(cwd: string, filePath: string): string {
+    this.assertExecutionCwd(cwd)
     if (this.pathStyle === 'posix') return posixJoin(cwd, filePath)
     return path.isAbsolute(filePath)
       ? path.normalize(filePath)
@@ -227,13 +252,31 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     absPath: string,
     _access: 'read' | 'write',
   ): void {
+    this.assertExecutionCwd(cwd)
     const ok =
       this.pathStyle === 'posix'
-        ? posixInWorkspace(cwd, absPath)
-        : localInWorkspace(cwd, absPath)
+        ? posixInWorkspace(this.cwd, absPath)
+        : localInWorkspace(this.cwd, absPath)
     if (!ok) {
       throw new Error(
-        `Refused: "${absPath}" is outside the workspace "${cwd}".`,
+        `Refused: "${absPath}" is outside the workspace root "${this.cwd}".`,
+      )
+    }
+  }
+
+  private isExecutionCwdAllowed(cwd: string): boolean {
+    return (
+      this.pathStyle === 'posix'
+        ? posixInWorkspace(this.cwd, cwd)
+        : localInWorkspace(this.cwd, cwd)
+    )
+  }
+
+  private assertExecutionCwd(cwd: string): void {
+    if (!this.isExecutionCwdAllowed(cwd)) {
+      throw new Error(
+        `Workspace context mismatch: execution cwd "${cwd}" is outside ` +
+          `the Worker workspace root "${this.cwd}" (${this.environmentId}).`,
       )
     }
   }
@@ -276,6 +319,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       signal?: AbortSignal
     },
   ): Promise<ExecResult & { cwdAfter?: string }> {
+    this.assertExecutionCwd(opts.cwd)
     if (opts.signal?.aborted) {
       return {
         stdout: '',
@@ -284,7 +328,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
         interrupted: true,
       }
     }
-    return this.requestFs(
+    const result = await this.requestFs<ExecResult & { cwdAfter?: string }>(
       {
         op: 'exec',
         command,
@@ -295,6 +339,16 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       (opts.timeoutMs ?? 120_000) + 10_000,
       opts.signal,
     )
+    // A command may temporarily enter AgentHome to inspect or execute a Skill.
+    // Do not persist that external directory as the next shell call's cwd:
+    // subsequent Worker calls are intentionally rooted at the project workspace.
+    if (
+      result.cwdAfter &&
+      !this.isExecutionCwdAllowed(result.cwdAfter)
+    ) {
+      return { ...result, cwdAfter: opts.cwd }
+    }
+    return result
   }
 
   async execBgStart(opts: {
@@ -304,6 +358,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     outputPath: string
     shell?: ShellKind
   }): Promise<{ pid: number }> {
+    this.assertExecutionCwd(opts.cwd)
     return this.requestFs(
       {
         op: 'exec_bg_start',
@@ -321,6 +376,7 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     done: boolean
     exitCode: number | null
     killed?: boolean
+    unknown?: boolean
   }> {
     return this.requestFs({ op: 'exec_bg_poll', taskId }, 15_000)
   }

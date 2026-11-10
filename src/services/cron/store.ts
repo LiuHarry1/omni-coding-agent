@@ -87,6 +87,17 @@ function parseTask(t: unknown): ScheduledTask | null {
     createdAt: row.createdAt,
     nextRunAtMs: row.nextRunAtMs,
     recurring: Boolean(row.recurring),
+    ...(row.workspace &&
+    typeof row.workspace === 'object' &&
+    typeof row.workspace.environmentId === 'string' &&
+    typeof row.workspace.cwd === 'string'
+      ? {
+          workspace: {
+            environmentId: row.workspace.environmentId,
+            cwd: row.workspace.cwd,
+          },
+        }
+      : {}),
     ...(typeof row.cron === 'string' ? { cron: row.cron } : {}),
     ...(typeof row.atMs === 'number' ? { atMs: row.atMs } : {}),
     ...(typeof row.environmentId === 'string'
@@ -94,6 +105,9 @@ function parseTask(t: unknown): ScheduledTask | null {
       : {}),
     ...(typeof row.lastFiredAt === 'number'
       ? { lastFiredAt: row.lastFiredAt }
+      : {}),
+    ...(typeof row.failureCount === 'number'
+      ? { failureCount: row.failureCount }
       : {}),
   }
 }

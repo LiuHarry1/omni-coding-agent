@@ -28,6 +28,7 @@ import {
   setSessionWorkspace,
 } from '../session.js'
 import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
+import { resolveTurnWorkspaceScope } from '../../services/cloud-workspaces/turn-scope.js'
 import { resolveCloudSessionBinding } from './cloud-workspaces.js'
 
 function pathnameOf(url: string | undefined): string {
@@ -47,6 +48,15 @@ function resolveCwd(
     return normalizeWorkspacePath(session.workspace.cwd)
   }
   return resolveRequestCwd(req, clientWorkspace)
+}
+
+function resolveSettingsCwd(
+  session: { workspace?: { environmentId: string; cwd: string } } | null,
+  cwd: string,
+): string {
+  return session
+    ? resolveTurnWorkspaceScope(session.workspace, cwd).settingsCwd
+    : cwd
 }
 
 async function ensureSession(
@@ -185,7 +195,7 @@ export async function handleScheduledTasks(
       }
     }
     const cwd = resolveCwd(req, session, workspace)
-    const enabled = isScheduledTasksEnabled(cwd)
+    const enabled = isScheduledTasksEnabled(resolveSettingsCwd(session, cwd))
     sendJSON(res, 200, {
       enabled,
       session_id: session?.id ?? null,
@@ -216,7 +226,8 @@ export async function handleScheduledTasks(
     }
     const { session, created } = ensured
     const cwd = resolveCwd(req, session, body.workspace)
-    if (!isScheduledTasksEnabled(cwd)) {
+    const settingsCwd = resolveSettingsCwd(session, cwd)
+    if (!isScheduledTasksEnabled(settingsCwd)) {
       sendJSON(res, 403, {
         enabled: false,
         error:
@@ -226,12 +237,14 @@ export async function handleScheduledTasks(
     }
     const result = scheduleCronTask({
       cwd,
+      settingsCwd,
       sessionId: session.id,
       prompt: typeof body.prompt === 'string' ? body.prompt : '',
       cron: typeof body.cron === 'string' ? body.cron : undefined,
       at: typeof body.at === 'string' ? body.at : undefined,
       recurring:
         typeof body.recurring === 'boolean' ? body.recurring : undefined,
+      workspace: session.workspace,
       environmentId:
         session.workspace?.environmentId ??
         (typeof body.environmentId === 'string'
@@ -279,7 +292,7 @@ export async function handleScheduledTasks(
       return true
     }
     const cwd = resolveCwd(req, session, q.get('workspace'))
-    if (!isScheduledTasksEnabled(cwd)) {
+    if (!isScheduledTasksEnabled(resolveSettingsCwd(session, cwd))) {
       sendJSON(res, 403, {
         enabled: false,
         error: 'Scheduled tasks are disabled.',

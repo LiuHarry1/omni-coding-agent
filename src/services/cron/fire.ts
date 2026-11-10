@@ -31,13 +31,16 @@ import {
   type ScheduledTask,
 } from './types.js'
 
+const ERROR_RETRY_BASE_MS = 30_000
+const ERROR_RETRY_MAX_MS = 15 * 60_000
+
 export function isScheduledWorkspaceAvailable(
   session: Pick<Session, 'workspace'>,
   manager: CloudWorkspaceManager | null = getCloudWorkspaceManager(),
 ): boolean {
   const workspaceId = parseCloudEnvironmentId(session.workspace?.environmentId)
   if (!workspaceId) return true
-  return manager?.get(workspaceId)?.status === 'ready'
+  return manager?.refresh(workspaceId)?.status === 'ready'
 }
 
 export async function fireScheduledTask(
@@ -130,6 +133,18 @@ export async function fireScheduledTask(
     console.warn(
       `[cron] fire ${task.id} failed: ${err instanceof Error ? err.message : err}`,
     )
+    const failureCount = (task.failureCount ?? 0) + 1
+    const delay = Math.min(
+      ERROR_RETRY_BASE_MS * 2 ** Math.min(failureCount - 1, 10),
+      ERROR_RETRY_MAX_MS,
+    )
+    updateCronTask(task.id, {
+      failureCount,
+      nextRunAtMs: nowMs + delay,
+    })
+    console.warn(
+      `[cron] task ${task.id} retry=${failureCount} backoffMs=${delay}`,
+    )
     return 'error'
   } finally {
     endTurn(session.id)
@@ -143,6 +158,7 @@ export async function fireScheduledTask(
     const next = computeNextRunAtMs(task, nowMs)
     updateCronTask(task.id, {
       lastFiredAt: nowMs,
+      failureCount: 0,
       nextRunAtMs: next ?? Number.POSITIVE_INFINITY,
     })
   } else {

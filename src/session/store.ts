@@ -259,7 +259,6 @@ export function setSessionWorkspace(
     environmentId: workspace.environmentId,
     cwd: normalizeWorkspacePath(workspace.cwd),
   }
-  session.workspace = bound
 
   const from = locationFor(sessionId)
   const newKey = computeProjectKey(bound)
@@ -280,9 +279,11 @@ export function setSessionWorkspace(
     )
   }
 
+  session.workspace = bound
   appendLine(sessionId, {
     type: 'workspace_bound',
-    workspace: session.workspace,
+    workspace: bound,
+    projectKey: newKey,
     timestamp: Date.now(),
   })
 }
@@ -622,9 +623,49 @@ function appendLine(sessionId: string, data: Record<string, unknown>): void {
   )
 }
 
+/**
+ * appendLine writes straight after the current EOF, so a torn row left in
+ * place would be glued to the next event and become intermediate corruption.
+ */
+function truncateTornTail(id: string, raw: string): void {
+  const keep = Buffer.byteLength(raw.slice(0, raw.lastIndexOf('\n') + 1))
+  try {
+    fs.truncateSync(sessionPath(id), keep)
+  } catch (error) {
+    console.warn(
+      `[session] failed to truncate torn JSONL row for ${id}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
+  }
+}
+
 function restoreFromDisk(id: string): Session {
-  const raw = fs.readFileSync(sessionPath(id), 'utf-8').trim()
-  const lines = raw.split('\n').map((l: string) => parseSessionJsonLine(l))
+  const raw = fs.readFileSync(sessionPath(id), 'utf-8')
+  const rows = raw.split('\n')
+  const lines: ReturnType<typeof parseSessionJsonLine>[] = []
+  for (let index = 0; index < rows.length; index++) {
+    const row = rows[index]!
+    if (!row.trim()) continue
+    try {
+      lines.push(parseSessionJsonLine(row))
+    } catch (error) {
+      const tornTail = index === rows.length - 1 && !raw.endsWith('\n')
+      if (tornTail) {
+        console.warn(
+          `[session] ignored torn final JSONL row for ${id} at line ${index + 1}`,
+        )
+        truncateTornTail(id, raw)
+        break
+      }
+      throw new Error(
+        `Corrupt session transcript ${id} at line ${index + 1}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      )
+    }
+  }
 
   const session: Session = {
     id,
@@ -691,10 +732,22 @@ function restoreFromDisk(id: string): Session {
         typeof w.environmentId === 'string' &&
         typeof w.cwd === 'string'
       ) {
-        session.workspace = {
+        const bound = {
           environmentId: w.environmentId,
-          cwd: w.cwd,
+          cwd: normalizeWorkspacePath(w.cwd),
         }
+        const expectedProjectKey = computeProjectKey(bound)
+        if (
+          typeof line.projectKey === 'string' &&
+          line.projectKey !== expectedProjectKey
+        ) {
+          console.warn(
+            `[session] ignored inconsistent workspace binding for ${id}: ` +
+              `event projectKey=${line.projectKey} expected=${expectedProjectKey}`,
+          )
+          continue
+        }
+        session.workspace = bound
       }
     }
   }

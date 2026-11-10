@@ -1,3 +1,5 @@
+import type { WorkspaceHandle } from '../../execution/types.js'
+
 export const MAX_CRON_JOBS = 50
 export const RECURRING_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 export const MIN_REFIRE_GAP_MS = 2_000
@@ -14,10 +16,14 @@ export type ScheduledTask = {
   prompt: string
   sessionId: string
   cwd: string
+  /** Atomic workspace snapshot; absent on legacy tasks. */
+  workspace?: WorkspaceHandle
+  /** @deprecated Use workspace.environmentId. */
   environmentId?: string
   recurring: boolean
   createdAt: number
   lastFiredAt?: number
+  failureCount?: number
   nextRunAtMs: number
 }
 

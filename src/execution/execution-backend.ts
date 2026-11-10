@@ -52,6 +52,7 @@ export interface ExecutionBackend {
     done: boolean
     exitCode: number | null
     killed?: boolean
+    unknown?: boolean
   }>
   execBgKill?(taskId: string): Promise<void>
   /**

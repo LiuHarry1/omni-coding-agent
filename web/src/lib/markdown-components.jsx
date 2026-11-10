@@ -60,7 +60,10 @@ function isPdfPreviewResource(resource) {
       resource,
       globalThis.location?.origin || 'http://localhost',
     )
-    return parsed.searchParams.get('path')?.toLowerCase().endsWith('.pdf')
+    const filePath = parsed.searchParams.get('path')?.toLowerCase() || ''
+    // The server converts PPTX through Gotenberg and returns application/pdf.
+    // Chrome's PDF viewer therefore needs the same unsandboxed iframe path.
+    return filePath.endsWith('.pdf') || filePath.endsWith('.pptx')
   } catch {
     return false
   }

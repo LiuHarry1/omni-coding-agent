@@ -5,6 +5,10 @@ import { FsOpError } from './fs-ops.js'
 
 /** Max artifact size for inline preview. */
 export const MAX_PREVIEW_BYTES = 5 * 1024 * 1024
+export const MAX_OFFICE_PREVIEW_BYTES = 20 * 1024 * 1024
+
+const DEFAULT_GOTENBERG_URL = 'http://10.150.10.210:8030'
+const DEFAULT_GOTENBERG_TIMEOUT_SECONDS = 60
 
 const PREVIEW_CONTENT_TYPES: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -17,6 +21,8 @@ const PREVIEW_CONTENT_TYPES: Record<string, string> = {
   '.avif': 'image/avif',
   '.pdf': 'application/pdf',
 }
+
+const OFFICE_PREVIEW_EXTENSIONS = new Set(['.pptx'])
 
 export interface RemotePreviewFs {
   realpath(filePath: string): Promise<string>
@@ -56,16 +62,104 @@ function previewHeaders(
   }
 }
 
+function previewExtension(pathParam: string): string {
+  return path.posix.extname(pathParam).toLowerCase()
+}
+
 function contentTypeForPreview(pathParam: string): string {
-  const ext = path.posix.extname(pathParam).toLowerCase()
+  const ext = previewExtension(pathParam)
+  if (OFFICE_PREVIEW_EXTENSIONS.has(ext)) return 'application/pdf'
   const contentType = PREVIEW_CONTENT_TYPES[ext]
   if (!contentType) {
     throw new FsOpError(
       'EINVAL',
-      'Preview only supports HTML, PDF, PNG, JPEG, GIF, WebP, and AVIF files',
+      'Preview only supports PPTX, HTML, PDF, PNG, JPEG, GIF, WebP, and AVIF files',
     )
   }
   return contentType
+}
+
+function maxPreviewBytes(pathParam: string): number {
+  return OFFICE_PREVIEW_EXTENSIONS.has(previewExtension(pathParam))
+    ? MAX_OFFICE_PREVIEW_BYTES
+    : MAX_PREVIEW_BYTES
+}
+
+function previewOutputName(filePath: string): string {
+  const name = path.posix.basename(filePath)
+  return OFFICE_PREVIEW_EXTENSIONS.has(previewExtension(filePath))
+    ? name.replace(/\.[^.]+$/, '.pdf')
+    : name
+}
+
+export async function convertOfficePreviewToPdf(
+  body: Buffer,
+  fileName: string,
+): Promise<Buffer> {
+  const baseUrl = (
+    process.env.GOTENBERG_URL?.trim() || DEFAULT_GOTENBERG_URL
+  ).replace(/\/+$/, '')
+  const timeoutSeconds = Number.parseInt(
+    process.env.GOTENBERG_TIMEOUT_SECONDS || '',
+    10,
+  )
+  const timeoutMs =
+    (Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
+      ? timeoutSeconds
+      : DEFAULT_GOTENBERG_TIMEOUT_SECONDS) * 1000
+  const form = new FormData()
+  form.append(
+    'files',
+    new Blob([Uint8Array.from(body)], {
+      type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    }),
+    fileName,
+  )
+
+  let response: Response
+  try {
+    response = await fetch(`${baseUrl}/forms/libreoffice/convert`, {
+      method: 'POST',
+      body: form,
+      signal: AbortSignal.timeout(timeoutMs),
+    })
+  } catch (err) {
+    throw new FsOpError(
+      'EIO',
+      `PPTX preview conversion failed: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  if (!response.ok) {
+    const detail = (await response.text()).slice(0, 500)
+    throw new FsOpError(
+      'EIO',
+      `PPTX preview conversion returned HTTP ${response.status}${detail ? `: ${detail}` : ''}`,
+    )
+  }
+  const contentType = response.headers.get('content-type') || ''
+  if (!contentType.toLowerCase().startsWith('application/pdf')) {
+    throw new FsOpError(
+      'EIO',
+      `PPTX preview conversion returned ${contentType || 'an unknown content type'}`,
+    )
+  }
+  const converted = Buffer.from(await response.arrayBuffer())
+  if (converted.length > MAX_OFFICE_PREVIEW_BYTES) {
+    throw new FsOpError(
+      'E2BIG',
+      `Converted preview is too large (max ${MAX_OFFICE_PREVIEW_BYTES} bytes)`,
+    )
+  }
+  return converted
+}
+
+async function preparePreviewBody(
+  body: Buffer,
+  filePath: string,
+): Promise<Buffer> {
+  return OFFICE_PREVIEW_EXTENSIONS.has(previewExtension(filePath))
+    ? convertOfficePreviewToPdf(body, path.posix.basename(filePath))
+    : body
 }
 
 function isWithinPosixRoot(target: string, root: string): boolean {
@@ -115,16 +209,27 @@ export async function handlePreview(
     sendJSON(res, 400, { error: 'Not a file' })
     return
   }
-  if (stat.size > MAX_PREVIEW_BYTES) {
+  const maxBytes = maxPreviewBytes(pathParam)
+  if (stat.size > maxBytes) {
     throw new FsOpError(
       'E2BIG',
-      `File too large for preview (max ${MAX_PREVIEW_BYTES} bytes)`,
+      `File too large for preview (max ${maxBytes} bytes)`,
     )
+  }
+
+  if (OFFICE_PREVIEW_EXTENSIONS.has(previewExtension(pathParam))) {
+    const body = await preparePreviewBody(fs.readFileSync(target), pathParam)
+    res.writeHead(
+      200,
+      previewHeaders(previewOutputName(target), body.length, contentType),
+    )
+    res.end(body)
+    return
   }
 
   res.writeHead(
     200,
-    previewHeaders(path.basename(target), stat.size, contentType),
+    previewHeaders(previewOutputName(target), stat.size, contentType),
   )
   const stream = fs.createReadStream(target)
   stream.on('error', () => res.destroy())
@@ -166,22 +271,24 @@ export async function handleRemotePreview(
     }
 
     const size = inspected.size
-    if (size > MAX_PREVIEW_BYTES) {
+    const maxBytes = maxPreviewBytes(pathParam)
+    if (size > maxBytes) {
       throw new FsOpError(
         'E2BIG',
-        `File too large for preview (max ${MAX_PREVIEW_BYTES} bytes)`,
+        `File too large for preview (max ${maxBytes} bytes)`,
       )
     }
-    const body = await port.readHead(target, MAX_PREVIEW_BYTES + 1)
-    if (body.length > MAX_PREVIEW_BYTES) {
+    const source = await port.readHead(target, maxBytes + 1)
+    if (source.length > maxBytes) {
       throw new FsOpError(
         'E2BIG',
-        `File too large for preview (max ${MAX_PREVIEW_BYTES} bytes)`,
+        `File too large for preview (max ${maxBytes} bytes)`,
       )
     }
+    const body = await preparePreviewBody(source, pathParam)
     res.writeHead(
       200,
-      previewHeaders(path.posix.basename(target), body.length, contentType),
+      previewHeaders(previewOutputName(target), body.length, contentType),
     )
     res.end(body)
   } catch (err) {

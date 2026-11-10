@@ -132,6 +132,13 @@ export const definition: ToolDefinition = {
                     supportsNativePdf:
                       context.provider?.supportsNativePdf?.() === true,
                   })
+                if (output.type === 'image' && !output.file.previewUrl) {
+                  const query = new URLSearchParams({
+                    environmentId: execution.environmentId,
+                    path: abs,
+                  })
+                  output.file.previewUrl = `/workspace/preview?${query}`
+                }
                 return { data: output, newMessages: followUpMessages }
               }
               // Remote FS: no reliable local mtime — skip dedup; share slice/gates.

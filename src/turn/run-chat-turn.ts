@@ -229,7 +229,7 @@ export async function runChatTurn(
   const {
     message,
     session,
-    cwd,
+    cwd: requestedCwd,
     runAgent,
     transport,
     images,
@@ -248,7 +248,26 @@ export async function runChatTurn(
   turnProfile.checkpoint('first_status_emitted', {
     remote: isRemoteWorkspace(session.workspace) ? 1 : 0,
   })
-  const turnScope = resolveTurnWorkspaceScope(session.workspace, cwd)
+  const turnScope = resolveTurnWorkspaceScope(
+    session.workspace,
+    requestedCwd,
+    session.additionalWorkingDirectories,
+  )
+  const cwd = turnScope.executionCwd
+  if (turnScope.cwdDrifted) {
+    console.warn(
+      '[workspace] normalized turn cwd',
+      JSON.stringify({
+        agentHome: turnScope.agentHome,
+        requestedCwd: turnScope.requestedCwd,
+        workspaceRoot: turnScope.workspaceRoot,
+        executionCwd: turnScope.executionCwd,
+        environmentId: turnScope.environmentId,
+        sessionId: session.id,
+        runId: durableRunId,
+      }),
+    )
+  }
   const resolvedSettings = resolveSettings(turnScope.settingsCwd)
   const models = createModelRegistry(resolvedSettings.config.models)
   const provider = models.provider('large')

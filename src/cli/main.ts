@@ -15,6 +15,8 @@ import { createSession, getSession } from '../session/index.js'
 import { createStdioTransport } from '../server/stdio-transport.js'
 import { readStdioClientMessages } from '../server/stdio-input.js'
 import { runChatTurn } from '../turn/run-chat-turn.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
+import { parseCloudEnvironmentId } from '../execution/providers/cloud/cloud-provider.js'
 
 export async function startStdioAgent(runAgent: RunAgentFn): Promise<void> {
   const cwd = resolveDefaultWorkspace()
@@ -33,11 +35,20 @@ export async function startStdioAgent(runAgent: RunAgentFn): Promise<void> {
     console.error(
       `[cli] turn session=${session.id.slice(0, 8)} text=${msg.text.slice(0, 80)}`,
     )
+    if (
+      isCloudWorkspacesEnabled() &&
+      !parseCloudEnvironmentId(session.workspace?.environmentId)
+    ) {
+      throw new Error(
+        'CLI cannot run in the Cloud profile without a bound Cloud WorkspaceHandle.',
+      )
+    }
+    const turnCwd = session.workspace?.cwd ?? cwd
 
     await runChatTurn({
       message: msg.text,
       session,
-      cwd,
+      cwd: turnCwd,
       runAgent,
       transport,
       images: msg.images,

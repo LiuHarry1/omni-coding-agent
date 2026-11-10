@@ -70,6 +70,12 @@ export class CloudWorkspaceStore {
     return [...this.load().values()]
   }
 
+  /** Discard process cache and reload the registry from disk. */
+  refresh(): CloudWorkspaceRecord[] {
+    this.cache = null
+    return this.list()
+  }
+
   get(id: string): CloudWorkspaceRecord | undefined {
     return this.load().get(id)
   }

@@ -508,6 +508,28 @@ describe('user config path safety', () => {
     expect(response.body.code).toMatch(/EABSOLUTE|ETRAVERSAL|EINVAL|ENUL/)
   })
 
+  it('omits node_modules runtime directories from Skill listings', async () => {
+    const skill = path.join(appDir(), 'skills', 'create-ppt')
+    await fs.mkdir(skill, { recursive: true })
+    await fs.writeFile(path.join(skill, 'SKILL.md'), '# Create PPT\n')
+    await fs.mkdir(path.join(skill, 'node_modules'))
+    await fs.writeFile(
+      path.join(skill, 'node_modules', 'runtime-package.js'),
+      'export default {}\n',
+    )
+
+    const listed = await jsonRequest(
+      '/user-config/list?dir=skills%2Fcreate-ppt',
+    )
+    expect(listed.status).toBe(200)
+    expect(listed.body.entries).toContainEqual(
+      expect.objectContaining({ name: 'SKILL.md' }),
+    )
+    expect(listed.body.entries).not.toContainEqual(
+      expect.objectContaining({ name: 'node_modules' }),
+    )
+  })
+
   it('rejects root, intermediate, final, and embedded symlinks', async () => {
     const outside = path.join(tempRoot, 'outside')
     await fs.mkdir(outside)

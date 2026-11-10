@@ -31,19 +31,102 @@ function emptyIndex(): SessionIndexFile {
   return { version: 1, sessions: {} }
 }
 
+function readFirstJsonlLine(filePath: string): string {
+  const fd = fs.openSync(filePath, 'r')
+  try {
+    const buffer = Buffer.alloc(64 * 1024)
+    const bytes = fs.readSync(fd, buffer, 0, buffer.length, 0)
+    return buffer.subarray(0, bytes).toString('utf8').split('\n')[0] ?? ''
+  } finally {
+    fs.closeSync(fd)
+  }
+}
+
+function rebuildSessionIndex(agentHome: string): SessionIndexFile {
+  const rebuilt = emptyIndex()
+  const projectsRoot = path.join(agentHome, getAppDirName(), 'projects')
+  let projectKeys: string[] = []
+  try {
+    projectKeys = fs.readdirSync(projectsRoot)
+  } catch {
+    return rebuilt
+  }
+  for (const projectKey of projectKeys) {
+    const projectDir = path.join(projectsRoot, projectKey)
+    let names: string[] = []
+    try {
+      names = fs.readdirSync(projectDir)
+    } catch {
+      continue
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue
+      const sessionId = name.slice(0, -'.jsonl'.length)
+      const transcript = path.join(projectDir, name)
+      try {
+        const firstLine = readFirstJsonlLine(transcript)
+        const created = JSON.parse(firstLine) as Record<string, unknown>
+        const stat = fs.statSync(transcript)
+        rebuilt.sessions[sessionId] = {
+          projectKey,
+          createdAt:
+            typeof created.createdAt === 'number'
+              ? created.createdAt
+              : stat.birthtimeMs || stat.mtimeMs,
+          ...(typeof created.ownerEmail === 'string'
+            ? { ownerEmail: created.ownerEmail }
+            : {}),
+        }
+      } catch (error) {
+        console.warn(
+          `[session-index] cannot rebuild ${sessionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
+  }
+  return rebuilt
+}
+
+function recoverSessionIndex(
+  filePath: string,
+  agentHome: string,
+  reason: string,
+): SessionIndexFile {
+  const backup = `${filePath}.corrupt.${Date.now()}`
+  try {
+    fs.renameSync(filePath, backup)
+  } catch {
+    // Preserve the original when backup is not possible.
+  }
+  const rebuilt = rebuildSessionIndex(agentHome)
+  writeSessionIndex(rebuilt, agentHome)
+  console.warn(
+    `[session-index] recovered ${Object.keys(rebuilt.sessions).length} session(s) ` +
+      `after ${reason}; corrupt index backed up to ${backup}`,
+  )
+  return rebuilt
+}
+
 export function readSessionIndex(agentHome?: string): SessionIndexFile {
-  const filePath = getSessionIndexPath(resolveAgentHome(agentHome))
+  const home = resolveAgentHome(agentHome)
+  const filePath = getSessionIndexPath(home)
   if (!fs.existsSync(filePath)) return emptyIndex()
   try {
     const raw = JSON.parse(
       fs.readFileSync(filePath, 'utf-8'),
     ) as SessionIndexFile
     if (!raw || raw.version !== 1 || typeof raw.sessions !== 'object') {
-      return emptyIndex()
+      return recoverSessionIndex(filePath, home, 'invalid schema')
     }
     return raw
-  } catch {
-    return emptyIndex()
+  } catch (error) {
+    return recoverSessionIndex(
+      filePath,
+      home,
+      error instanceof Error ? error.message : String(error),
+    )
   }
 }
 
@@ -57,7 +140,12 @@ export function writeSessionIndex(
   const tmp = `${filePath}.${process.pid}.${Date.now()}.tmp`
   const body = JSON.stringify(index, null, 2) + '\n'
   fs.writeFileSync(tmp, body, 'utf-8')
-  fs.renameSync(tmp, filePath)
+  try {
+    fs.renameSync(tmp, filePath)
+  } catch {
+    fs.rmSync(filePath, { force: true })
+    fs.renameSync(tmp, filePath)
+  }
 }
 
 export function upsertSessionIndexEntry(

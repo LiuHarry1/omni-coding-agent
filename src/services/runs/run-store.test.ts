@@ -113,6 +113,19 @@ describe('durable run index', () => {
     ).toBe(run.runId)
   })
 
+  it('backs up a corrupt index and rebuilds it from Run sidecars', () => {
+    const run = makeRun('run-recovered')
+    createRunState(run)
+    fs.writeFileSync(indexPath(), '{"broken":')
+
+    expect(readRunState(run.runId, agentHome)?.runId).toBe(run.runId)
+    expect(
+      fs
+        .readdirSync(path.dirname(indexPath()))
+        .some(name => name.startsWith('run-index.json.corrupt.')),
+    ).toBe(true)
+  })
+
   it('tail-reads a large final event and ignores a torn trailing row', () => {
     const run = makeRun('run-tail')
     createRunState(run)

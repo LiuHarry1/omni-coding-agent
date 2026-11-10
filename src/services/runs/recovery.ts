@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { EventBus } from '../../core/event-bus.js'
+import { parseCloudEnvironmentId } from '../../execution/providers/cloud/cloud-provider.js'
 import type {
   AssistantContentPart,
   Message,
@@ -14,6 +15,8 @@ import {
   trackTurnTokens,
 } from '../../server/quota.js'
 import { attachUsageTelemetry, flushUsage } from '../../server/telemetry.js'
+import { getCloudWorkspaceManager } from '../cloud-workspaces/index.js'
+import { resolveTurnWorkspaceScope } from '../cloud-workspaces/turn-scope.js'
 import {
   appendMessage,
   appendUnknownToolResults,
@@ -37,6 +40,7 @@ import {
   calibrateActiveRunPointers,
   listRunStates,
   readRunEvents,
+  writeRunState,
 } from './run-store.js'
 import type { DurableRunState } from './types.js'
 import { isTerminalRunStatus } from './types.js'
@@ -51,6 +55,74 @@ type EventRepairResult = {
   repaired: number
   unknown: number
   throughSeq: number
+}
+
+function reconcileRecoveryWorkspace(
+  state: DurableRunState,
+  session: NonNullable<ReturnType<typeof getSession>>,
+): string {
+  const bound = session.workspace
+  if (
+    state.workspace &&
+    bound &&
+    state.workspace.environmentId !== bound.environmentId
+  ) {
+    throw new Error(
+      `Run workspace ${state.workspace.environmentId} no longer matches ` +
+        `Session workspace ${bound.environmentId}`,
+    )
+  }
+  if (state.workspace && state.workspace.environmentId !== 'local' && !bound) {
+    throw new Error(
+      `Session has no workspace binding for Run environment ${state.workspace.environmentId}`,
+    )
+  }
+
+  const workspace = bound ?? state.workspace
+  const cloudId = parseCloudEnvironmentId(workspace?.environmentId)
+  if (cloudId) {
+    const manager = getCloudWorkspaceManager()
+    if (!manager) {
+      throw new Error(`Cloud workspace backend is unavailable for ${cloudId}`)
+    }
+    if (!manager.refresh(cloudId)) {
+      throw new Error(`Cloud workspace ${cloudId} was deleted`)
+    }
+  }
+
+  const context = resolveTurnWorkspaceScope(
+    workspace,
+    state.cwd,
+    session.additionalWorkingDirectories,
+  )
+  const changed =
+    state.version !== 2 ||
+    state.workspace?.environmentId !== context.environmentId ||
+    state.workspace?.cwd !== context.workspaceRoot ||
+    state.projectKey !== context.projectKey ||
+    state.cwd !== context.executionCwd
+  if (changed) {
+    state.version = 2
+    state.workspace = {
+      environmentId: context.environmentId,
+      cwd: context.workspaceRoot,
+    }
+    state.projectKey = context.projectKey
+    state.cwd = context.executionCwd
+    state.updatedAt = Date.now()
+    writeRunState(state)
+    console.warn(
+      '[runs] upgraded recovery workspace',
+      JSON.stringify({
+        runId: state.runId,
+        sessionId: state.sessionId,
+        environmentId: context.environmentId,
+        workspaceRoot: context.workspaceRoot,
+        executionCwd: context.executionCwd,
+      }),
+    )
+  }
+  return context.executionCwd
 }
 
 /**
@@ -290,6 +362,18 @@ async function recoverOne(
         failDurableRun(state, 'Session missing during run recovery')
         return
       }
+      let recoveryCwd: string
+      try {
+        recoveryCwd = reconcileRecoveryWorkspace(state, session)
+      } catch (error) {
+        failDurableRun(
+          state,
+          `Workspace recovery failed: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+        return
+      }
       if (shouldEnforceQuota(state.ownerEmail, state.ownerRole)) {
         try {
           const quota = await checkQuota(state.ownerEmail!)
@@ -376,7 +460,7 @@ ${
                   ? recoveryPrompt
                   : state.requestPayload!.message,
                 session,
-                cwd: state.cwd,
+                cwd: recoveryCwd,
                 runAgent,
                 transport,
                 images: hasOpeningMessage

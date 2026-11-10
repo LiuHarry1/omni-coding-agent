@@ -11,6 +11,7 @@ import {
   listCronTasksForSession,
   removeCronTasks,
 } from './store.js'
+import type { WorkspaceHandle } from '../../execution/types.js'
 import type { ScheduledTask } from './types.js'
 
 export const SCHEDULED_TASKS_DISABLED_MESSAGE =
@@ -28,11 +29,13 @@ export type PublicCronTask = {
 
 export type ScheduleCronInput = {
   cwd: string
+  settingsCwd?: string
   sessionId: string
   prompt: string
   cron?: string
   at?: string
   recurring?: boolean
+  workspace?: WorkspaceHandle
   environmentId?: string
 }
 
@@ -80,7 +83,7 @@ export function cancelCronTask(
 export function scheduleCronTask(
   input: ScheduleCronInput,
 ): ScheduleCronOk | ScheduleCronErr {
-  if (!isScheduledTasksEnabled(input.cwd)) {
+  if (!isScheduledTasksEnabled(input.settingsCwd ?? input.cwd)) {
     return {
       ok: false,
       code: 'disabled',
@@ -108,6 +111,7 @@ export function scheduleCronTask(
     sessionId: input.sessionId,
     cwd: input.cwd,
     recurring: input.recurring !== false && !at,
+    workspace: input.workspace,
     environmentId: input.environmentId,
   }
 

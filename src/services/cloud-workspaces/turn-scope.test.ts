@@ -32,13 +32,57 @@ describe('cloud turn scope', () => {
           },
           '/workspace/repo',
         ),
-      ).toEqual({
+      ).toMatchObject({
+        agentHome: home,
+        environmentId: 'cloud:abcdef0123456789',
+        workspaceRoot: '/workspace/repo',
+        executionCwd: '/workspace/repo',
+        requestedCwd: '/workspace/repo',
+        cwdDrifted: false,
         toolCwd: '/workspace/repo',
         extensionCwd: home,
         settingsCwd: home,
         extensionRoot: path.join(home, '.ai-agent'),
         cloudWorkspaceId: 'abcdef0123456789',
         remote: true,
+      })
+    })
+  })
+
+  it('uses the remote binding when an entry point supplies agentHome as cwd', () => {
+    const home = path.resolve('/srv/users/alice')
+    runWithRequestScope({ agentHome: home, cwd: home }, () => {
+      const scope = resolveTurnWorkspaceScope(
+        {
+          environmentId: 'cloud:abcdef0123456789',
+          cwd: '/workspace/repo',
+        },
+        home,
+      )
+      expect(scope).toMatchObject({
+        requestedCwd: home,
+        workspaceRoot: '/workspace/repo',
+        executionCwd: '/workspace/repo',
+        toolCwd: '/workspace/repo',
+        cwdDrifted: true,
+      })
+    })
+  })
+
+  it('allows a remote execution cwd below the stable workspace root', () => {
+    const home = path.resolve('/srv/users/alice')
+    runWithRequestScope({ agentHome: home, cwd: home }, () => {
+      const scope = resolveTurnWorkspaceScope(
+        {
+          environmentId: 'cloud:abcdef0123456789',
+          cwd: '/workspace/repo',
+        },
+        '/workspace/repo/packages/web',
+      )
+      expect(scope).toMatchObject({
+        workspaceRoot: '/workspace/repo',
+        executionCwd: '/workspace/repo/packages/web',
+        cwdDrifted: false,
       })
     })
   })

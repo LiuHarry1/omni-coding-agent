@@ -1,6 +1,12 @@
 import * as path from 'path'
-import { requireSessionLocation } from '../../core/session-paths.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
+import {
+  computeProjectKey,
+  requireSessionLocation,
+} from '../../core/session-paths.js'
+import {
+  getDefaultWorkspace,
+  normalizeWorkspacePath,
+} from '../../core/workspace.js'
 import { parseCloudEnvironmentId } from '../../execution/providers/cloud/cloud-provider.js'
 import type { WorkspaceHandle } from '../../execution/types.js'
 import { getAppDirName } from '../../utils/app-dir.js'
@@ -9,7 +15,22 @@ import { getCloudWorkspaceManager } from './index.js'
 
 export { filterHttpMCPServers as filterCloudMCPServers } from '../../core/mcp-policy.js'
 
-export type TurnWorkspaceScope = {
+export type WorkspaceContext = {
+  /** User-owned configuration and persistence root on the control plane. */
+  agentHome?: string
+  /** Execution environment selected by the session. */
+  environmentId: string
+  /** Stable project anchor inside the selected environment. */
+  workspaceRoot: string
+  /** Per-turn cwd, constrained to workspaceRoot for remote environments. */
+  executionCwd: string
+  /** Stable persistence identity derived from environmentId + workspaceRoot. */
+  projectKey: string
+  /** Explicitly approved roots outside workspaceRoot. */
+  additionalRoots: string[]
+  /** The cwd supplied by the entry point, retained for drift diagnostics. */
+  requestedCwd: string
+  cwdDrifted: boolean
   /** Tool paths always stay inside the selected execution environment. */
   toolCwd: string
   /** Host cwd passed to extension loaders. */
@@ -21,6 +42,8 @@ export type TurnWorkspaceScope = {
   cloudWorkspaceId: string | null
   remote: boolean
 }
+
+export type TurnWorkspaceScope = WorkspaceContext
 
 /** Request-scoped agent home, or HOME for single-user local cloud dev. */
 function cloudAgentHome(): string | undefined {
@@ -45,7 +68,22 @@ function cloudAgentHome(): string | undefined {
 export function resolveTurnWorkspaceScope(
   workspace: WorkspaceHandle | undefined,
   toolCwd: string,
+  additionalRoots: string[] = [],
 ): TurnWorkspaceScope {
+  const environmentId = workspace?.environmentId ?? 'local'
+  const remote = Boolean(workspace && environmentId !== 'local')
+  const requestedCwd = normalizeWorkspacePath(toolCwd)
+  const workspaceRoot = normalizeWorkspacePath(
+    remote ? workspace!.cwd : requestedCwd,
+  )
+  const executionCwd =
+    remote && !isPathAtOrBelow(requestedCwd, workspaceRoot)
+      ? workspaceRoot
+      : requestedCwd
+  const normalizedWorkspace = {
+    environmentId,
+    cwd: workspaceRoot,
+  }
   const cloudWorkspaceId = parseCloudEnvironmentId(workspace?.environmentId)
   if (cloudWorkspaceId) {
     const agentHome = cloudAgentHome()
@@ -55,7 +93,15 @@ export function resolveTurnWorkspaceScope(
       )
     }
     return {
-      toolCwd,
+      agentHome,
+      environmentId,
+      workspaceRoot,
+      executionCwd,
+      projectKey: computeProjectKey(normalizedWorkspace),
+      additionalRoots: additionalRoots.map(normalizeWorkspacePath),
+      requestedCwd,
+      cwdDrifted: requestedCwd !== executionCwd,
+      toolCwd: executionCwd,
       extensionCwd: agentHome,
       settingsCwd: agentHome,
       extensionRoot: path.join(agentHome, getAppDirName()),
@@ -64,15 +110,45 @@ export function resolveTurnWorkspaceScope(
     }
   }
 
-  const remote = Boolean(workspace && workspace.environmentId !== 'local')
-  const controlPlaneCwd = remote ? getDefaultWorkspace() : toolCwd
+  const controlPlaneCwd = remote ? getDefaultWorkspace() : executionCwd
+  const agentHome = getRequestScope()?.agentHome
   return {
-    toolCwd,
+    agentHome,
+    environmentId,
+    workspaceRoot,
+    executionCwd,
+    projectKey: computeProjectKey(
+      remote ? normalizedWorkspace : undefined,
+      executionCwd,
+    ),
+    additionalRoots: additionalRoots.map(normalizeWorkspacePath),
+    requestedCwd,
+    cwdDrifted: requestedCwd !== executionCwd,
+    toolCwd: executionCwd,
     extensionCwd: controlPlaneCwd,
     settingsCwd: controlPlaneCwd,
     cloudWorkspaceId: null,
     remote,
   }
+}
+
+function isPathAtOrBelow(candidate: string, root: string): boolean {
+  if (!candidate || !root) return false
+  if (candidate === root) return true
+
+  if (root === '~') return candidate.startsWith('~/')
+  if (root.startsWith('~/')) {
+    return candidate.startsWith(`${root.replace(/\/+$/, '')}/`)
+  }
+
+  const pathApi = /^[A-Za-z]:[\\/]/.test(root) ? path.win32 : path.posix
+  const relative = pathApi.relative(root, candidate)
+  return (
+    relative !== '' &&
+    relative !== '..' &&
+    !relative.startsWith(`..${pathApi.sep}`) &&
+    !pathApi.isAbsolute(relative)
+  )
 }
 
 /**
@@ -92,12 +168,20 @@ export function cloudSandboxSeesAgentHome(
   if (!manager || !record) return false
   try {
     return (
-      path.resolve(agentHome) ===
-      manager.containers.mountedUserHome(record.ownerEmail)
+      comparableSandboxPath(agentHome) ===
+      comparableSandboxPath(
+        manager.containers.mountedUserHome(record.ownerEmail),
+      )
     )
   } catch {
     return false
   }
+}
+
+function comparableSandboxPath(value: string): string {
+  let normalized = normalizeWorkspacePath(value).replace(/\\/g, '/')
+  if (/^[A-Za-z]:\//.test(normalized)) normalized = normalized.slice(2)
+  return path.posix.normalize(normalized)
 }
 
 /**

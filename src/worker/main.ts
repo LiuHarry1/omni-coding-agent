@@ -223,7 +223,12 @@ async function runFsOp(op: WorkerFsOp, requestId: string): Promise<unknown> {
     case 'exec_bg_poll': {
       const e = bgByTask.get(op.taskId)
       if (!e) {
-        return { done: true, exitCode: null, killed: false }
+        return {
+          done: true,
+          exitCode: null,
+          killed: false,
+          unknown: true,
+        }
       }
       return {
         done: e.done,
@@ -340,6 +345,53 @@ async function handle(msg: RuntimeClientMessage): Promise<void> {
   }
 }
 
+const inFlight = new Set<Promise<void>>()
+let controlQueue: Promise<void> = Promise.resolve()
+
+function sendDispatchError(error: unknown): void {
+  send({
+    type: 'error',
+    message: error instanceof Error ? error.message : String(error),
+  })
+}
+
+function trackRequest(task: Promise<void>): void {
+  const tracked = task.catch(sendDispatchError)
+  inFlight.add(tracked)
+  void tracked.finally(() => inFlight.delete(tracked))
+}
+
+/**
+ * Bind/shutdown are protocol barriers. Ordinary FS/LSP requests after a
+ * barrier wait for it, while requests within one binding may run concurrently.
+ * exec_cancel bypasses barriers so it can always settle an in-flight command.
+ */
+function dispatch(msg: RuntimeClientMessage): void {
+  if (msg.type === 'fs_op' && msg.op.op === 'exec_cancel') {
+    trackRequest(handle(msg))
+    return
+  }
+  if (msg.type === 'interrupt' || msg.type === 'control_response') {
+    trackRequest(handle(msg))
+    return
+  }
+  if (msg.type === 'bind' || msg.type === 'shutdown') {
+    if (msg.type === 'shutdown') {
+      shuttingDown = true
+      for (const entry of foregroundByRequest.values()) {
+        entry.controller.abort('worker-shutdown')
+      }
+    }
+    const beforeBarrier = [...inFlight]
+    controlQueue = controlQueue
+      .then(() => Promise.allSettled(beforeBarrier))
+      .then(() => handle(msg))
+      .catch(sendDispatchError)
+    return
+  }
+  trackRequest(controlQueue.then(() => handle(msg)))
+}
+
 /**
  * stdout carries only NDJSON protocol frames. Shared modules (LSP, tools)
  * log with console.log; one such line would break the Control Plane parser
@@ -366,7 +418,7 @@ export function runWorkerStdio(): void {
       send({ type: 'error', message: `Invalid JSON: ${trimmed.slice(0, 120)}` })
       return
     }
-    void handle(msg)
+    dispatch(msg)
   })
   rl.on('close', () => {
     if (!shuttingDown) process.exit(0)

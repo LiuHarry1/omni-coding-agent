@@ -6,6 +6,7 @@ import {
   setSessionWorkspace,
 } from '../session.js'
 import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
+import { resolveTurnWorkspaceScope } from '../../services/cloud-workspaces/turn-scope.js'
 import { resolveCloudSessionBinding } from './cloud-workspaces.js'
 import { readBody, sendJSON, wantsStreamingResponse } from '../http.js'
 import { sessionToUIMessages } from '../session-ui.js'
@@ -278,9 +279,15 @@ async function handleChatRequest(
     mode,
     agentType,
     wantsStream,
-    cwd,
+    cwd: requestedCwd,
     requesterEmail,
   } = opts
+  const workspaceContext = resolveTurnWorkspaceScope(
+    session.workspace,
+    requestedCwd,
+    session.additionalWorkingDirectories,
+  )
+  const cwd = workspaceContext.executionCwd
 
   if (!session.permissionMode) {
     session.permissionMode = { mode: 'agent' }
@@ -445,6 +452,11 @@ async function handleChatRequest(
       ownerEmail: session.ownerEmail,
       ownerRole: requesterRole,
       agentHome: scope?.agentHome ?? resolveAgentHome(),
+      workspace: {
+        environmentId: workspaceContext.environmentId,
+        cwd: workspaceContext.workspaceRoot,
+      },
+      projectKey: workspaceContext.projectKey,
       cwd,
       mode: session.permissionMode.mode,
       agentType: session.agentType,

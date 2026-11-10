@@ -71,6 +71,8 @@ export async function resolveCloudSessionBinding(
     typeof requestedEnvironmentId === 'string'
       ? parseCloudEnvironmentId(requestedEnvironmentId)
       : null
+  const selectedId = requestedId ?? boundId
+  if (selectedId) manager.refresh(selectedId)
 
   let record: CloudWorkspaceRecord | undefined
   try {

@@ -26,6 +26,13 @@ function nginxAgentRoutes(): Set<string> {
   return new Set(match![1].split('|').map(route => `/${route}`))
 }
 
+function nginxSource(): string {
+  return fs.readFileSync(
+    path.join(repoRoot, 'deploy/nginx.sso-proxy.conf'),
+    'utf8',
+  )
+}
+
 describe('SSO proxy contract', () => {
   it('proxies every Vite agent API route through nginx', () => {
     const nginxRoutes = nginxAgentRoutes()
@@ -42,6 +49,15 @@ describe('SSO proxy contract', () => {
         '/extension-config',
         '/marketplaces',
       ]),
+    )
+  })
+
+  it('keeps session upload files ahead of the SPA static-asset regex', () => {
+    const source = nginxSource()
+    expect(source).toContain('location ^~ /sessions {')
+    expect(source).not.toContain('location ^~ /sessions/ {')
+    expect(source.indexOf('location ^~ /sessions {')).toBeLessThan(
+      source.indexOf('location ~* \\.(?:js|css'),
     )
   })
 })

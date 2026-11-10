@@ -265,6 +265,11 @@ export class CloudWorkspaceManager {
     return this.store.get(id)
   }
 
+  refresh(id: string): CloudWorkspaceRecord | undefined {
+    this.store.refresh()
+    return this.get(id)
+  }
+
   list(ownerEmail: string): CloudWorkspaceRecord[] {
     const owner = normalizeEmail(ownerEmail)
     return this.store
