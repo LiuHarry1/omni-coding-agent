@@ -344,7 +344,9 @@ export class WorkerExecutionBackend implements ExecutionBackend {
       const notice = `Shell cwd was reset to ${opts.cwd}`
       return {
         ...result,
-        stderr: result.stderr ? `${result.stderr.trimEnd()}\n${notice}` : notice,
+        stderr: result.stderr
+          ? `${result.stderr.trimEnd()}\n${notice}`
+          : notice,
         cwdAfter: opts.cwd,
       }
     }

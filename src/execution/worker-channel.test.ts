@@ -124,9 +124,12 @@ describe('Worker channel loss', () => {
       'posix',
       '/workspace/repo',
     )
-    const command = backend.exec('cd /workspace/users/test/.ai-agent/skills/x', {
-      cwd: '/workspace/repo',
-    })
+    const command = backend.exec(
+      'cd /workspace/users/test/.ai-agent/skills/x',
+      {
+        cwd: '/workspace/repo',
+      },
+    )
     const request = runtime.messages.at(-1)
     expect(request?.type).toBe('fs_op')
     if (!request || request.type !== 'fs_op') throw new Error('missing fs_op')
@@ -162,7 +165,11 @@ describe('Worker channel loss', () => {
       () => additional,
     )
     expect(() =>
-      backend.assertInWorkspace('/workspace/repo', '/data/shared/a.csv', 'read'),
+      backend.assertInWorkspace(
+        '/workspace/repo',
+        '/data/shared/a.csv',
+        'read',
+      ),
     ).toThrow(/outside the workspace root/)
 
     additional.push('/data/shared')
