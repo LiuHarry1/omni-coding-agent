@@ -2,7 +2,12 @@
  * Kill helpers for local shell tasks.
  */
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
-import { getTask, updateTaskState } from '../../utils/task/framework.js'
+import { removeByFilter } from '../../utils/messageQueueManager.js'
+import {
+  getTask,
+  listRunningTasks,
+  updateTaskState,
+} from '../../utils/task/framework.js'
 import { killInProcessBackground } from '../../utils/ShellCommand.js'
 import { isLocalShellTask } from './guards.js'
 
@@ -41,4 +46,25 @@ export function killTask(
       notified: true, // suppress duplicate completion XML after an explicit stop
     }
   })
+}
+
+/**
+ * A subagent is exiting: stop the background shells it started and drop
+ * what is still queued for it, since its loop will not read it any more
+ * (Claude Code `killShellTasksForAgent`).
+ */
+export function killShellTasksForAgent(
+  sessionId: string,
+  agentId: string,
+  execution?: ExecutionBackend,
+): void {
+  for (const task of listRunningTasks(sessionId)) {
+    if (isLocalShellTask(task) && task.agentId === agentId) {
+      console.log(
+        `[tasks] stopping shell task ${task.id}: agent ${agentId} is exiting`,
+      )
+      killTask(sessionId, task.id, execution)
+    }
+  }
+  removeByFilter(sessionId, cmd => cmd.agentId === agentId)
 }

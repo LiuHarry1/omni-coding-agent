@@ -74,10 +74,12 @@ export function registerAsyncAgent(input: {
   agentType: string
   toolUseId?: string
   abortController?: AbortController
+  /** Minted by the caller when the agent's tools need it before launch. */
+  agentId?: string
 }): LocalAgentTaskState {
   const { sessionId, description, prompt, agentType, toolUseId } = input
   setTaskSessionId(sessionId)
-  const agentId = generateTaskId('local_agent')
+  const agentId = input.agentId ?? generateTaskId('local_agent')
   initTaskOutput(agentId)
 
   const taskState: LocalAgentTaskState = {

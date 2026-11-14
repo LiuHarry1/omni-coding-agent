@@ -47,9 +47,15 @@ async function waitForTaskCompletion(
   sessionId: string,
   taskId: string,
   timeoutMs: number,
+  abortSignal?: AbortSignal,
 ): Promise<'success' | 'timeout' | 'not_ready'> {
   const start = Date.now()
   for (;;) {
+    if (abortSignal?.aborted) {
+      throw Object.assign(new Error('TaskOutput wait was aborted'), {
+        name: 'AbortError',
+      })
+    }
     const task = getTask(sessionId, taskId)
     if (!task) return 'not_ready'
     if (isTerminalTaskStatus(task.status)) return 'success'
@@ -88,11 +94,14 @@ export const definition: ToolDefinition = {
           .optional()
           .describe('Max wait time in ms'),
       }),
-      execute: async (args: {
-        task_id: string
-        block?: boolean
-        timeout?: number
-      }): Promise<DualChannelToolResult<TaskOutputToolResult> | string> => {
+      execute: async (
+        args: {
+          task_id: string
+          block?: boolean
+          timeout?: number
+        },
+        options?: { abortSignal?: AbortSignal },
+      ): Promise<DualChannelToolResult<TaskOutputToolResult> | string> => {
         const sessionId = context.sessionId ?? 'default'
         setTaskSessionId(sessionId)
         const taskId = args.task_id
@@ -110,6 +119,7 @@ export const definition: ToolDefinition = {
             sessionId,
             taskId,
             timeoutMs,
+            options?.abortSignal,
           )
         } else if (!isTerminalTaskStatus(task.status)) {
           retrieval_status = 'not_ready'

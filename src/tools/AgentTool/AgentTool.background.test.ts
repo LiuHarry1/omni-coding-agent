@@ -22,11 +22,18 @@ import {
   resetCommandQueue,
 } from '../../utils/messageQueueManager.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
-import { _resetTaskOutputDirForTest } from '../../utils/task/diskOutput.js'
+import {
+  _resetTaskOutputDirForTest,
+  setTaskSessionId,
+} from '../../utils/task/diskOutput.js'
 import {
   clearSessionTasks,
+  getTask,
   listSessionTasks,
+  registerTask,
 } from '../../utils/task/framework.js'
+import { createTaskStateBase } from '../../Task.js'
+import type { LocalShellTaskState } from '../../tasks/LocalShellTask/guards.js'
 import { createTaskTool } from './AgentTool.js'
 
 type ExecutableTool = AnyTool & {
@@ -307,6 +314,50 @@ describe('Agent tool: run_in_background', () => {
   })
 })
 
+describe('Agent tool: what a subagent starts', () => {
+  /** A background shell registered as if the subagent's Bash had started it. */
+  const shellStartedBy = (agentId: string): string => {
+    const task: LocalShellTaskState = {
+      ...runWithRequestScope({ agentHome, cwd }, () => {
+        setTaskSessionId(sessionId)
+        return createTaskStateBase('bshell0001', 'local_bash', 'sleep 60')
+      }),
+      type: 'local_bash',
+      status: 'running',
+      command: 'sleep 60',
+      completionStatusSentInAttachment: false,
+      shell: 'bash',
+      sessionId,
+      cwd,
+      isBackgrounded: true,
+      agentId,
+    }
+    registerTask(sessionId, task)
+    return task.id
+  }
+
+  it.each([
+    ['in the foreground', {}],
+    ['in the background', { run_in_background: true }],
+  ])('is stopped when the subagent %s exits', async (_where, extra) => {
+    const { context, execute, calls, finish } = setup()
+    const createAll = vi.spyOn(context.registry!, 'createAll')
+
+    const pending = execute({ ...input, ...extra })
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    const agentId = createAll.mock.calls[0]![1].agentId!
+    expect(agentId).toMatch(/^a[0-9a-z]{8}$/)
+    expect(calls[0]!.options.agentId).toBe(agentId)
+    const shellId = shellStartedBy(agentId)
+
+    finish('done')
+    await pending
+    await vi.waitFor(() =>
+      expect(getTask(sessionId, shellId)?.status).toBe('killed'),
+    )
+  })
+})
+
 describe('Agent tool: where it cannot run in the background', () => {
   it('runs in the foreground without a session to report back to', async () => {
     const { execute, calls, finish } = setup({ sessionId: undefined })
@@ -337,7 +388,6 @@ describe('Agent tool: where it cannot run in the background', () => {
     const pending = execute(input)
     await vi.waitFor(() => expect(calls).toHaveLength(1))
     expect(calls[0]!.options.eventBus).toBe(context.eventBus)
-    expect(calls[0]!.options.agentId).toBeUndefined()
     expect(emitted.length).toBeGreaterThan(0)
     finish('Found 12 routes.')
 

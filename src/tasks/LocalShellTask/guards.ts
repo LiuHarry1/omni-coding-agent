@@ -22,6 +22,11 @@ export type LocalShellTaskState = TaskStateBase & {
   cwd: string
   isBackgrounded: boolean
   kind?: BashTaskKind
+  /**
+   * The subagent that started it. Its notification is addressed to that
+   * agent, and it is stopped when the agent exits. Unset: main thread.
+   */
+  agentId?: string
 }
 
 export function isLocalShellTask(task: unknown): task is LocalShellTaskState {

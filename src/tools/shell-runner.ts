@@ -245,6 +245,7 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
                   sessionId,
                   shell,
                   cwd: cwdRef.current,
+                  agentId: context.agentId,
                 },
                 { execution: context.execution },
               )

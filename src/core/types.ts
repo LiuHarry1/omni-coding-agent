@@ -96,6 +96,11 @@ export interface ToolContext {
   /** The turn's hooks, so subagent tool calls run them too. */
   hooks?: import('./hooks/hooks.js').HookRunner
   /**
+   * The subagent these tools belong to; unset on the main thread. Background
+   * shells it starts are stopped when it exits.
+   */
+  agentId?: string
+  /**
    * Host accounting (telemetry, quota) for model usage that outlives the
    * turn: a background agent reports usage on a bus of its own. Returns the
    * function to call when that work is over.

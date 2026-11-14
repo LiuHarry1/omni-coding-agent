@@ -15,6 +15,8 @@ import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
 import { isRemoteWorkspace } from '../../execution/index.js'
 import { registerAsyncAgent } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
+import { killShellTasksForAgent } from '../../tasks/LocalShellTask/killShellTasks.js'
+import { generateTaskId } from '../../Task.js'
 import {
   asyncAgentLaunchedText,
   runAsyncAgentLifecycle,
@@ -265,6 +267,17 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                   handedOver: false,
                 }
               : undefined
+          // Every subagent run has an id, so what it starts can be traced
+          // back to it and cleaned up when it exits.
+          const agentId = generateTaskId('local_agent')
+          const subExecution = background
+            ? background.execution
+            : context.execution
+          const killAgentShells = () => {
+            if (sessionId) {
+              killShellTasksForAgent(sessionId, agentId, subExecution)
+            }
+          }
           try {
             const subWire = background
               ? noopWireEmitter
@@ -356,8 +369,9 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               canUseTool: subCanUseTool,
               hooks: subHooks,
               cwd: context.cwd ?? cwd,
-              execution: background ? background.execution : context.execution,
+              execution: subExecution,
               autoMemory: context.autoMemory,
+              agentId,
             }
 
             let subTools: Record<string, AnyTool>
@@ -428,6 +442,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 getToolDefinition: name => registry.get(name),
                 canUseTool: subCanUseTool,
                 hooks: subHooks,
+                agentId,
                 ...extra,
               })
 
@@ -439,6 +454,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 agentType: subagent_type,
                 toolUseId: parentToolCallId,
                 abortController: background.abortController,
+                agentId,
               })
               const settleUsage = context.accountBackgroundUsage?.(
                 background.eventBus,
@@ -451,10 +467,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 run: onStepCommitted =>
                   runSubagent({
                     abortSignal: background.abortController.signal,
-                    agentId: task.agentId,
                     onStepCommitted,
                   }),
                 cleanup: async () => {
+                  killAgentShells()
                   background.execution?.dispose?.()
                   await settleUsage?.()
                 },
@@ -505,6 +521,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               const message = err instanceof Error ? err.message : String(err)
               return output(`Error: ${message}`)
             } finally {
+              killAgentShells()
               if (sessionId && !options?.abortSignal) {
                 clearToolAbort(sessionId, resolvedParentId)
               }

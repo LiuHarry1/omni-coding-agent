@@ -16,7 +16,10 @@ import { clearSessionTasks } from '../../utils/task/framework.js'
 import { definition, type TaskOutputToolResult } from './TaskOutputTool.js'
 
 type ExecutableTool = AnyTool & {
-  execute: (input: unknown) => Promise<{ data: TaskOutputToolResult } | string>
+  execute: (
+    input: unknown,
+    options?: { abortSignal?: AbortSignal },
+  ) => Promise<{ data: TaskOutputToolResult } | string>
 }
 
 let agentHome: string
@@ -25,13 +28,16 @@ let sessionId: string
 const inScope = <T>(fn: () => T): T =>
   runWithRequestScope({ agentHome, cwd: '/workspace' }, fn)
 
-const taskOutput = (args: Record<string, unknown>) =>
+const taskOutput = (
+  args: Record<string, unknown>,
+  options?: { abortSignal?: AbortSignal },
+) =>
   inScope(() =>
     (
       definition.create('/workspace', {
         sessionId,
       } as unknown as ToolContext) as ExecutableTool
-    ).execute(args),
+    ).execute(args, options),
   )
 
 const launch = () =>
@@ -101,6 +107,21 @@ describe('TaskOutput on a background agent', () => {
 
     expect(result.data.retrieval_status).toBe('success')
     expect(result.data.output).toContain('Done.')
+  })
+
+  it('stops waiting as soon as the caller is stopped', async () => {
+    const task = launch()
+    const abort = new AbortController()
+    setTimeout(() => abort.abort(), 100)
+    const started = Date.now()
+
+    await expect(
+      taskOutput(
+        { task_id: task.id, timeout: 30_000 },
+        { abortSignal: abort.signal },
+      ),
+    ).rejects.toMatchObject({ name: 'AbortError' })
+    expect(Date.now() - started).toBeLessThan(2_000)
   })
 
   it('shows the error of an agent that failed', async () => {

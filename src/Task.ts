@@ -44,6 +44,8 @@ export type LocalShellSpawnInput = {
   sessionId?: string
   shell?: 'bash' | 'powershell'
   cwd: string
+  /** The subagent that started it; unset for the main thread. */
+  agentId?: string
 }
 
 /**

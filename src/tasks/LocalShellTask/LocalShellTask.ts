@@ -57,6 +57,9 @@ function enqueueShellNotification(
   toolUseId?: string,
 ): void {
   let shouldEnqueue = false
+  const started = getTask(sessionId, taskId)
+  const agentId =
+    started && isLocalShellTask(started) ? started.agentId : undefined
   updateTaskState(sessionId, taskId, task => {
     if (task.notified) return task
     shouldEnqueue = true
@@ -97,6 +100,7 @@ function enqueueShellNotification(
   enqueuePendingNotification(sessionId, {
     value: rawXml,
     mode: 'task-notification',
+    ...(agentId ? { agentId } : {}),
   })
 }
 
@@ -246,6 +250,7 @@ export async function spawnShellTask(
     cwd: input.cwd,
     isBackgrounded: true,
     kind: 'bash',
+    ...(input.agentId ? { agentId: input.agentId } : {}),
   }
   taskState.outputFile = outputPath
   registerTask(sessionId, taskState)
