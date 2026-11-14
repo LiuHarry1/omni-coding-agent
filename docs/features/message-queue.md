@@ -6,7 +6,8 @@ Last verified: 2026-11-14
 
 One queue per session holds everything that wants the agent's attention
 while it may be busy: messages the user sends during a turn, and
-notifications from background tasks. It follows Claude Code's
+notifications from [background tasks](background-tasks.md) (shell commands
+and subagents). It follows Claude Code's
 `messageQueueManager`.
 
 Without it, a message sent during a turn was refused, and a background task
@@ -94,7 +95,7 @@ them. Attachments cannot be queued.
 - If the session's cloud workspace is not available, the notifications are
   dropped with a warning in the server log.
 - The queue lives in the server process. A restart loses queued commands;
-  background shell tasks do not survive a restart either.
+  background tasks do not survive a restart either.
 - A client that is not connected to the live stream does not see a
   notification turn as it runs. The turn is stored and appears on reload.
 - If the client sends its unconsumed messages at the same moment the server

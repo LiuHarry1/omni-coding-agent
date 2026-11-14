@@ -44,8 +44,22 @@ function visibleSteps(part) {
   )
 }
 
+/**
+ * The call returned at once because the agent was sent to the background.
+ * Its result is a note for the model, not a report; the report arrives
+ * later as a task notification.
+ */
+export function isBackgroundLaunch(part) {
+  return (
+    part.status === 'done' &&
+    typeof part.result === 'string' &&
+    part.result.startsWith('Async agent launched')
+  )
+}
+
 export function subagentRowSubtitle(part, steps, headline) {
   if (part.stopping) return 'Stopping…'
+  if (isBackgroundLaunch(part)) return 'Started in the background'
   if (part.status === 'done') {
     return summarizeToolSteps(steps)
   }
@@ -82,7 +96,10 @@ export default function SubagentCard({ part, onStopTool }) {
   const steps = useMemo(() => visibleSteps(part), [part.subagentParts])
   const subtitle = subagentRowSubtitle(part, steps, headline)
   const hasReport =
-    isDone && typeof part.result === 'string' && part.result.length > 0
+    isDone &&
+    typeof part.result === 'string' &&
+    part.result.length > 0 &&
+    !isBackgroundLaunch(part)
   const hasBody = steps.length > 0 || hasReport
   const [expanded, toggleExpanded, chevron] = useToolDensityExpand('subagent', {
     isDone,

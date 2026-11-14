@@ -1,5 +1,5 @@
 /**
- * TaskOutput — retrieve output from a background shell task.
+ * TaskOutput — retrieve output from a background task (shell or agent).
  */
 import { tool } from 'ai'
 import { z } from 'zod'
@@ -11,6 +11,7 @@ import type {
 import { TASK_OUTPUT_TOOL_NAME } from '../../constants/tool_names.js'
 import { getTask, markTaskNotified } from '../../utils/task/framework.js'
 import { isLocalShellTask } from '../../tasks/LocalShellTask/guards.js'
+import { isLocalAgentTask } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import { isTerminalTaskStatus } from '../../Task.js'
 import { getTaskOutput } from '../../utils/task/diskOutput.js'
 import { formatTaskOutput } from '../../utils/task/outputFormatting.js'
@@ -35,7 +36,7 @@ export const TaskOutputToolResultSchema = z.object({
 
 const DESCRIPTION = `DEPRECATED: Prefer using the Read tool on the task's output file path instead. Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes — Read that file directly (session task output paths are allowed even when outside the project cwd).
 
-- Retrieves output from a running or completed background shell task
+- Retrieves output from a running or completed task (background shell, agent)
 - Takes a task_id parameter identifying the task
 - Returns the task output along with status information
 - Use block=true (default) to wait for task completion — never for long-lived processes (dev servers, watchers)
@@ -99,7 +100,7 @@ export const definition: ToolDefinition = {
         const timeoutMs = args.timeout ?? 30_000
 
         const task = getTask(sessionId, taskId)
-        if (!task || !isLocalShellTask(task)) {
+        if (!task || !(isLocalShellTask(task) || isLocalAgentTask(task))) {
           return `Error: no background task with id ${taskId}`
         }
 
@@ -118,9 +119,16 @@ export const definition: ToolDefinition = {
           markTaskNotified(sessionId, taskId)
         }
 
-        const raw = getTaskOutput(taskId)
+        const current = getTask(sessionId, taskId)
+        // An agent's answer is its final report. The file on disk is the
+        // log of everything it did on the way, which is what there is to
+        // show while it is still working.
+        const agentResult = isLocalAgentTask(current)
+          ? current.result || (current.error && `Error: ${current.error}`)
+          : undefined
+        const raw = agentResult || getTaskOutput(taskId)
         const { content } = formatTaskOutput(raw || '(no output yet)', taskId)
-        const taskStatus = getTask(sessionId, taskId)?.status ?? 'unknown'
+        const taskStatus = current?.status ?? 'unknown'
         const statusLine = `<retrieval_status>${retrieval_status}</retrieval_status>\n<task_id>${taskId}</task_id>\n<status>${taskStatus}</status>\n`
         const text = `${statusLine}<output>\n${content}\n</output>`
 

@@ -4,7 +4,7 @@
 import { randomBytes } from 'crypto'
 import { getTaskOutputPath } from './utils/task/diskOutput.js'
 
-export type TaskType = 'local_bash'
+export type TaskType = 'local_bash' | 'local_agent'
 
 export type TaskStatus =
   'pending' | 'running' | 'completed' | 'failed' | 'killed' | 'unknown'
@@ -62,6 +62,7 @@ export type Task = {
 
 const TASK_ID_PREFIXES: Record<string, string> = {
   local_bash: 'b',
+  local_agent: 'a',
 }
 
 const TASK_ID_ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'

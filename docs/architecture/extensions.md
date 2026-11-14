@@ -84,7 +84,7 @@ flowchart LR
 
 Commands substitute arguments and expand inline shell/file directives before replacing the current user message. Skills lazily read `SKILL.md`, perform the same substitutions, and either expand inline or fork according to their configured context.
 
-All subagent types share one `Agent` dispatcher. It validates `subagent_type`, selects the definition and model tier, creates a fresh message list and system prompt, removes disallowed tools and the `Agent` tool itself, then projects the nested run back into the parent tool call. A subagent does **not** inherit the parent transcript, so its dispatch prompt must be self-contained.
+All subagent types share one `Agent` dispatcher. It validates `subagent_type`, selects the definition and model tier, creates a fresh message list and system prompt, removes disallowed tools and the `Agent` tool itself, then projects the nested run back into the parent tool call. A subagent does **not** inherit the parent transcript, so its dispatch prompt must be self-contained. With `run_in_background` the dispatcher returns as soon as the subagent is launched; the subagent then runs as a [background task](../features/background-tasks.md) and reports back with a task notification.
 
 MCP managers are pooled by resolved working directory plus a stable hash of server configuration. They are reused across turns and closed after 30 minutes of inactivity; a settings write invalidates managers for that working directory.
 

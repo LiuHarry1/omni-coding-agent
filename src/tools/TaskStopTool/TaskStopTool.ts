@@ -1,5 +1,5 @@
 /**
- * TaskStop — stop a background shell task.
+ * TaskStop — stop a background task (shell or agent).
  */
 import { tool } from 'ai'
 import { z } from 'zod'
@@ -26,7 +26,12 @@ export const TaskStopToolResultSchema = z.object({
   message: z.string(),
 })
 
-const DESCRIPTION = `Stop a background shell task by task_id (from Bash/PowerShell run_in_background).`
+const DESCRIPTION = `
+- Stops a running background task by its ID
+- Takes a task_id parameter identifying the task to stop: a shell started with run_in_background, or a background agent
+- Returns a success or failure status
+- Use this tool when you need to terminate a long-running task
+`
 
 export const definition: ToolDefinition = {
   name: TASK_STOP_TOOL_NAME,
@@ -45,7 +50,10 @@ export const definition: ToolDefinition = {
     return tool({
       description: DESCRIPTION,
       inputSchema: z.object({
-        task_id: z.string().optional().describe('Background task id to stop'),
+        task_id: z
+          .string()
+          .optional()
+          .describe('The ID of the background task to stop'),
         shell_id: z
           .string()
           .optional()

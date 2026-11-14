@@ -75,6 +75,7 @@ import { Middleware, createTimingMiddleware } from '../core/middleware/index.js'
 import { createPlanModeGuardMiddleware } from '../core/middleware/plan-mode-guard.js'
 import { applyPluginHooks, hasPluginHooks } from '../core/plugins/index.js'
 import { attachUsageTelemetry, flushUsage } from '../server/telemetry.js'
+import { accountBackgroundUsage } from '../server/background-usage.js'
 import { createWireEmitter } from '../core/wire-emitter.js'
 import {
   buildInitMessage,
@@ -379,6 +380,8 @@ export async function runChatTurn(
   maybeGenerateSessionTitle(session, message, models)
 
   prepared.toolContext.wire = wire
+  prepared.toolContext.accountBackgroundUsage = bus =>
+    accountBackgroundUsage(bus, session)
 
   if (prepared.forkSkill) {
     const result = await respondSkillFork({

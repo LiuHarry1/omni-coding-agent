@@ -568,7 +568,7 @@ export function createRouter({ staticDir }: RouterOptions) {
         return
       }
 
-      // Background shell tasks
+      // Background tasks: shells and agents
       const tasksListMatch = url?.match(/^\/sessions\/([^/]+)\/tasks$/)
       if (method === 'GET' && tasksListMatch) {
         const id = tasksListMatch[1]!
@@ -581,6 +581,8 @@ export function createRouter({ staticDir }: RouterOptions) {
           return
         }
         const { listSessionTasks } = await import('../utils/task/framework.js')
+        const { isLocalAgentTask } =
+          await import('../tasks/LocalAgentTask/LocalAgentTask.js')
         const tasks = listSessionTasks(id).map(t => ({
           id: t.id,
           type: t.type,
@@ -591,6 +593,13 @@ export function createRouter({ staticDir }: RouterOptions) {
           outputFile: t.outputFile,
           command:
             'command' in t ? (t as { command?: string }).command : undefined,
+          ...(isLocalAgentTask(t)
+            ? {
+                agentType: t.agentType,
+                activity: t.progress?.lastActivity,
+                toolUses: t.progress?.toolUseCount ?? 0,
+              }
+            : {}),
         }))
         sendJSON(res, 200, { tasks })
         return
@@ -613,7 +622,12 @@ export function createRouter({ staticDir }: RouterOptions) {
           const { resolveExecutionBackend } =
             await import('../execution/resolve-backend.js')
           const { stopTask } = await import('../tasks/stopTask.js')
-          const execution = await resolveExecutionBackend(session)
+          const { getTask } = await import('../utils/task/framework.js')
+          // Only a shell is stopped through the worker.
+          const execution =
+            getTask(id, taskId)?.type === 'local_bash'
+              ? await resolveExecutionBackend(session)
+              : undefined
           const result = await stopTask(id, taskId, execution)
           sendJSON(res, 200, result)
         } catch (err) {

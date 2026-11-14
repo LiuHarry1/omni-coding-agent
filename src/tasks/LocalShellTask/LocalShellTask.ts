@@ -80,7 +80,10 @@ function enqueueShellNotification(
       break
   }
 
-  const outputPath = getTaskOutputPath(taskId)
+  // The path the task was started with: the module-level session binding
+  // may have moved on to another session since.
+  const outputPath =
+    getTask(sessionId, taskId)?.outputFile ?? getTaskOutputPath(taskId)
   const toolUseIdLine = toolUseId
     ? `\n<tool-use-id>${toolUseId}</tool-use-id>`
     : ''

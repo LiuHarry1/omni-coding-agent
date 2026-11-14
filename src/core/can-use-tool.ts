@@ -73,6 +73,12 @@ export type CreateCanUseToolOptions = {
   abortSignal?: AbortSignal
   /** False when no person is attached to the turn (scheduled tasks). Default true. */
   interactive?: boolean
+  /**
+   * There is no channel to ask on (background agents). Whatever would need
+   * a prompt is settled without one, as in an unattended turn, and a path
+   * outside the workspace is refused.
+   */
+  shouldAvoidPermissionPrompts?: boolean
 }
 
 function inputRecord(input: unknown): Record<string, unknown> {
@@ -166,7 +172,8 @@ function describeCall(toolName: string, input: unknown): string {
 export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
   const { cwd, getDefinition, session, wire, abortSignal } = opts
   const permissionContext = opts.permissionContext ?? policyFromContext(cwd)
-  const interactive = opts.interactive ?? true
+  const avoidPrompts = opts.shouldAvoidPermissionPrompts === true
+  const interactive = (opts.interactive ?? true) && !avoidPrompts
 
   return async (toolName, input, meta) => {
     const def = getDefinition?.(toolName)
@@ -212,7 +219,7 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
           : `${toolName} needs approval to run ${commandAsk.command}, and nobody can be asked in this session.`,
       }
     }
-    if (pathAsk && permissionContext.mode === 'dontAsk') {
+    if (pathAsk && (permissionContext.mode === 'dontAsk' || avoidPrompts)) {
       return {
         behavior: 'deny',
         message: denyOutsideMessage(

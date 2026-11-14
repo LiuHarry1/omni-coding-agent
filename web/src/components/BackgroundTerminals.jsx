@@ -3,7 +3,8 @@ import { useChatStore } from '../stores/chat-store.js'
 import { agentApi } from '../lib/api/agent.js'
 
 /**
- * Footer summary: "N background terminals"
+ * Footer summary: "N background terminals", or "N background tasks" once a
+ * background agent is among them.
  * Poll while the session is live so mid-stream bg shells appear promptly.
  * Long-lived servers stay listed as running until Stop — that is intentional.
  */
@@ -17,9 +18,34 @@ function formatElapsed(startTime, endTime, now) {
   return s === 0 ? `${m}m` : `${m}m ${s}s`
 }
 
-function panelTitle(running) {
+const isAgentTask = task => task.type === 'local_agent'
+
+export function panelTitle(running) {
   const n = running.length
-  return n === 1 ? '1 background terminal' : `${n} background terminals`
+  const noun = running.some(isAgentTask) ? 'task' : 'terminal'
+  return `${n} background ${noun}${n === 1 ? '' : 's'}`
+}
+
+/** What a row says about its task, and the detail shown on hover. */
+export function taskRowText(task) {
+  if (!isAgentTask(task)) {
+    return {
+      icon: '>_',
+      label: task.description || task.command || task.id,
+      detail: task.command || task.description,
+      hint: 'Long-lived processes stay running until stopped',
+    }
+  }
+  const steps = task.toolUses || 0
+  return {
+    icon: '\u25C7',
+    label: task.description || task.id,
+    detail: task.activity || task.description,
+    hint:
+      steps > 0
+        ? `${task.agentType || 'Agent'} · ${steps} tool call${steps === 1 ? '' : 's'}`
+        : task.agentType || 'Agent',
+  }
 }
 
 export default function BackgroundTerminals() {
@@ -108,41 +134,46 @@ export default function BackgroundTerminals() {
         </button>
         {expanded && (
           <ul className='background-terminals__list'>
-            {running.map(t => (
-              <li key={t.id} className='background-terminals__row'>
-                <span
-                  className='background-terminals__live'
-                  aria-hidden='true'
-                  title='Still running'
-                />
-                <span className='background-terminals__icon' aria-hidden='true'>
-                  {'>_'}
-                </span>
-                <span
-                  className='background-terminals__desc'
-                  title={t.command || t.description}
-                >
-                  {t.description || t.command || t.id}
-                </span>
-                <span
-                  className='background-terminals__meta'
-                  title='Long-lived processes stay running until stopped'
-                >
-                  <span className='background-terminals__status'>running</span>
-                  <span className='background-terminals__sep'>·</span>
-                  {formatElapsed(t.startTime, t.endTime, now)}
-                </span>
-                <button
-                  type='button'
-                  className='background-terminals__stop'
-                  onClick={e => onStop(e, t.id)}
-                  disabled={!!stopping[t.id]}
-                  aria-label={`Stop ${t.description || t.id}`}
-                >
-                  {stopping[t.id] ? '…' : 'Stop'}
-                </button>
-              </li>
-            ))}
+            {running.map(t => {
+              const row = taskRowText(t)
+              return (
+                <li key={t.id} className='background-terminals__row'>
+                  <span
+                    className='background-terminals__live'
+                    aria-hidden='true'
+                    title='Still running'
+                  />
+                  <span
+                    className='background-terminals__icon'
+                    aria-hidden='true'
+                  >
+                    {row.icon}
+                  </span>
+                  <span
+                    className='background-terminals__desc'
+                    title={row.detail}
+                  >
+                    {row.label}
+                  </span>
+                  <span className='background-terminals__meta' title={row.hint}>
+                    <span className='background-terminals__status'>
+                      running
+                    </span>
+                    <span className='background-terminals__sep'>·</span>
+                    {formatElapsed(t.startTime, t.endTime, now)}
+                  </span>
+                  <button
+                    type='button'
+                    className='background-terminals__stop'
+                    onClick={e => onStop(e, t.id)}
+                    disabled={!!stopping[t.id]}
+                    aria-label={`Stop ${t.description || t.id}`}
+                  >
+                    {stopping[t.id] ? '…' : 'Stop'}
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>

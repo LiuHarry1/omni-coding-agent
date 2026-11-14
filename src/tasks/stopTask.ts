@@ -4,9 +4,14 @@
 import type { ExecutionBackend } from '../execution/execution-backend.js'
 import { getTaskByType } from '../tasks.js'
 import { getTask } from '../utils/task/framework.js'
-import { isLocalShellTask } from './LocalShellTask/guards.js'
+import { isLocalAgentTask } from './LocalAgentTask/LocalAgentTask.js'
 import { BACKGROUND_BASH_SUMMARY_PREFIX } from './LocalShellTask/LocalShellTask.js'
 
+/**
+ * A shell that is stopped says nothing more: the stop is the answer. An
+ * agent that is stopped still reports, because its notification carries
+ * what it had found so far.
+ */
 export async function stopTask(
   sessionId: string,
   taskId: string,
@@ -15,9 +20,6 @@ export async function stopTask(
   const task = getTask(sessionId, taskId)
   if (!task) {
     throw new Error(`No task found with ID: ${taskId}`)
-  }
-  if (!isLocalShellTask(task)) {
-    throw new Error(`Task ${taskId} is not a local_bash task`)
   }
   if (
     task.status === 'completed' ||
@@ -34,6 +36,9 @@ export async function stopTask(
   }
   await taskImpl.kill(taskId, sessionId, execution)
 
+  if (isLocalAgentTask(task)) {
+    return { message: `Agent "${task.description}" was stopped` }
+  }
   return {
     message: `${BACKGROUND_BASH_SUMMARY_PREFIX}"${task.description}" was stopped`,
   }

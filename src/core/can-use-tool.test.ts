@@ -3,6 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { definition as bashToolDefinition } from '../tools/BashTool/BashTool.js'
+import { definition as readToolDefinition } from '../tools/FileReadTool/FileReadTool.js'
 import {
   createFilesystemPermissionContext,
   type FilesystemPermissionMode,
@@ -32,6 +33,7 @@ function gate(
   options: {
     mode?: FilesystemPermissionMode
     interactive?: boolean
+    shouldAvoidPermissionPrompts?: boolean
     allow?: string[]
     ask?: string[]
     deny?: string[]
@@ -46,6 +48,7 @@ function gate(
   })
   const definitions: Record<string, ToolDefinition> = {
     Bash: bashToolDefinition,
+    Read: readToolDefinition,
   }
   const canUseTool = createCanUseTool({
     cwd: root,
@@ -56,6 +59,7 @@ function gate(
       'test-session',
     ),
     interactive: options.interactive,
+    shouldAvoidPermissionPrompts: options.shouldAvoidPermissionPrompts,
   })
   const run = (
     command: string,
@@ -162,6 +166,7 @@ describe('createCanUseTool: shell commands', () => {
   describe.each([
     ['in dontAsk mode', { mode: 'dontAsk' as const }],
     ['in a scheduled turn', { interactive: false }],
+    ['in a background agent', { shouldAvoidPermissionPrompts: true }],
   ])('%s, where nobody can be asked', (_where, options) => {
     it('runs a command no rule mentions', async () => {
       const { run, prompts } = gate(options)
@@ -190,6 +195,38 @@ describe('createCanUseTool: shell commands', () => {
         behavior: 'deny',
       })
     })
+  })
+})
+
+describe('createCanUseTool: a file outside the workspace', () => {
+  const outside = path.join(os.tmpdir(), 'somewhere-else', 'notes.txt')
+
+  it('asks first in a turn somebody is watching', async () => {
+    const { canUseTool, prompts } = gate()
+
+    const decision = canUseTool('Read', { file_path: outside })
+    const prompt = await prompted(prompts)
+    answerPermission(prompt.request_id, { behavior: 'allow' })
+
+    await expect(decision).resolves.toEqual({ behavior: 'allow' })
+  })
+
+  it('is refused at once in a background agent, which has nobody to ask', async () => {
+    const { canUseTool, prompts } = gate({ shouldAvoidPermissionPrompts: true })
+
+    const decision = await canUseTool('Read', { file_path: outside })
+
+    expect(decision.behavior).toBe('deny')
+    expect(prompts).toEqual([])
+  })
+
+  it('is still read inside the workspace by a background agent', async () => {
+    const { canUseTool, prompts } = gate({ shouldAvoidPermissionPrompts: true })
+
+    await expect(
+      canUseTool('Read', { file_path: path.join(root, 'notes.txt') }),
+    ).resolves.toEqual({ behavior: 'allow' })
+    expect(prompts).toEqual([])
   })
 })
 

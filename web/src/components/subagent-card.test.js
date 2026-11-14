@@ -6,7 +6,30 @@ globalThis.localStorage = {
   removeItem: () => {},
 }
 
-const { subagentRowSubtitle } = await import('./SubagentCard.jsx')
+const { isBackgroundLaunch, subagentRowSubtitle } =
+  await import('./SubagentCard.jsx')
+
+describe('a subagent sent to the background', () => {
+  const launched = {
+    status: 'done',
+    result:
+      'Async agent launched successfully.\nagentId: a1b2c3d4e (internal ID - do not mention to user.)',
+  }
+
+  it('says so instead of summarising steps it has not taken yet', () => {
+    expect(isBackgroundLaunch(launched)).toBe(true)
+    expect(subagentRowSubtitle(launched, [], 'Audit the routes')).toBe(
+      'Started in the background',
+    )
+  })
+
+  it('is not mistaken for a foreground report or a running call', () => {
+    expect(
+      isBackgroundLaunch({ status: 'done', result: 'Found 3 routes.' }),
+    ).toBe(false)
+    expect(isBackgroundLaunch({ status: 'running' })).toBe(false)
+  })
+})
 
 describe('subagentRowSubtitle', () => {
   it('suppresses a live task that duplicates the headline', () => {

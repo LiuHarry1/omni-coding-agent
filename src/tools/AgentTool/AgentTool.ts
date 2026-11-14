@@ -4,10 +4,21 @@ import { z } from 'zod'
 import path from 'path'
 import type {
   AgentDefinition,
+  AgentOptions,
   AnyTool,
+  Message,
   ToolContext,
   ToolDefinition,
 } from '../../core/types.js'
+import { createCanUseTool } from '../../core/can-use-tool.js'
+import { EventBus } from '../../core/event-bus.js'
+import { noopWireEmitter } from '../../core/wire-emitter.js'
+import { isRemoteWorkspace } from '../../execution/index.js'
+import { registerAsyncAgent } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
+import {
+  asyncAgentLaunchedText,
+  runAsyncAgentLifecycle,
+} from './runAsyncAgent.js'
 import {
   AGENT_TOOL_NAME,
   GLOB_TOOL_NAME,
@@ -74,6 +85,8 @@ Usage notes:
 - You can issue several \`${AGENT_TOOL_NAME}\` calls in one response to dispatch independent agents in parallel. If the user says "in parallel", you MUST send a single message with multiple ${AGENT_TOOL_NAME} tool use content blocks.
 - Each invocation starts fresh — the subagent does NOT see your prior conversation. The \`prompt\` must be self-contained.
 - The subagent returns a single final report. The result is NOT visible to the user — summarize the relevant parts in your own reply.
+- You can optionally run agents in the background using the run_in_background parameter. When an agent runs in the background, you will be automatically notified when it completes — do NOT sleep, poll, or proactively check on its progress. Continue with other work or respond to the user instead.
+- **Foreground vs background**: Use foreground (default) when you need the agent's results before you can proceed — e.g., research agents whose findings inform your next steps. Use background when you have genuinely independent work to do in parallel.
 - The subagent's outputs should generally be trusted. Don't re-run the same searches yourself.
 - Clearly tell the subagent whether you expect it to write code or just research, since it is not aware of the user's intent.
 - If the agent description mentions that it should be used proactively, then you should try your best to use it without the user having to ask for it first. Use your judgement.
@@ -184,16 +197,24 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             .describe(
               'Self-contained, detailed task description. The subagent does NOT see prior conversation, so include all needed context, file paths, and what to return.',
             ),
+          run_in_background: z
+            .boolean()
+            .optional()
+            .describe(
+              'Set to true to run this agent in the background. You will be notified when it completes.',
+            ),
         }),
         execute: async (
           {
             subagent_type,
             description: shortDesc,
             prompt,
+            run_in_background,
           }: {
             subagent_type: string
             description: string
             prompt: string
+            run_in_background?: boolean
           },
           options?: { toolCallId?: string; abortSignal?: AbortSignal },
         ) => {
@@ -222,180 +243,276 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             )
           }
           const resolvedParentId = parentToolCallId ?? randomUUID()
-          const subWire = createSubagentWire(context.wire, resolvedParentId)
-
-          subWire.stepStart(0, {
-            task: shortDesc.slice(0, 80),
-            label: def.label || subagent_type,
-          })
+          const sessionId = context.sessionId ?? ''
 
           if (!provider) {
             return 'Error: task tool requires provider in ToolContext'
           }
 
-          const tier = def.modelTier ?? 'large'
-          const subProvider = models?.provider(tier) ?? provider
-          if (!subProvider) {
-            throw new Error(
-              `Subagent '${subagent_type}' requires a request-scoped provider`,
-            )
-          }
-          const subModel =
-            def.model ??
-            models?.profile(tier).model ??
-            subProvider.defaultModelId()
-
-          const autoMemOn = context.autoMemory?.enabled !== false
-          const agentMemEnabled = Boolean(autoMemOn && def.memory)
-
-          const toolAllow = def.tools ? [...def.tools] : undefined
-          if (agentMemEnabled && toolAllow) {
-            for (const name of [
-              WRITE_FILE_TOOL_NAME,
-              EDIT_FILE_TOOL_NAME,
-              FILE_READ_TOOL_NAME,
-            ]) {
-              if (!toolAllow.includes(name)) toolAllow.push(name)
-            }
-          }
-
-          const agentMemDir =
-            agentMemEnabled && def.memory
-              ? getAgentMemoryDir(subagent_type, def.memory, cwd)
-              : undefined
-
-          const parentPerm = context.permissionContext
-          const permissionContext =
-            agentMemDir && parentPerm
+          // A background agent outlives this turn, so it cannot lean on what
+          // the turn owns: it gets its own abort controller, event bus and
+          // execution backend, and nowhere to stream to or ask on. Without
+          // a session there is no queue to report back on, and a backend
+          // that cannot be forked ends with the turn: run in the foreground.
+          const background =
+            run_in_background === true &&
+            !!sessionId &&
+            (!context.execution || !!context.execution.fork)
               ? {
-                  ...parentPerm,
-                  extraReadRoots: [
-                    ...parentPerm.extraReadRoots,
-                    path.resolve(agentMemDir),
-                  ],
-                  extraWriteRoots: [
-                    ...parentPerm.extraWriteRoots,
-                    path.resolve(agentMemDir),
-                  ],
+                  abortController: new AbortController(),
+                  eventBus: new EventBus(),
+                  execution: context.execution?.fork?.(),
+                  handedOver: false,
                 }
-              : parentPerm
+              : undefined
+          try {
+            const subWire = background
+              ? noopWireEmitter
+              : createSubagentWire(context.wire, resolvedParentId)
+            const subEventBus = background?.eventBus ?? eventBus
 
-          // Tool hooks apply to a subagent's calls; Stop is the main agent's.
-          const subHooks = context.hooks
-            ? withoutStopHooks(context.hooks)
-            : undefined
-          const subContext: ToolContext = {
-            eventBus,
-            wire: subWire,
-            registry,
-            runAgent,
-            toolEnablement,
-            provider: subProvider,
-            models,
-            compaction,
-            sessionId: context.sessionId,
-            permissionContext,
-            canUseTool: context.canUseTool,
-            hooks: subHooks,
-            cwd: context.cwd ?? cwd,
-            execution: context.execution,
-            autoMemory: context.autoMemory,
-          }
+            if (!background) {
+              subWire.stepStart(0, {
+                task: shortDesc.slice(0, 80),
+                label: def.label || subagent_type,
+              })
+            }
 
-          let subTools: Record<string, AnyTool>
-          if (toolAllow) {
-            subTools = registry.createAll(cwd, subContext, toolAllow)
-          } else {
-            subTools = registry.createAll(cwd, subContext)
-            const patterns = def.disallowedTools ?? []
-            for (const n of Object.keys(subTools)) {
-              if (n === AGENT_TOOL_NAME || isToolNameDisallowed(n, patterns)) {
-                delete subTools[n]
+            const tier = def.modelTier ?? 'large'
+            const subProvider = models?.provider(tier) ?? provider
+            if (!subProvider) {
+              throw new Error(
+                `Subagent '${subagent_type}' requires a request-scoped provider`,
+              )
+            }
+            const subModel =
+              def.model ??
+              models?.profile(tier).model ??
+              subProvider.defaultModelId()
+
+            const autoMemOn = context.autoMemory?.enabled !== false
+            const agentMemEnabled = Boolean(autoMemOn && def.memory)
+
+            const toolAllow = def.tools ? [...def.tools] : undefined
+            if (agentMemEnabled && toolAllow) {
+              for (const name of [
+                WRITE_FILE_TOOL_NAME,
+                EDIT_FILE_TOOL_NAME,
+                FILE_READ_TOOL_NAME,
+              ]) {
+                if (!toolAllow.includes(name)) toolAllow.push(name)
               }
             }
-          }
-          delete subTools[AGENT_TOOL_NAME]
 
-          let basePrompt = def.systemPrompt
-          if (agentMemEnabled && def.memory) {
-            basePrompt = `${def.systemPrompt}\n\n${loadAgentMemoryPrompt(
-              subagent_type,
-              def.memory,
-              cwd,
-              def.memoryPolicy?.vocabulary,
-            )}`
-          }
+            const agentMemDir =
+              agentMemEnabled && def.memory
+                ? getAgentMemoryDir(subagent_type, def.memory, cwd)
+                : undefined
 
-          const projectRules = def.omitProjectRules
-            ? ''
-            : loadAllAgentRules(cwd)
-          const withRules = projectRules
-            ? `${basePrompt}\n\n<project_rules>\nThe following rules were auto-loaded (user ~/.ai-agent/AGENTS.md, project AGENTS.md / .ai-agent/AGENTS.md / .ai-agent/rules/*.md, and AGENTS.local.md). They take precedence over all other sections when there is a conflict.\n\n${projectRules}\n</project_rules>`
-            : basePrompt
-          setCwd(cwd)
-          const subSystemPrompt = (
-            await enhanceSystemPromptWithEnvDetails([withRules], subModel ?? '')
-          ).join('\n\n')
+            const parentPerm = context.permissionContext
+            const permissionContext =
+              agentMemDir && parentPerm
+                ? {
+                    ...parentPerm,
+                    extraReadRoots: [
+                      ...parentPerm.extraReadRoots,
+                      path.resolve(agentMemDir),
+                    ],
+                    extraWriteRoots: [
+                      ...parentPerm.extraWriteRoots,
+                      path.resolve(agentMemDir),
+                    ],
+                  }
+                : parentPerm
 
-          const sessionId = context.sessionId ?? ''
-          const abortSignal =
-            options?.abortSignal ??
-            (sessionId
-              ? registerToolAbort(sessionId, resolvedParentId)
-              : undefined)
-          const subMessages: import('../../core/types.js').Message[] = []
-          const output = (text: string) => {
-            const ui = buildAgentUiProjection(subMessages)
-            return { data: { text, ...(ui ? { ui } : {}) } }
-          }
-
-          try {
-            const result = await runAgent(prompt, {
-              throwOnError: true,
-              tools: subTools,
-              systemPrompt: subSystemPrompt,
-              eventBus,
+            // Tool hooks apply to a subagent's calls; Stop is the main agent's.
+            const subHooks = context.hooks
+              ? withoutStopHooks(context.hooks)
+              : undefined
+            // Nobody can answer a prompt from an agent in the background.
+            const subCanUseTool =
+              background && context.canUseTool
+                ? createCanUseTool({
+                    cwd,
+                    getDefinition: name => registry.get(name),
+                    permissionContext,
+                    session: context.session,
+                    wire: noopWireEmitter,
+                    abortSignal: background.abortController.signal,
+                    shouldAvoidPermissionPrompts: true,
+                  })
+                : context.canUseTool
+            const subContext: ToolContext = {
+              eventBus: subEventBus,
               wire: subWire,
-              messages: subMessages,
-              ...(def.maxSteps !== undefined ? { maxSteps: def.maxSteps } : {}),
-              model: subModel,
+              registry,
+              runAgent,
+              toolEnablement,
               provider: subProvider,
-              // A model the definition names explicitly is not swapped out.
-              ...(def.model === undefined
-                ? { fallbackProvider: models?.fallbackProvider(tier) }
-                : {}),
-              cwd,
+              models,
               compaction,
-              concurrencyPolicy: registry
-                ? buildConcurrencyPolicy(registry)
-                : undefined,
               sessionId: context.sessionId,
-              abortSignal,
-              getToolDefinition: name => registry.get(name),
-              canUseTool: context.canUseTool,
+              permissionContext,
+              canUseTool: subCanUseTool,
               hooks: subHooks,
-            })
-
-            if (abortSignal?.aborted) {
-              return output(SUBAGENT_STOPPED)
+              cwd: context.cwd ?? cwd,
+              execution: background ? background.execution : context.execution,
+              autoMemory: context.autoMemory,
             }
 
-            // Never hand the parent an empty tool_result —
-            // some models treat that as "nothing to act on" and stop.
-            const text = typeof result === 'string' ? result.trim() : ''
-            return output(text || SUBAGENT_NO_OUTPUT_MARKER)
-          } catch (err) {
-            if (
-              abortSignal?.aborted ||
-              (err instanceof Error && err.name === 'AbortError')
-            ) {
-              return output(SUBAGENT_STOPPED)
+            let subTools: Record<string, AnyTool>
+            if (toolAllow) {
+              subTools = registry.createAll(cwd, subContext, toolAllow)
+            } else {
+              subTools = registry.createAll(cwd, subContext)
+              const patterns = def.disallowedTools ?? []
+              for (const n of Object.keys(subTools)) {
+                if (
+                  n === AGENT_TOOL_NAME ||
+                  isToolNameDisallowed(n, patterns)
+                ) {
+                  delete subTools[n]
+                }
+              }
             }
-            const message = err instanceof Error ? err.message : String(err)
-            return output(`Error: ${message}`)
+            delete subTools[AGENT_TOOL_NAME]
+
+            let basePrompt = def.systemPrompt
+            if (agentMemEnabled && def.memory) {
+              basePrompt = `${def.systemPrompt}\n\n${loadAgentMemoryPrompt(
+                subagent_type,
+                def.memory,
+                cwd,
+                def.memoryPolicy?.vocabulary,
+              )}`
+            }
+
+            const projectRules = def.omitProjectRules
+              ? ''
+              : loadAllAgentRules(cwd)
+            const withRules = projectRules
+              ? `${basePrompt}\n\n<project_rules>\nThe following rules were auto-loaded (user ~/.ai-agent/AGENTS.md, project AGENTS.md / .ai-agent/AGENTS.md / .ai-agent/rules/*.md, and AGENTS.local.md). They take precedence over all other sections when there is a conflict.\n\n${projectRules}\n</project_rules>`
+              : basePrompt
+            setCwd(cwd)
+            const subSystemPrompt = (
+              await enhanceSystemPromptWithEnvDetails(
+                [withRules],
+                subModel ?? '',
+              )
+            ).join('\n\n')
+
+            const subMessages: Message[] = []
+            const runSubagent = (extra: Partial<AgentOptions>) =>
+              runAgent(prompt, {
+                throwOnError: true,
+                tools: subTools,
+                systemPrompt: subSystemPrompt,
+                eventBus: subEventBus,
+                wire: subWire,
+                messages: subMessages,
+                ...(def.maxSteps !== undefined
+                  ? { maxSteps: def.maxSteps }
+                  : {}),
+                model: subModel,
+                provider: subProvider,
+                // A model the definition names explicitly is not swapped out.
+                ...(def.model === undefined
+                  ? { fallbackProvider: models?.fallbackProvider(tier) }
+                  : {}),
+                cwd,
+                compaction,
+                concurrencyPolicy: registry
+                  ? buildConcurrencyPolicy(registry)
+                  : undefined,
+                sessionId: context.sessionId,
+                getToolDefinition: name => registry.get(name),
+                canUseTool: subCanUseTool,
+                hooks: subHooks,
+                ...extra,
+              })
+
+            if (background) {
+              const task = registerAsyncAgent({
+                sessionId,
+                description: shortDesc,
+                prompt,
+                agentType: subagent_type,
+                toolUseId: parentToolCallId,
+                abortController: background.abortController,
+              })
+              const settleUsage = context.accountBackgroundUsage?.(
+                background.eventBus,
+              )
+              background.handedOver = true
+              void runAsyncAgentLifecycle({
+                task,
+                eventBus: background.eventBus,
+                messages: subMessages,
+                run: onStepCommitted =>
+                  runSubagent({
+                    abortSignal: background.abortController.signal,
+                    agentId: task.agentId,
+                    onStepCommitted,
+                  }),
+                cleanup: async () => {
+                  background.execution?.dispose?.()
+                  await settleUsage?.()
+                },
+              })
+              return {
+                data: {
+                  text: asyncAgentLaunchedText({
+                    agentId: task.agentId,
+                    outputFile: task.outputFile,
+                    // The file is on this machine; a remote workspace's Read
+                    // looks on the worker.
+                    canReadOutputFile: !isRemoteWorkspace(
+                      context.session?.workspace,
+                    ),
+                  }),
+                },
+              }
+            }
+
+            const abortSignal =
+              options?.abortSignal ??
+              (sessionId
+                ? registerToolAbort(sessionId, resolvedParentId)
+                : undefined)
+            const output = (text: string) => {
+              const ui = buildAgentUiProjection(subMessages)
+              return { data: { text, ...(ui ? { ui } : {}) } }
+            }
+
+            try {
+              const result = await runSubagent({ abortSignal })
+
+              if (abortSignal?.aborted) {
+                return output(SUBAGENT_STOPPED)
+              }
+
+              // Never hand the parent an empty tool_result —
+              // some models treat that as "nothing to act on" and stop.
+              const text = typeof result === 'string' ? result.trim() : ''
+              return output(text || SUBAGENT_NO_OUTPUT_MARKER)
+            } catch (err) {
+              if (
+                abortSignal?.aborted ||
+                (err instanceof Error && err.name === 'AbortError')
+              ) {
+                return output(SUBAGENT_STOPPED)
+              }
+              const message = err instanceof Error ? err.message : String(err)
+              return output(`Error: ${message}`)
+            } finally {
+              if (sessionId && !options?.abortSignal) {
+                clearToolAbort(sessionId, resolvedParentId)
+              }
+            }
           } finally {
-            if (sessionId && !options?.abortSignal) {
-              clearToolAbort(sessionId, resolvedParentId)
+            // Set up for the background but never launched.
+            if (background && !background.handedOver) {
+              background.execution?.dispose?.()
             }
           }
         },

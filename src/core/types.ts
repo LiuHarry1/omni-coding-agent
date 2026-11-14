@@ -96,6 +96,12 @@ export interface ToolContext {
   /** The turn's hooks, so subagent tool calls run them too. */
   hooks?: import('./hooks/hooks.js').HookRunner
   /**
+   * Host accounting (telemetry, quota) for model usage that outlives the
+   * turn: a background agent reports usage on a bus of its own. Returns the
+   * function to call when that work is over.
+   */
+  accountBackgroundUsage?: (eventBus: IEventBus) => () => void | Promise<void>
+  /**
    * Tool execution via isomorphic Agent Worker (RuntimePort RPC).
    * Always set for both local and SSH workspaces.
    */

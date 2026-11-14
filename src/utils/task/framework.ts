@@ -3,9 +3,11 @@
  */
 import type { TaskStateBase, TaskStatus, TaskType } from '../../Task.js'
 import { isTerminalTaskStatus } from '../../Task.js'
+import type { LocalAgentTaskState } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import type { LocalShellTaskState } from '../../tasks/LocalShellTask/guards.js'
 
-export type AnyTaskState = LocalShellTaskState | TaskStateBase
+export type AnyTaskState =
+  LocalShellTaskState | LocalAgentTaskState | TaskStateBase
 
 const bySession = new Map<string, Map<string, AnyTaskState>>()
 
