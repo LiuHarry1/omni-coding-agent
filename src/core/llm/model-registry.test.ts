@@ -41,3 +41,41 @@ describe('resolveModelProfiles maxOutputTokens', () => {
     expect(registry.provider('small').maxOutputTokenCap?.()).toBe(8_192)
   })
 })
+
+describe('fallbackProvider', () => {
+  const profiles = resolveModelProfiles({
+    models: {
+      large: { ...base, model: 'big' },
+      medium: { model: 'mid' },
+      small: { model: 'tiny' },
+    },
+  })
+
+  it('is the configured smaller tier', () => {
+    const registry = createModelRegistry(profiles, { fallbackTier: 'medium' })
+
+    expect(registry.fallbackProvider('large')).toBe(registry.provider('medium'))
+  })
+
+  it('is absent when no fallback tier is configured', () => {
+    expect(
+      createModelRegistry(profiles).fallbackProvider('large'),
+    ).toBeUndefined()
+  })
+
+  it('never points at the same or a larger tier', () => {
+    const registry = createModelRegistry(profiles, { fallbackTier: 'medium' })
+
+    expect(registry.fallbackProvider('medium')).toBeUndefined()
+    expect(registry.fallbackProvider('small')).toBeUndefined()
+  })
+
+  it('is absent when the fallback tier is the same model', () => {
+    const sameModel = resolveModelProfiles({
+      models: { large: { ...base, model: 'big' } },
+    })
+    const registry = createModelRegistry(sameModel, { fallbackTier: 'small' })
+
+    expect(registry.fallbackProvider('large')).toBeUndefined()
+  })
+})

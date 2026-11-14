@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { APICallError, tool } from 'ai'
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import { isPersistedReference } from '../../services/tool-storage/index.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
@@ -137,6 +137,157 @@ describe('runStep with a raised output cap', () => {
     expect(result.completedCleanly).toBe(false)
     expect(result.completionError).toContain('roles must alternate')
     expect(result.outputCapRejected).toBeUndefined()
+  })
+})
+
+function overloaded(options: { retryable?: boolean } = {}): APICallError {
+  return new APICallError({
+    message: 'Overloaded',
+    url: 'https://llm.test/v1/messages',
+    requestBodyValues: {},
+    statusCode: 529,
+    isRetryable: options.retryable ?? false,
+  })
+}
+
+/** A second model to fall back to, with the requests it received. */
+function fallbackModel(text = 'From the fallback.') {
+  const requests: CallOptions[] = []
+  const model = new MockLanguageModelV3({
+    doStream: (async (options: CallOptions) => {
+      requests.push(options)
+      return textStream(text)
+    }) as never,
+  })
+  const provider: IProvider = {
+    chatModel: () => model,
+    streamTextExtras: () => ({}),
+    defaultModelId: () => 'fallback-model',
+    describe: () => 'fallback',
+  }
+  return { fallback: { provider, model: 'fallback-model' }, requests }
+}
+
+describe('runStep when the model is overloaded', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  /** Await `pending` while letting the retry backoffs elapse. */
+  async function settled<T>(pending: Promise<T>): Promise<T> {
+    let done = false
+    const tracked = pending.finally(() => {
+      done = true
+    })
+    while (!done) await vi.advanceTimersByTimeAsync(1_000)
+    return tracked
+  }
+
+  it('switches to the fallback after three overloaded responses in a row', async () => {
+    const { fallback, requests: fallbackRequests } = fallbackModel()
+    const fallbacks: unknown[] = []
+    const { args, requests, messages } = stepArgs(
+      () => {
+        throw overloaded()
+      },
+      { fallback },
+    )
+    args.eventBus.on('model_fallback', data => fallbacks.push(data))
+
+    const result = await settled(runStep(args))
+
+    expect(requests).toHaveLength(3)
+    expect(fallbackRequests).toHaveLength(1)
+    expect(result).toMatchObject({
+      text: 'From the fallback.',
+      completedCleanly: true,
+      modelFallback: true,
+    })
+    expect(fallbacks).toEqual([
+      { originalModel: 'test-model', fallbackModel: 'fallback-model' },
+    ])
+    expect(messages.at(-1)).toMatchObject({ role: 'assistant' })
+  })
+
+  it("counts the SDK's own retries toward the three", async () => {
+    const { fallback, requests: fallbackRequests } = fallbackModel()
+    const { args, requests } = stepArgs(
+      () => {
+        throw overloaded({ retryable: true })
+      },
+      { fallback },
+    )
+
+    const result = await settled(runStep(args))
+
+    // One surfaced error stands for the request and its three SDK retries.
+    expect(requests).toHaveLength(4)
+    expect(fallbackRequests).toHaveLength(1)
+    expect(result.modelFallback).toBe(true)
+  })
+
+  it('stays on the main model when it recovers', async () => {
+    const { fallback, requests: fallbackRequests } = fallbackModel()
+    let calls = 0
+    const { args } = stepArgs(
+      () => {
+        if (++calls <= 2) throw overloaded()
+        return textStream('Recovered.')
+      },
+      { fallback },
+    )
+
+    const result = await settled(runStep(args))
+
+    expect(fallbackRequests).toHaveLength(0)
+    expect(result.text).toBe('Recovered.')
+    expect(result.modelFallback).toBeUndefined()
+  })
+
+  it('starts the fallback at the default output cap', async () => {
+    const { fallback, requests: fallbackRequests } = fallbackModel()
+    const { args } = stepArgs(
+      () => {
+        throw overloaded()
+      },
+      { fallback, maxOutputTokensOverride: 65_536 },
+    )
+
+    const result = await settled(runStep(args))
+
+    expect(fallbackRequests.map(r => r.maxOutputTokens)).toEqual([16_384])
+    expect(result.outputCapRejected).toBeUndefined()
+  })
+
+  it('retries then fails when no fallback is configured', async () => {
+    const { args, requests } = stepArgs(() => {
+      throw overloaded()
+    })
+
+    const result = await settled(runStep(args))
+
+    expect(requests).toHaveLength(3)
+    expect(result.completedCleanly).toBe(false)
+    expect(result.completionError).toContain('Overloaded')
+    expect(result.modelFallback).toBeUndefined()
+  })
+
+  it('does not fall back on other failures', async () => {
+    const { fallback, requests: fallbackRequests } = fallbackModel()
+    const { args } = stepArgs(
+      () => {
+        throw refusal('messages: roles must alternate')
+      },
+      { fallback },
+    )
+
+    const result = await settled(runStep(args))
+
+    expect(fallbackRequests).toHaveLength(0)
+    expect(result.completedCleanly).toBe(false)
   })
 })
 

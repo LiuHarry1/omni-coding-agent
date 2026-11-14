@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { query } from './query.js'
 import { createQueryHarness, type StepScript } from './query-test-harness.js'
+import type { IProvider } from './llm/types.js'
 import type { AnyTool, TodoItem } from './types.js'
 
 const toolStep = (toolName: string): StepScript => ({
@@ -326,6 +327,87 @@ describe('query loop: permission mode change', () => {
 
     expect(result.terminal).toEqual({ reason: 'completed' })
     expect(prompts).toEqual(['system', 'system', 'system'])
+  })
+})
+
+describe('query loop: model fallback', () => {
+  const fallbackProvider = {
+    defaultModelId: () => 'fallback-model',
+  } as unknown as IProvider
+
+  it('stays on the fallback model once a step has switched to it', async () => {
+    const turnEnds: Array<{ model: string }> = []
+    const h = createQueryHarness({
+      fallbackProvider,
+      sessionId: 'test-session',
+      onTurnEnd: snapshot => turnEnds.push(snapshot),
+    })
+    h.scriptSteps([
+      { ...toolStep('Read'), modelFallback: true },
+      toolStep('Read'),
+      { text: 'Done.' },
+    ])
+
+    await query(h.options)
+
+    const requests = h.deps.runStep.mock.calls.map(([args]) => ({
+      model: args.resolvedModel,
+      canFallBack: args.fallback !== undefined,
+    }))
+    expect(requests).toEqual([
+      { model: 'test-model', canFallBack: true },
+      { model: 'fallback-model', canFallBack: false },
+      { model: 'fallback-model', canFallBack: false },
+    ])
+    // The step that switched is committed under the model that answered it.
+    expect(
+      h.deps.postTurn.mock.calls.map(([args]) => args.resolvedModel),
+    ).toEqual(['fallback-model', 'fallback-model', 'fallback-model'])
+    expect(turnEnds.map(snapshot => snapshot.model)).toEqual(['fallback-model'])
+  })
+
+  it('reports the fallback model when the switching step ends the turn', async () => {
+    const turnEnds: Array<{ model: string }> = []
+    const h = createQueryHarness({
+      fallbackProvider,
+      sessionId: 'test-session',
+      onTurnEnd: snapshot => turnEnds.push(snapshot),
+    })
+    h.scriptSteps([{ text: 'Done.', modelFallback: true }])
+
+    await query(h.options)
+
+    expect(turnEnds.map(snapshot => snapshot.model)).toEqual(['fallback-model'])
+  })
+
+  it('sizes a continuation for the fallback model, not the one left behind', async () => {
+    const h = createQueryHarness({
+      fallbackProvider: {
+        defaultModelId: () => 'fallback-model',
+        maxOutputTokenCap: () => 32_000,
+      } as unknown as IProvider,
+      provider: { maxOutputTokenCap: () => 128_000 },
+    })
+    h.scriptSteps([
+      { text: 'part one', truncated: true },
+      { text: 'part two', truncated: true, modelFallback: true },
+      { text: 'part three' },
+    ])
+
+    await query(h.options)
+
+    expect(
+      h.deps.runStep.mock.calls.map(([args]) => args.maxOutputTokensOverride),
+    ).toEqual([undefined, 65_536, 32_000])
+  })
+
+  it('offers no fallback when none is configured', async () => {
+    const h = createQueryHarness()
+    h.scriptSteps([{ text: 'Done.' }])
+
+    await query(h.options)
+
+    expect(h.deps.runStep.mock.calls[0]![0].fallback).toBeUndefined()
   })
 })
 

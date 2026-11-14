@@ -353,6 +353,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               ...(def.maxSteps !== undefined ? { maxSteps: def.maxSteps } : {}),
               model: subModel,
               provider: subProvider,
+              // A model the definition names explicitly is not swapped out.
+              ...(def.model === undefined
+                ? { fallbackProvider: models?.fallbackProvider(tier) }
+                : {}),
               cwd,
               compaction,
               concurrencyPolicy: registry

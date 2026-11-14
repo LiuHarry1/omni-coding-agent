@@ -14,7 +14,9 @@ import {
 } from '../../services/session-memory/index.js'
 import {
   isContextLengthError,
+  failedAttemptCount,
   isInvalidRequestError,
+  isOverloadedError,
   isTransientStreamError,
   parseMaxTokensContextOverflowError,
 } from '../stream-errors.js'
@@ -70,6 +72,7 @@ import {
   getMaxOutputTokens,
   maxTokensOverrideFromError,
   MAX_OVERFLOW_RETRIES,
+  MAX_OVERLOADED_RETRIES,
   MAX_TRANSIENT_RETRIES,
 } from './helpers.js'
 import { applyCompactOutcome } from './pre-turn.js'
@@ -108,6 +111,8 @@ export interface RunStepArgs {
   turnProfiler?: AgentOptions['turnProfiler']
   /** Starting max_tokens for this step (raised after an output-limit cut). */
   maxOutputTokensOverride?: number
+  /** Model to switch to when `provider` stays overloaded. */
+  fallback?: { provider: IProvider; model: string }
 }
 
 /** A response cut off before any visible output must not leave empty text blocks. */
@@ -149,8 +154,6 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
     tools,
     toolChoice,
     systemPrompt,
-    provider,
-    resolvedModel,
     eventBus,
     wire,
     subagentNames,
@@ -167,6 +170,10 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
     turnProfiler,
   } = args
 
+  let { provider, resolvedModel } = args
+  let consecutiveOverloaded = 0
+  let fellBack = false
+
   const dumpPrompts = args.dumpPrompts ?? createNoopDumpPromptsRecorder()
   const apiTools = stripToolExecute(tools)
   const executors = tools
@@ -178,10 +185,15 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
   // accepts; it is dropped for the rest of the step if a request is refused.
   let raisedOutputCap = args.maxOutputTokensOverride
   let maxTokensOverride: number | undefined = raisedOutputCap
-  const outputCapOutcome = (): Pick<StreamResult, 'outputCapRejected'> =>
-    args.maxOutputTokensOverride !== undefined && raisedOutputCap === undefined
-      ? { outputCapRejected: true }
-      : {}
+  let outputCapRejected = false
+  /** What this step learned about the endpoint, for the steps after it. */
+  const requestOutcome = (): Pick<
+    StreamResult,
+    'outputCapRejected' | 'modelFallback'
+  > => ({
+    ...(outputCapRejected ? { outputCapRejected: true } : {}),
+    ...(fellBack ? { modelFallback: true } : {}),
+  })
   let transientAttempt = 0
   let reactiveCompacted = false
   let requestStart = Date.now()
@@ -410,7 +422,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         sessionId,
         logLabel,
       })
-      return { ...stepResult, ...outputCapOutcome() }
+      return { ...stepResult, ...requestOutcome() }
     } catch (err) {
       if (
         abortSignal?.aborted ||
@@ -430,6 +442,9 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
           abortPhase: 'streaming',
         }
       }
+      consecutiveOverloaded = isOverloadedError(err)
+        ? consecutiveOverloaded + failedAttemptCount(err)
+        : 0
       // First shrink max_tokens and retry the same request. If the remaining
       // output budget is below the floor, or retries are exhausted, fall
       // through to reactive compaction instead of failing a recoverable turn.
@@ -507,6 +522,38 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         continue
       }
       if (
+        args.fallback &&
+        !fellBack &&
+        consecutiveOverloaded >= MAX_OVERLOADED_RETRIES
+      ) {
+        const originalModel = resolvedModel
+        ;({ provider, model: resolvedModel } = args.fallback)
+        fellBack = true
+        console.warn(
+          `[${agentLogTag(logLabel)}] step ${step} ${originalModel} overloaded ${consecutiveOverloaded} times in a row -> switching to ${resolvedModel}`,
+        )
+        eventBus.emit('model_fallback', {
+          originalModel,
+          fallbackModel: resolvedModel,
+        })
+        wire.turnState(
+          'requesting',
+          'model.fallback',
+          `Switched to ${resolvedModel} due to high demand for ${originalModel}`,
+        )
+        // The raised cap was sized for the model that was left behind.
+        raisedOutputCap = undefined
+        maxTokensOverride = undefined
+        overflowAttempt = 0
+        lastOverflowTotal = undefined
+        consecutiveOverloaded = 0
+        transientAttempt = 0
+        requestStart = Date.now()
+        streamingExecutor?.discard()
+        streamingExecutor = createStreamingExecutor()
+        continue
+      }
+      if (
         transientAttempt < MAX_TRANSIENT_RETRIES &&
         isTransientStreamError(err)
       ) {
@@ -535,6 +582,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
             `If this repeats, lower maxOutputTokens for this model in settings.json. ${message}`,
         )
         raisedOutputCap = undefined
+        outputCapRejected = true
         maxTokensOverride = undefined
         overflowAttempt = 0
         lastOverflowTotal = undefined
@@ -557,7 +605,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         toolResults: [],
         completedCleanly: false,
         completionError: `Upstream stream failed: ${message}${cause}. Try again or check your proxy logs.`,
-        ...outputCapOutcome(),
+        ...requestOutcome(),
       }
     }
   }

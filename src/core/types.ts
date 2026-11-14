@@ -495,6 +495,11 @@ export interface AgentOptions {
   model?: string
   /** Request-scoped provider built from the resolved settings for this cwd. */
   provider: IProvider
+  /**
+   * Provider to switch to for the rest of the run when `provider` stays
+   * overloaded. Omitted: keep retrying `provider` and fail when it gives up.
+   */
+  fallbackProvider?: IProvider
   /** Request workspace; used by compaction and subagent runs. */
   cwd?: string
   /** Request-scoped compaction settings. */
@@ -1011,6 +1016,11 @@ export interface AutoMemoryConfig {
 export interface AppConfig {
   /** Three-tier profiles; medium/small fall back to large when omitted in settings. */
   models: ModelProfiles
+  /**
+   * Tier to switch to for the rest of a turn when a larger tier's model stays
+   * overloaded. Unset: no fallback, the turn fails once retries run out.
+   */
+  fallbackModelTier?: 'medium' | 'small'
   compaction: CompactionConfig
   sessionMemory: SessionMemoryConfig
   /**

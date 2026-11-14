@@ -22,6 +22,7 @@
       "maxOutputTokens": 64000
     }
   },
+  "fallbackModelTier": "medium",
   "compaction": {
     "enabled": true,
     "contextWindow": 200000,

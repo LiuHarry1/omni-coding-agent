@@ -38,6 +38,8 @@ export {
 }
 
 export const MAX_TRANSIENT_RETRIES = 2
+/** Consecutive overloaded responses from the main model before falling back. */
+export const MAX_OVERLOADED_RETRIES = 3
 /** Max retry attempts for overflow max_tokens adjustment */
 export const MAX_OVERFLOW_RETRIES = 2
 /** Lowest max_tokens an output budget is ever shrunk to */

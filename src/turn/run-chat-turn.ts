@@ -251,7 +251,9 @@ export async function runChatTurn(
   })
   const { cwd } = workspace
   const resolvedSettings = resolveSettings(workspace.settingsCwd)
-  const models = createModelRegistry(resolvedSettings.config.models)
+  const models = createModelRegistry(resolvedSettings.config.models, {
+    fallbackTier: resolvedSettings.config.fallbackModelTier,
+  })
   const provider = models.provider('large')
 
   if (!session.permissionMode) {
@@ -789,6 +791,7 @@ export async function runChatTurn(
         eventBus,
         wire,
         provider,
+        fallbackProvider: models.fallbackProvider('large'),
         cwd,
         compaction: resolvedSettings.config.compaction,
         sessionMemory: resolvedSettings.config.sessionMemory,

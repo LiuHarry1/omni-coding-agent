@@ -181,6 +181,8 @@ const PermissionsSchema = z.object({
 /** Parsed settings layer before merge into AppConfig. */
 export const SettingsFileSchema = z.object({
   models: ModelsSchema.optional(),
+  /** Tier to switch to for the rest of a turn when a larger tier's model stays overloaded. */
+  fallbackModelTier: z.enum(['medium', 'small']).optional(),
   compaction: CompactionConfigSchema.optional(),
   sessionMemory: SessionMemoryConfigSchema.optional(),
   autoMemoryEnabled: z.boolean().optional(),

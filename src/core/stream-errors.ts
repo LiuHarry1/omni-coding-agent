@@ -148,8 +148,38 @@ export function isInvalidRequestError(err: unknown): boolean {
   return status === 400 || status === 422
 }
 
+/**
+ * The provider is over capacity for this model (Anthropic 529
+ * `overloaded_error`, or a gateway's wording of the same).
+ */
+export function isOverloadedError(err: unknown): boolean {
+  if (!err) return false
+  let current: unknown = err
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const e = current as {
+      statusCode?: number
+      status?: number
+      lastError?: unknown
+      cause?: unknown
+    }
+    if ((e.statusCode ?? e.status) === 529) return true
+    current = e.lastError ?? e.cause
+  }
+  return streamErrorText(err).toLowerCase().includes('overloaded')
+}
+
+/**
+ * How many failed requests one surfaced error stands for: the SDK retries a
+ * request before giving up and reports every attempt on its retry error.
+ */
+export function failedAttemptCount(err: unknown): number {
+  const attempts = (err as { errors?: unknown } | null)?.errors
+  return Array.isArray(attempts) && attempts.length > 0 ? attempts.length : 1
+}
+
 export function isTransientStreamError(err: unknown): boolean {
   if (!err) return false
+  if (isOverloadedError(err)) return true
   const e = err as {
     statusCode?: number
     status?: number

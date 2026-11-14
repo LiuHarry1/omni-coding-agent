@@ -47,6 +47,12 @@ export interface ModelRegistry {
   profiles: ModelProfiles
   profile(tier: ModelTier): LlmProfile
   provider(tier: ModelTier): IProvider
+  /**
+   * The provider to switch to when `tier`'s model stays overloaded: the
+   * configured fallback tier, when it is a smaller tier with a different
+   * model. Undefined when no fallback applies.
+   */
+  fallbackProvider(tier: ModelTier): IProvider | undefined
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -95,8 +101,18 @@ function resolveTierProfile(
   return profile
 }
 
-export function createModelRegistry(profiles: ModelProfiles): ModelRegistry {
+function isSameEndpoint(a: LlmProfile, b: LlmProfile): boolean {
+  return (
+    a.provider === b.provider && a.baseURL === b.baseURL && a.model === b.model
+  )
+}
+
+export function createModelRegistry(
+  profiles: ModelProfiles,
+  options?: { fallbackTier?: ModelTier },
+): ModelRegistry {
   const cache = new Map<ModelTier, IProvider>()
+  const fallbackTier = options?.fallbackTier
 
   const provider = (tier: ModelTier): IProvider => {
     let p = cache.get(tier)
@@ -111,6 +127,16 @@ export function createModelRegistry(profiles: ModelProfiles): ModelRegistry {
     profiles,
     profile: tier => profiles[tier],
     provider,
+    fallbackProvider: tier => {
+      if (!fallbackTier) return undefined
+      if (MODEL_TIERS.indexOf(fallbackTier) <= MODEL_TIERS.indexOf(tier)) {
+        return undefined
+      }
+      if (isSameEndpoint(profiles[tier], profiles[fallbackTier])) {
+        return undefined
+      }
+      return provider(fallbackTier)
+    },
   }
 }
 

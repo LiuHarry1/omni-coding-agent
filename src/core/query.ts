@@ -4,6 +4,7 @@ import { ensureMessageUuid } from '../services/session-memory/index.js'
 import { extractPartialResult } from '../tools/AgentTool/finalizeAgentTool.js'
 import { finalizeInterruptedTurn } from '../utils/interrupt.js'
 import type { TodoItem } from './types.js'
+import type { IProvider } from './llm/types.js'
 import type { ConcurrencyPolicyFn } from './concurrency-policy.js'
 import type {
   QueryOptions,
@@ -51,6 +52,8 @@ type State = {
   maxOutputTokensOverride: number | undefined
   /** The endpoint refused a raised cap; continuations stay at the default. */
   outputCapRejected: boolean
+  /** The main model stayed overloaded; requests go to the fallback model. */
+  usingFallbackModel: boolean
   /** The user approved a plan and no implementation tool has run since. */
   planBuildPending: boolean
   /** Changes when the permission mode does. */
@@ -119,6 +122,19 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   }
   const provider = configuredProvider
   const resolvedModel = model ?? provider.defaultModelId()
+  const fallback = opts.fallbackProvider
+    ? {
+        provider: opts.fallbackProvider,
+        model: opts.fallbackProvider.defaultModelId(),
+      }
+    : undefined
+  /** The model requests go to: the fallback once the loop has switched to it. */
+  const modelFor = (
+    usingFallbackModel: boolean,
+  ): { provider: IProvider; model: string } =>
+    usingFallbackModel && fallback
+      ? fallback
+      : { provider, model: resolvedModel }
 
   let currentTodos: TodoItem[] = toolUseContext?.session.todos ?? []
   const unsubTodo = eventBus.on('todo_update', data => {
@@ -193,6 +209,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       maxOutputTokensRecoveryCount: current.maxOutputTokensRecoveryCount,
       maxOutputTokensOverride: current.maxOutputTokensOverride,
       outputCapRejected: current.outputCapRejected,
+      usingFallbackModel: current.usingFallbackModel,
       planBuildPending: current.planBuildPending || planApproved,
       systemPrompt: nextSystemPrompt,
       finalText: current.finalText,
@@ -212,6 +229,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     maxOutputTokensRecoveryCount: 0,
     maxOutputTokensOverride: undefined,
     outputCapRejected: false,
+    usingFallbackModel: false,
     planBuildPending: false,
     systemPrompt,
     finalText: '',
@@ -261,8 +279,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         messages: getActiveModelMessages(messages, sessionId),
         systemPrompt: state.systemPrompt,
         tools: { ...activeTools },
-        provider,
-        model: resolvedModel,
+        ...modelFor(state.usingFallbackModel),
         sessionId,
         cwd,
       },
@@ -279,6 +296,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         maxOutputTokensRecoveryCount,
         maxOutputTokensOverride,
         outputCapRejected: capRejectedBefore,
+        usingFallbackModel,
         planBuildPending,
         systemPrompt: activeSystemPrompt,
         finalText: priorText,
@@ -286,6 +304,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       } = state
       if (transition) transitions.push(transition)
       const step = turnCount - 1
+      const requestModel = modelFor(usingFallbackModel)
 
       /** Abort noticed between requests: nothing in flight to salvage. */
       const finishInterrupted = (): QueryResult =>
@@ -306,8 +325,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         const summary = await deps.forceFinalAnswerOnMaxSteps({
           messages,
           systemPrompt: activeSystemPrompt,
-          provider,
-          resolvedModel,
+          provider: requestModel.provider,
+          resolvedModel: requestModel.model,
           eventBus,
           wire,
           step: stepLimit,
@@ -334,8 +353,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         eventBus,
         wire,
         step,
-        resolvedModel,
-        provider,
+        resolvedModel: requestModel.model,
+        provider: requestModel.provider,
         currentTodos,
         cwd,
         compaction,
@@ -358,8 +377,9 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         modelMessages: activeMessages,
         tools: activeTools,
         systemPrompt: activeSystemPrompt,
-        provider,
-        resolvedModel,
+        provider: requestModel.provider,
+        resolvedModel: requestModel.model,
+        fallback: usingFallbackModel ? undefined : fallback,
         eventBus,
         wire,
         subagentNames,
@@ -396,6 +416,15 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
             (priorText || stepResult.text || ''),
         )
       }
+
+      // The switch holds for the rest of the query. What was learned about
+      // the main model's output cap says nothing about the fallback's.
+      const fellBack = stepResult.modelFallback === true
+      const onFallbackModel = usingFallbackModel || fellBack
+      const stepModel = modelFor(onFallbackModel)
+      // Recorded at once so an exit from this very step reports the model
+      // that actually answered.
+      if (fellBack) state = { ...state, usingFallbackModel: true }
 
       // A truncated step is recoverable even when a tool input was cut off:
       // fall through so the committed prefix gets a continuation nudge below.
@@ -434,8 +463,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         sessionId,
         onAfterStep,
         activeSystemPrompt,
-        provider,
-        resolvedModel,
+        provider: stepModel.provider,
+        resolvedModel: stepModel.model,
         cwd,
         logLabel,
       })
@@ -458,7 +487,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       }
       const kickoffOwed = planBuildPending && !implementing
       const outputCapRejected =
-        capRejectedBefore || stepResult.outputCapRejected === true
+        !fellBack &&
+        (capRejectedBefore || stepResult.outputCapRejected === true)
 
       // A cut that only followed complete tool calls needs no nudge: their
       // results carry the turn forward like any other tool step.
@@ -478,10 +508,10 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         const attempt = maxOutputTokensRecoveryCount + 1
         const override = outputCapRejected
           ? undefined
-          : (maxOutputTokensOverride ??
+          : ((fellBack ? undefined : maxOutputTokensOverride) ??
             escalatedMaxOutputTokens(
               compaction?.maxOutputTokens ?? getMaxOutputTokens(),
-              provider.maxOutputTokenCap?.(),
+              stepModel.provider.maxOutputTokenCap?.(),
             ))
         messages.push(buildTruncationReminder(stepResult.truncatedToolNames))
         console.log(
@@ -497,6 +527,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           maxOutputTokensRecoveryCount: attempt,
           maxOutputTokensOverride: override,
           outputCapRejected,
+          usingFallbackModel: onFallbackModel,
           planBuildPending: kickoffOwed,
           systemPrompt: activeSystemPrompt,
           finalText,
@@ -530,6 +561,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           maxOutputTokensRecoveryCount: 0,
           maxOutputTokensOverride: undefined,
           outputCapRejected,
+          usingFallbackModel: onFallbackModel,
           planBuildPending: false,
           systemPrompt: activeSystemPrompt,
           finalText,
@@ -543,6 +575,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         maxOutputTokensRecoveryCount: 0,
         maxOutputTokensOverride: undefined,
         outputCapRejected,
+        usingFallbackModel: onFallbackModel,
         planBuildPending: kickoffOwed,
         systemPrompt: activeSystemPrompt,
         finalText,

@@ -632,6 +632,13 @@ function applyLayer(config: AppConfig, layer: PartialAppConfig): void {
     Object.assign(config.sessionMemory, layer.sessionMemory)
   }
 
+  if (
+    layer.fallbackModelTier === 'medium' ||
+    layer.fallbackModelTier === 'small'
+  ) {
+    config.fallbackModelTier = layer.fallbackModelTier
+  }
+
   // Prefer nested autoMemory.{enabled,directory,cacheSafe,modelTier}.
   // Flat autoMemoryEnabled / autoMemoryDirectory remain supported aliases;
   // flat autoMemoryCacheSafe / autoMemoryModelTier are legacy agent aliases.

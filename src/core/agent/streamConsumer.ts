@@ -35,6 +35,11 @@ export interface StreamResult {
   truncatedToolNames?: string[]
   /** The endpoint refused the raised output cap; the step ran at the default. */
   outputCapRejected?: boolean
+  /**
+   * The main model stayed overloaded and this step switched to the fallback
+   * model; the rest of the query stays on it.
+   */
+  modelFallback?: boolean
 }
 
 export const TRUNCATED_TOOL_INPUT_RESULT =
