@@ -51,6 +51,7 @@ export const definition: ToolDefinition = {
   name: FILE_READ_TOOL_NAME,
   description: DESCRIPTION,
   isConcurrencySafe: () => true,
+  isReadOnly: () => true,
   outputSchema: ReadOutputSchema,
   checkPermissions(input, ctx) {
     return checkReadPermissionForTool(

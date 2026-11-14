@@ -41,6 +41,7 @@ import { createTurnProfiler, profileSpan } from '../utils/startupProfiler.js'
 import { getSystemPromptForMode } from '../prompts/mode.js'
 import { getSystemPromptForAgentProfile } from '../prompts/agent-profile.js'
 import { applyModeRestrictions } from '../core/mode-restrictions.js'
+import { isToolReadOnly } from '../core/tool-definition.js'
 import { filterToolsRecordByDisallowedGlobs } from '../tools/AgentTool/toolGlob.js'
 import { planExists } from '../utils/plans.js'
 import { createMemoryLifecycleHooks } from './memory-lifecycle.js'
@@ -666,7 +667,10 @@ export async function runChatTurn(
     const next = applyModeRestrictions(
       session.permissionMode.mode,
       prepared.baseTools,
-      prepared.modeTools,
+      {
+        extra: prepared.modeTools,
+        isReadOnly: name => isToolReadOnly(prepared.getToolDefinition(name)),
+      },
     )
     return filterToolsRecordByDisallowedGlobs(next, prepared.denyGlobs)
   }

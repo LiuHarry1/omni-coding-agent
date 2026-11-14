@@ -64,6 +64,7 @@ export const definition: ToolDefinition = {
   description: 'Code intelligence via Language Server Protocol',
   shouldDefer: true,
   isConcurrencySafe: () => true,
+  isReadOnly: () => true,
   outputSchema: LspToolOutputSchema,
   checkPermissions(input, ctx) {
     return checkReadPermissionForTool(

@@ -90,6 +90,8 @@ Available deferred tools: ${nameList}`
     name: TOOL_SEARCH_TOOL_NAME,
     description,
     isConcurrencySafe: () => true,
+    // Not read-only: what it finds becomes callable, so a mode that only
+    // offers read-only tools must not offer this one.
     outputSchema: ToolSearchOutputSchema,
     mapToolResultToToolResultBlockParam(output, toolUseID) {
       return {

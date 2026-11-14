@@ -13,10 +13,10 @@ import {
   BROWSER_TOOL_NAMES,
   CRON_TOOL_NAMES,
   ENTER_PLAN_MODE_TOOL_NAME,
-  READ_ONLY_TOOLS,
   TOOL_SEARCH_TOOL_NAME,
 } from '../constants/tool_names.js'
 import { applyModeRestrictions } from '../core/mode-restrictions.js'
+import { instantiateTool, isToolReadOnly } from '../core/tool-definition.js'
 import { definition as enterPlanModeDef } from './EnterPlanModeTool/EnterPlanModeTool.js'
 import { definition as exitPlanModeDef } from './ExitPlanModeTool/ExitPlanModeTool.js'
 import { findPrimaryAgent } from './AgentTool/mergeAgents.js'
@@ -144,7 +144,11 @@ export function assembleToolPool(
   const dynamicDefs: Record<string, ToolDefinition> = {}
   if (deferredDefs.length > 0 && session.permissionMode.mode !== 'ask') {
     const tsearchDef = createToolSearchDefinition(deferredDefs)
-    active[TOOL_SEARCH_TOOL_NAME] = tsearchDef.create(cwd, toolContext)
+    active[TOOL_SEARCH_TOOL_NAME] = instantiateTool(
+      tsearchDef,
+      cwd,
+      toolContext,
+    )
     dynamicDefs[TOOL_SEARCH_TOOL_NAME] = tsearchDef
   }
 
@@ -155,21 +159,25 @@ export function assembleToolPool(
   )
 
   const modeTools: Record<string, AnyTool> = {
-    [enterPlanModeDef.name]: enterPlanModeDef.create(cwd, toolContext),
-    [exitPlanModeDef.name]: exitPlanModeDef.create(cwd, toolContext),
+    [enterPlanModeDef.name]: instantiateTool(
+      enterPlanModeDef,
+      cwd,
+      toolContext,
+    ),
+    [exitPlanModeDef.name]: instantiateTool(exitPlanModeDef, cwd, toolContext),
   }
 
   // Ask mode: promote read-only deferred tools (LSP/WebSearch/…) into the
   // active set. Do not expose ToolSearch or mutating/MCP deferred tools.
+  const isReadOnly = (name: string) =>
+    isToolReadOnly(dynamicDefs[name] ?? registry.get(name))
   if (session.permissionMode.mode === 'ask') {
-    const readOnly = new Set<string>(READ_ONLY_TOOLS)
-    for (const name of READ_ONLY_TOOLS) {
-      if (deferred[name] && !enablementFiltered[name]) {
+    for (const name of Object.keys(deferred)) {
+      if (!isReadOnly(name)) {
+        delete deferred[name]
+      } else if (!enablementFiltered[name]) {
         enablementFiltered[name] = deferred[name]!
       }
-    }
-    for (const name of Object.keys(deferred)) {
-      if (!readOnly.has(name)) delete deferred[name]
     }
     // No ToolSearch in ask — mutating deferred tools stay withheld.
   }
@@ -177,7 +185,7 @@ export function assembleToolPool(
   let tools = applyModeRestrictions(
     session.permissionMode.mode,
     enablementFiltered,
-    modeTools,
+    { extra: modeTools, isReadOnly },
   )
   if (denyGlobs.length > 0) {
     tools = filterToolsRecordByDisallowedGlobs(tools, denyGlobs)

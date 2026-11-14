@@ -4,7 +4,6 @@
 import type { AnyTool } from './types.js'
 import type { ExternalMode } from './permission-mode.js'
 import {
-  READ_ONLY_TOOLS,
   PLAN_MODE_DENIED_TOOLS,
   ENTER_PLAN_MODE_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
@@ -24,33 +23,39 @@ function omitTools(
 
 function pickTools(
   tools: Record<string, AnyTool>,
-  allowed: readonly string[],
+  keep: (name: string) => boolean,
 ): Record<string, AnyTool> {
-  const allowSet = new Set(allowed)
   const result: Record<string, AnyTool> = {}
-  for (const name of allowed) {
-    if (tools[name]) result[name] = tools[name]
-  }
-  // Include MCP tools that match read-only patterns when explicitly allowed
   for (const [name, tool] of Object.entries(tools)) {
-    if (!result[name] && allowSet.has(name)) result[name] = tool
+    if (keep(name)) result[name] = tool
   }
   return result
+}
+
+export type ModeRestrictionOptions = {
+  /** Mode-switch tools, added or withheld depending on the mode. */
+  extra?: Record<string, AnyTool>
+  /**
+   * Whether every call the named tool can make is read-only, as its
+   * definition declares. Tools without a definition (MCP) are not.
+   */
+  isReadOnly: (toolName: string) => boolean
 }
 
 export function applyModeRestrictions(
   mode: ExternalMode,
   tools: Record<string, AnyTool>,
-  extra?: Record<string, AnyTool>,
+  options: ModeRestrictionOptions,
 ): Record<string, AnyTool> {
+  const { extra, isReadOnly } = options
   const merged = { ...tools, ...extra }
 
   switch (mode) {
     case 'ask': {
-      // Read-only only. Do NOT re-add ToolSearch — discovering deferred
-      // write/shell/MCP tools would bypass this filter mid-turn
-      // (activateDeferredTools mutates activeTools directly).
-      return pickTools(merged, [...READ_ONLY_TOOLS])
+      // Read-only only. ToolSearch does not declare itself read-only, so it
+      // stays out: discovering deferred write/shell/MCP tools would bypass
+      // this filter mid-turn (activateDeferredTools mutates activeTools).
+      return pickTools(merged, isReadOnly)
     }
     case 'plan': {
       const denied = new Set([
@@ -78,8 +83,4 @@ export function applyModeRestrictions(
       return filtered
     }
   }
-}
-
-export function getAskModeToolNames(): readonly string[] {
-  return READ_ONLY_TOOLS
 }

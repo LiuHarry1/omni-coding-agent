@@ -86,7 +86,7 @@ export const BROWSER_TOOL_NAMES: readonly string[] = [
   BROWSER_CDP_TOOL_NAME,
 ]
 
-/** Browser tools that only observe — safe in Ask mode. */
+/** Browser tools that only observe; these declare themselves read-only. */
 export const BROWSER_READ_ONLY_TOOL_NAMES: readonly string[] = [
   BROWSER_SNAPSHOT_TOOL_NAME,
   BROWSER_GET_TEXT_TOOL_NAME,
@@ -106,17 +106,6 @@ export const MUTATING_TOOLS: readonly string[] = [
 
 export const INTERACTIVE_TOOLS: readonly string[] = [
   ASK_USER_QUESTION_TOOL_NAME,
-]
-
-/** Read-only tools allowed in Ask mode. */
-export const READ_ONLY_TOOLS: readonly string[] = [
-  FILE_READ_TOOL_NAME,
-  GLOB_TOOL_NAME,
-  GREP_TOOL_NAME,
-  LSP_TOOL_NAME,
-  WEB_SEARCH_TOOL_NAME,
-  WEB_FETCH_TOOL_NAME,
-  ...BROWSER_READ_ONLY_TOOL_NAMES,
 ]
 
 /** Tools denied in Plan mode (plan file writes allowed via guard). */

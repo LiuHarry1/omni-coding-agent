@@ -77,6 +77,7 @@ import {
   BROWSER_NAVIGATE_TOOL_NAME,
   BROWSER_NETWORK_TOOL_NAME,
   BROWSER_PRESS_KEY_TOOL_NAME,
+  BROWSER_READ_ONLY_TOOL_NAMES,
   BROWSER_RESIZE_TOOL_NAME,
   BROWSER_SCREENSHOT_TOOL_NAME,
   BROWSER_SCROLL_TOOL_NAME,
@@ -342,6 +343,8 @@ function defineBrowserTool<S extends z.ZodTypeAny>(cfg: {
     name: cfg.name,
     description: cfg.summary,
     shouldDefer: true,
+    // Looking at a page changes nothing; acting on it does.
+    isReadOnly: () => BROWSER_READ_ONLY_TOOL_NAMES.includes(cfg.name),
     outputSchema: BrowserOutputSchema,
     mapToolResultToToolResultBlockParam: mapBrowserOutput,
     create(cwd: string, context: ToolContext) {

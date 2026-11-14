@@ -360,6 +360,7 @@ export const definition: ToolDefinition = {
   name: GREP_TOOL_NAME,
   description: 'Regex search across files (ripgrep)',
   isConcurrencySafe: () => true,
+  isReadOnly: () => true,
   outputSchema: GrepOutputSchema,
   checkPermissions(input, ctx) {
     return checkReadPermissionForTool(

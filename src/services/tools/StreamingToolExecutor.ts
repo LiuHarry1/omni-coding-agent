@@ -6,6 +6,7 @@ import type { CanUseToolFn } from '../../core/can-use-tool.js'
 import { createChildAbortController } from '../../utils/abortController.js'
 import { BASH_TOOL_NAME } from '../../constants/tool_names.js'
 import type { ToolDefinition } from '../../core/types.js'
+import { validateToolCall } from '../../core/tool-definition.js'
 import type { ToolUseContext } from '../../core/agent/tool-use-context.js'
 import {
   executeOneTool,
@@ -277,6 +278,16 @@ export class StreamingToolExecutor {
           return
         }
         tool.call = { ...tool.call, input: checked.input }
+      }
+
+      const validation = await validateToolCall(
+        this.#ctx.tools[tool.call.toolName],
+        tool.call.input,
+      )
+      if (!validation.result) {
+        this.#rejectTool(tool, validation.message)
+        this.#updateInterruptibleState()
+        return
       }
 
       const permission = await this.#canUseTool(

@@ -132,6 +132,9 @@ export interface ToolResultBlockParam {
   is_error?: boolean
 }
 
+export type ValidationResult =
+  { result: true } | { result: false; message: string }
+
 export interface ToolDefinition {
   name: string
   description: string
@@ -161,6 +164,24 @@ export interface ToolDefinition {
    * policy �?the model is not told about this flag.
    */
   isConcurrencySafe?: (input: unknown) => boolean
+  /**
+   * True when a call with this input cannot change anything: no writes, no
+   * side effects outside the conversation. Called without input it must
+   * answer for every call the tool can make. Ask mode offers only tools that
+   * are read-only for every call. Defaults to false.
+   */
+  isReadOnly?: (input?: unknown) => boolean
+  /**
+   * Whether this call can succeed at all, beyond what the schema checks
+   * (the file exists, the text to replace is there). Runs after schema
+   * validation and before the permission check, so the user is never asked
+   * to approve a call that would fail anyway. The message is returned to
+   * the model as the tool's error result.
+   */
+  validateInput?: (
+    input: unknown,
+    ctx: { cwd: string; context: ToolContext },
+  ) => ValidationResult | Promise<ValidationResult>
   /**
    * Whether ESC/interrupt cancels an in-flight tool ('cancel') or blocks
    * until it finishes ('block'). Mutating tools default to block.

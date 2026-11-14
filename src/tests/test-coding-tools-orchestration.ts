@@ -17,12 +17,12 @@ import {
   INTERACTIVE_TOOLS,
   MUTATING_TOOLS,
   PLAN_MODE_DENIED_TOOLS,
-  READ_ONLY_TOOLS,
   TODO_WRITE_TOOL_NAME,
   TOOL_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
 import { applyModeRestrictions } from '../core/mode-restrictions.js'
+import { isToolReadOnly } from '../core/tool-definition.js'
 import { ToolRegistry, defaultRegistry } from '../core/tool-registry.js'
 import type {
   AnyTool,
@@ -67,12 +67,13 @@ function runtimeTool(run: () => Promise<unknown>): AnyTool {
 
 function fakeDefinition(
   name: string,
-  options: { deferred?: boolean } = {},
+  options: { deferred?: boolean; readOnly?: boolean } = {},
 ): ToolDefinition {
   return {
     name,
     description: `${name} test tool`,
     shouldDefer: options.deferred,
+    isReadOnly: options.readOnly ? () => true : undefined,
     create: () => fakeTool(name),
   }
 }
@@ -116,13 +117,18 @@ function testConstantsAndDefaultRegistry(): void {
   assert.equal(TOOL_SEARCH_TOOL_NAME, 'ToolSearch')
   assert.deepEqual(INTERACTIVE_TOOLS, [ASK_USER_QUESTION_TOOL_NAME])
   assert.ok(MUTATING_TOOLS.includes(TODO_WRITE_TOOL_NAME))
-  assert.ok(READ_ONLY_TOOLS.includes(FILE_READ_TOOL_NAME))
+  assert.ok(isToolReadOnly(defaultRegistry.get(FILE_READ_TOOL_NAME)))
+  for (const name of [WRITE_FILE_TOOL_NAME, BASH_TOOL_NAME, 'not-a-tool']) {
+    assert.ok(
+      !isToolReadOnly(defaultRegistry.get(name)),
+      `${name} is not read-only`,
+    )
+  }
   assert.ok(PLAN_MODE_DENIED_TOOLS.includes(BASH_TOOL_NAME))
 
   for (const list of [
     MUTATING_TOOLS,
     INTERACTIVE_TOOLS,
-    READ_ONLY_TOOLS,
     PLAN_MODE_DENIED_TOOLS,
   ]) {
     assert.equal(new Set(list).size, list.length, 'tool-name lists stay unique')
@@ -156,16 +162,22 @@ function testModeRestrictionsAndAssembly(): void {
     [ENTER_PLAN_MODE_TOOL_NAME]: fakeTool(ENTER_PLAN_MODE_TOOL_NAME),
     [EXIT_PLAN_MODE_TOOL_NAME]: fakeTool(EXIT_PLAN_MODE_TOOL_NAME),
   }
-  assert.deepEqual(Object.keys(applyModeRestrictions('ask', raw)), [
-    FILE_READ_TOOL_NAME,
-  ])
-  assert.ok(
-    applyModeRestrictions('agent', raw, extras)[ENTER_PLAN_MODE_TOOL_NAME],
+  const isReadOnly = (name: string) => isToolReadOnly(defaultRegistry.get(name))
+  assert.deepEqual(
+    Object.keys(applyModeRestrictions('ask', raw, { isReadOnly })),
+    [FILE_READ_TOOL_NAME],
   )
   assert.ok(
-    !applyModeRestrictions('agent', raw, extras)[EXIT_PLAN_MODE_TOOL_NAME],
+    applyModeRestrictions('agent', raw, { extra: extras, isReadOnly })[
+      ENTER_PLAN_MODE_TOOL_NAME
+    ],
   )
-  const plan = applyModeRestrictions('plan', raw, extras)
+  assert.ok(
+    !applyModeRestrictions('agent', raw, { extra: extras, isReadOnly })[
+      EXIT_PLAN_MODE_TOOL_NAME
+    ],
+  )
+  const plan = applyModeRestrictions('plan', raw, { extra: extras, isReadOnly })
   assert.ok(
     plan[WRITE_FILE_TOOL_NAME],
     'plan keeps writes for the plan-file guard',
@@ -176,7 +188,9 @@ function testModeRestrictionsAndAssembly(): void {
   assert.ok(!plan[ENTER_PLAN_MODE_TOOL_NAME])
 
   const registry = new ToolRegistry()
-  registry.register(fakeDefinition(FILE_READ_TOOL_NAME, { deferred: true }))
+  registry.register(
+    fakeDefinition(FILE_READ_TOOL_NAME, { deferred: true, readOnly: true }),
+  )
   registry.register(fakeDefinition(WRITE_FILE_TOOL_NAME))
   registry.register(fakeDefinition(BASH_TOOL_NAME))
   registry.register(fakeDefinition(TODO_WRITE_TOOL_NAME, { deferred: true }))

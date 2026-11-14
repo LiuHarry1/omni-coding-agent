@@ -93,6 +93,7 @@ export const definition: ToolDefinition = {
   description: `Search the web (${getWebSearchProvider()})`,
   shouldDefer: true,
   isConcurrencySafe: () => true,
+  isReadOnly: () => true,
   // Mode A — structured results for UI; prose + reminder for model
   outputSchema: z
     .object({

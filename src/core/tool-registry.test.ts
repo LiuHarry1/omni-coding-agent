@@ -38,7 +38,8 @@ describe('ToolRegistry fork', () => {
     const fork = base.fork()
     fork.register({ ...builtin, name: 'TurnOnly' })
 
-    expect(fork.get('Builtin')).toBe(builtin)
+    expect(fork.get('Builtin')).toBe(base.get('Builtin'))
+    expect(fork.get('Builtin')).toMatchObject(builtin)
     expect(fork.get('TurnOnly')).toBeDefined()
     expect(base.get('TurnOnly')).toBeUndefined()
   })

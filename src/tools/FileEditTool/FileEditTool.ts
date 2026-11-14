@@ -4,11 +4,17 @@ import * as fs from 'fs'
 import { resolvePath } from '../utils.js'
 import {
   assertAccessibleResolved,
+  checkWritePermission,
   checkWritePermissionForTool,
   filePathFromInput,
   policyFromContext,
 } from '../../utils/permissions/filesystem.js'
-import type { DualChannelToolResult, ToolDefinition } from '../../core/types.js'
+import type {
+  DualChannelToolResult,
+  ToolContext,
+  ToolDefinition,
+  ValidationResult,
+} from '../../core/types.js'
 import { EDIT_FILE_TOOL_NAME } from '../../constants/tool_names.js'
 import { clearDeliveredDiagnosticsForFile } from '../../services/lsp/LSPDiagnosticRegistry.js'
 import {
@@ -42,6 +48,106 @@ function ok(data: EditFileOutput): DualChannelToolResult<EditFileOutput> {
   return { data }
 }
 
+type EditInput = {
+  file_path: string
+  old_string: string
+  new_string: string
+  replace_all?: boolean
+}
+
+/** Why these strings cannot describe an edit, whatever the file holds. */
+function editStringsError(
+  old_string: string,
+  new_string: string,
+): string | undefined {
+  if (old_string === new_string) {
+    return `Error: old_string and new_string are identical`
+  }
+  if (!old_string) {
+    return `Error: old_string cannot be empty — use write_file to create files`
+  }
+  return undefined
+}
+
+/** The edit applied to `content`, or why it cannot be applied. */
+function planEdit(
+  content: string,
+  { file_path, old_string, new_string, replace_all = false }: EditInput,
+): { error: string } | { matchCount: number; newContent: string } {
+  let search = old_string
+  let matchCount = countOccurrences(content, search)
+  if (matchCount === 0) {
+    const fuzzyResult = fuzzyFind(content, old_string)
+    if (!fuzzyResult) {
+      return {
+        error: `Error: old_string not found in ${file_path}. Make sure it matches exactly (including whitespace and indentation).`,
+      }
+    }
+    search = fuzzyResult
+    matchCount = countOccurrences(content, search)
+  }
+  if (matchCount > 1 && !replace_all) {
+    return {
+      error: `Error: found ${matchCount} matches in ${file_path}. Include more context or set replace_all: true.`,
+    }
+  }
+  return {
+    matchCount,
+    newContent: replace_all
+      ? content.replaceAll(search, new_string)
+      : content.replace(search, new_string),
+  }
+}
+
+/** Remote SSH files go through Worker RPC; everything else is on this disk. */
+function editsRemoteFile(file_path: string, context: ToolContext): boolean {
+  const execution = context.execution
+  return (
+    !!execution &&
+    execution.environmentId !== 'local' &&
+    !writesToAgentHost(file_path, context.permissionContext?.extraWriteRoots)
+  )
+}
+
+function validateEdit(
+  input: EditInput,
+  cwd: string,
+  context: ToolContext,
+): ValidationResult {
+  const fail = (message: string): ValidationResult => ({
+    result: false,
+    message,
+  })
+  const stringsError = editStringsError(input.old_string, input.new_string)
+  if (stringsError) return fail(stringsError)
+
+  // Reading a remote file costs a round trip that execute pays anyway; it
+  // reports the same errors.
+  if (editsRemoteFile(input.file_path, context)) return { result: true }
+
+  const resolved = resolvePath(cwd, input.file_path)
+  if ('error' in resolved) return fail(resolved.error || 'Invalid path')
+  const { abs } = resolved
+
+  // A path the policy refuses is left to the permission check, so a refusal
+  // says nothing about what is at that path.
+  const policy = policyFromContext(cwd, context.permissionContext)
+  const access = checkWritePermission(abs, policy, EDIT_FILE_TOOL_NAME)
+  const mayInspect =
+    access.behavior === 'allow' ||
+    (access.behavior === 'ask' && policy.mode !== 'dontAsk')
+  if (!mayInspect) return { result: true }
+
+  if (!fs.existsSync(abs)) {
+    return fail(`Error: file not found: ${input.file_path}`)
+  }
+  if (fs.statSync(abs).isDirectory()) {
+    return fail(`Error: ${input.file_path} is a directory`)
+  }
+  const plan = planEdit(fs.readFileSync(abs, 'utf-8'), input)
+  return 'error' in plan ? fail(plan.error) : { result: true }
+}
+
 export const definition: ToolDefinition = {
   name: EDIT_FILE_TOOL_NAME,
   description: 'Make targeted edits by replacing specific text in a file',
@@ -60,6 +166,9 @@ export const definition: ToolDefinition = {
   },
   getPath(input) {
     return filePathFromInput(input, ['file_path'])
+  },
+  validateInput(input, { cwd, context }) {
+    return validateEdit(input as EditInput, cwd, context)
   },
   mapToolResultToToolResultBlockParam(output, toolUseID) {
     const o = output as EditFileOutput
@@ -91,29 +200,14 @@ export const definition: ToolDefinition = {
           .optional()
           .describe('Replace all occurrences (default: false)'),
       }),
-      execute: async ({
-        file_path,
-        old_string,
-        new_string,
-        replace_all = false,
-      }: {
-        file_path: string
-        old_string: string
-        new_string: string
-        replace_all?: boolean
-      }) => {
+      execute: async (input: EditInput) => {
+        const { file_path, old_string, new_string, replace_all = false } = input
+        const stringsError = editStringsError(old_string, new_string)
         const execution = context.execution
         // Local Worker: FS path + sandbox (extraWriteRoots for auto-memory).
         // Remote SSH: Worker RPC + assertInWorkspace.
         // Match FileReadTool: gate on environmentId only.
-        const useRemoteFs =
-          !!execution &&
-          execution.environmentId !== 'local' &&
-          !writesToAgentHost(
-            file_path,
-            context.permissionContext?.extraWriteRoots,
-          )
-        if (useRemoteFs && execution) {
+        if (editsRemoteFile(file_path, context) && execution) {
           try {
             const abs = execution.resolve(cwd, file_path)
             execution.assertInWorkspace(cwd, abs, 'write')
@@ -123,29 +217,11 @@ export const definition: ToolDefinition = {
             if (await execution.isDirectory(abs)) {
               return `Error: ${file_path} is a directory`
             }
-            if (old_string === new_string) {
-              return `Error: old_string and new_string are identical`
-            }
-            if (!old_string) {
-              return `Error: old_string cannot be empty — use write_file to create files`
-            }
+            if (stringsError) return stringsError
             const content = await execution.readText(abs)
-            let search = old_string
-            let matchCount = countOccurrences(content, search)
-            if (matchCount === 0) {
-              const fuzzyResult = fuzzyFind(content, old_string)
-              if (!fuzzyResult) {
-                return `Error: old_string not found in ${file_path}. Make sure it matches exactly (including whitespace and indentation).`
-              }
-              search = fuzzyResult
-              matchCount = countOccurrences(content, search)
-            }
-            if (matchCount > 1 && !replace_all) {
-              return `Error: found ${matchCount} matches in ${file_path}. Include more context or set replace_all: true.`
-            }
-            const newContent = replace_all
-              ? content.replaceAll(search, new_string)
-              : content.replace(search, new_string)
+            const plan = planEdit(content, input)
+            if ('error' in plan) return plan.error
+            const { matchCount, newContent } = plan
             await execution.writeText(abs, newContent)
             if (isWorkerExecutionBackend(execution)) {
               try {
@@ -191,32 +267,13 @@ export const definition: ToolDefinition = {
         if (!fs.existsSync(abs)) return `Error: file not found: ${file_path}`
         if (fs.statSync(abs).isDirectory())
           return `Error: ${file_path} is a directory`
-        if (old_string === new_string)
-          return `Error: old_string and new_string are identical`
-        if (!old_string)
-          return `Error: old_string cannot be empty — use write_file to create files`
+        if (stringsError) return stringsError
 
+        // The file may have changed since validateInput looked at it.
         const content = fs.readFileSync(abs, 'utf-8')
-
-        let search = old_string
-        let matchCount = countOccurrences(content, search)
-
-        if (matchCount === 0) {
-          const fuzzyResult = fuzzyFind(content, old_string)
-          if (!fuzzyResult) {
-            return `Error: old_string not found in ${file_path}. Make sure it matches exactly (including whitespace and indentation).`
-          }
-          search = fuzzyResult
-          matchCount = countOccurrences(content, search)
-        }
-
-        if (matchCount > 1 && !replace_all) {
-          return `Error: found ${matchCount} matches in ${file_path}. Include more context or set replace_all: true.`
-        }
-
-        const newContent = replace_all
-          ? content.replaceAll(search, new_string)
-          : content.replace(search, new_string)
+        const plan = planEdit(content, input)
+        if ('error' in plan) return plan.error
+        const { matchCount, newContent } = plan
 
         fs.writeFileSync(abs, newContent, 'utf-8')
         recordWriteInState(

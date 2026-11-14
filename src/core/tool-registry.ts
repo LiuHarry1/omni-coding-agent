@@ -5,6 +5,7 @@ import type {
   AnyTool,
 } from './types.js'
 import { computeToolEnabled, isDeferredTool } from './tool-enablement.js'
+import { defineTool, instantiateTool } from './tool-definition.js'
 
 export interface SplitTools {
   /** Tools sent to the API on every request. */
@@ -30,7 +31,7 @@ export class ToolRegistry implements IToolRegistry {
   }
 
   register(def: ToolDefinition): void {
-    this.#tools.set(def.name, def)
+    this.#tools.set(def.name, defineTool(def))
   }
 
   get(name: string): ToolDefinition | undefined {
@@ -54,16 +55,7 @@ export class ToolRegistry implements IToolRegistry {
       if (only && !only.includes(name)) continue
       if (!computeToolEnabled(name, def, context.toolEnablement)) continue
 
-      const instance = def.create(cwd, context)
-      if (
-        context.middleware &&
-        typeof (instance as any).execute === 'function'
-      ) {
-        const wrapped = context.middleware.wrap(name, (instance as any).execute)
-        tools[name] = { ...instance, execute: wrapped } as AnyTool
-      } else {
-        tools[name] = instance
-      }
+      tools[name] = this.#createInstance(name, def, cwd, context)
     }
     return tools
   }
@@ -116,7 +108,7 @@ export class ToolRegistry implements IToolRegistry {
     cwd: string,
     context: ToolContext,
   ): AnyTool {
-    const instance = def.create(cwd, context)
+    const instance = instantiateTool(def, cwd, context)
     if (context.middleware && typeof (instance as any).execute === 'function') {
       const wrapped = context.middleware.wrap(name, (instance as any).execute)
       return { ...instance, execute: wrapped } as AnyTool

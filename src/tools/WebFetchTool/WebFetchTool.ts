@@ -94,6 +94,7 @@ export function createWebFetchDefinition(
     description: 'Fetch a URL and process its content with a prompt',
     shouldDefer: true,
     isConcurrencySafe: () => true,
+    isReadOnly: () => true,
     // Mode A -- model gets the processed result; UI gets size/status chrome.
     outputSchema: WebFetchOutputSchema,
     mapToolResultToToolResultBlockParam(output, toolUseID) {
