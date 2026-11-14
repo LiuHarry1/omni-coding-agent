@@ -16,6 +16,10 @@ describe('query incomplete stream handling', () => {
     const result = await query(h.options)
 
     expect(result.reason).toBe('error')
+    expect(result.terminal).toEqual({
+      reason: 'model_error',
+      error: 'Upstream stream ended before tool arguments completed.',
+    })
     expect(h.deps.postTurn).not.toHaveBeenCalled()
     expect(h.resultEvents()).toEqual([
       expect.objectContaining({

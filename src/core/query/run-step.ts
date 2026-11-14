@@ -283,7 +283,13 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           toolUse: false,
           signal: abortSignal,
         })
-        return { ...stepResult, aborted: true, toolCalls: [], toolResults: [] }
+        return {
+          ...stepResult,
+          aborted: true,
+          abortPhase: 'streaming',
+          toolCalls: [],
+          toolResults: [],
+        }
       }
 
       if (streamingExecutor) {
@@ -336,7 +342,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           toolUse: true,
           signal: abortSignal,
         })
-        return { ...stepResult, aborted: true }
+        return { ...stepResult, aborted: true, abortPhase: 'tools' }
       }
 
       let usage: AttachedTokenUsage = {}
@@ -398,6 +404,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           toolResults: [],
           completedCleanly: false,
           aborted: true,
+          abortPhase: 'streaming',
         }
       }
       // First shrink max_tokens and retry the same request. If the remaining

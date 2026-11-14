@@ -10,6 +10,10 @@ const toolCall = (toolName: string) => ({
   toolName,
   input: {},
 })
+const recovery = (attempt: number) => ({
+  reason: 'max_output_tokens_recovery',
+  attempt,
+})
 
 async function run(steps: StepScript[], opts: { cap?: number } = {}) {
   const h = createQueryHarness({
@@ -44,9 +48,9 @@ describe('query output-limit truncation recovery', () => {
       { text: 'ld!' },
     ])
 
-    expect(result.reason).toBe('completed')
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([recovery(1)])
     expect(result.finalText).toBe('Hello world!')
-    expect(deps.runStep).toHaveBeenCalledTimes(2)
     expect(deps.postTurn).toHaveBeenCalledTimes(2)
     expect(reminders).toHaveLength(1)
     expect(reminders[0]!.continuation).toBe('max_output_tokens')
@@ -78,16 +82,11 @@ describe('query output-limit truncation recovery', () => {
       truncatedToolNames: ['Write'],
       toolCalls: [toolCall('Write')],
     }
-    const { result, reminders, deps } = await run([
-      cutCall,
-      cutCall,
-      cutCall,
-      cutCall,
-    ])
+    const { result } = await run([cutCall, cutCall, cutCall, cutCall])
 
     expect(result.reason).toBe('error')
-    expect(deps.runStep).toHaveBeenCalledTimes(4)
-    expect(reminders).toHaveLength(3)
+    expect(result.terminal).toEqual({ reason: 'max_output_tokens' })
+    expect(result.transitions).toEqual([recovery(1), recovery(2), recovery(3)])
   })
 
   it('needs no reminder when the cut only followed complete tool calls', async () => {
@@ -95,7 +94,7 @@ describe('query output-limit truncation recovery', () => {
       truncated: true,
       toolCalls: [toolCall('Read')],
     }
-    const { result, reminders, deps } = await run([
+    const { result, reminders } = await run([
       ranTools,
       ranTools,
       ranTools,
@@ -103,8 +102,8 @@ describe('query output-limit truncation recovery', () => {
       { text: 'Done.' },
     ])
 
-    expect(result.reason).toBe('completed')
-    expect(deps.runStep).toHaveBeenCalledTimes(5)
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual(Array(4).fill({ reason: 'next_turn' }))
     expect(reminders).toHaveLength(0)
   })
 
@@ -117,6 +116,7 @@ describe('query output-limit truncation recovery', () => {
     ])
 
     expect(result.reason).toBe('error')
+    expect(result.terminal).toEqual({ reason: 'max_output_tokens' })
     expect(deps.runStep).toHaveBeenCalledTimes(4)
     expect(result.finalText).toBe('abcd')
     expect(resultEvents()).toEqual([
@@ -127,7 +127,7 @@ describe('query output-limit truncation recovery', () => {
   })
 
   it('resets the budget once a step finishes normally', async () => {
-    const { result, deps } = await run([
+    const { result } = await run([
       truncatedText('a'),
       truncatedText('b'),
       { toolCalls: [toolCall('Read')] },
@@ -137,8 +137,15 @@ describe('query output-limit truncation recovery', () => {
       { text: 'f' },
     ])
 
-    expect(result.reason).toBe('completed')
-    expect(deps.runStep).toHaveBeenCalledTimes(7)
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([
+      recovery(1),
+      recovery(2),
+      { reason: 'next_turn' },
+      recovery(1),
+      recovery(2),
+      recovery(3),
+    ])
   })
 
   it('raises max_tokens for continuations only when the model declares a higher cap', async () => {

@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { query } from './query.js'
 import { createQueryHarness, type StepScript } from './query-test-harness.js'
-import {
-  isRoleMessage,
-  type AnyTool,
-  type Message,
-  type TodoItem,
-} from './types.js'
+import type { AnyTool, TodoItem } from './types.js'
 
 const toolStep = (toolName: string): StepScript => ({
   toolCalls: [{ toolCallId: `call-${toolName}`, toolName, input: {} }],
@@ -20,16 +15,6 @@ const openTodos: TodoItem[] = [
 const subtypes = (events: Array<Record<string, unknown>>) =>
   events.map(event => event.subtype)
 
-function kickoffReminders(messages: readonly Message[]): Message[] {
-  return messages.filter(
-    m =>
-      isRoleMessage(m) &&
-      m.role === 'user' &&
-      typeof m.content === 'string' &&
-      m.content.includes('The user approved your plan'),
-  )
-}
-
 describe('query loop: approved plan', () => {
   it('pushes the model to implement when it only replies with text', async () => {
     const h = createQueryHarness()
@@ -42,9 +27,16 @@ describe('query loop: approved plan', () => {
 
     const result = await query(h.options)
 
-    expect(result.reason).toBe('completed')
-    expect(h.deps.runStep).toHaveBeenCalledTimes(3)
-    expect(kickoffReminders(result.messages)).toHaveLength(1)
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([
+      { reason: 'next_turn' },
+      { reason: 'plan_build_kickoff' },
+    ])
+    // The reminder sits between the text-only reply and the final step.
+    expect(result.messages.at(-2)).toMatchObject({
+      role: 'user',
+      content: expect.stringContaining('The user approved your plan'),
+    })
     expect(result.finalText).toBe('Done.')
   })
 
@@ -59,9 +51,11 @@ describe('query loop: approved plan', () => {
 
     const result = await query(h.options)
 
-    expect(result.reason).toBe('completed')
-    expect(h.deps.runStep).toHaveBeenCalledTimes(3)
-    expect(kickoffReminders(result.messages)).toHaveLength(0)
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([
+      { reason: 'next_turn' },
+      { reason: 'next_turn' },
+    ])
   })
 
   it('ignores a plan that was not approved', async () => {
@@ -72,8 +66,8 @@ describe('query loop: approved plan', () => {
 
     const result = await query(h.options)
 
-    expect(h.deps.runStep).toHaveBeenCalledTimes(2)
-    expect(kickoffReminders(result.messages)).toHaveLength(0)
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([{ reason: 'next_turn' }])
   })
 })
 
@@ -87,6 +81,7 @@ describe('query loop: abort', () => {
     const result = await query(h.options)
 
     expect(result.reason).toBe('aborted')
+    expect(result.terminal).toEqual({ reason: 'aborted_streaming' })
     expect(h.deps.preTurn).not.toHaveBeenCalled()
     expect(h.deps.runStep).not.toHaveBeenCalled()
     expect(h.resultEvents()).toHaveLength(0)
@@ -103,7 +98,7 @@ describe('query loop: abort', () => {
 
     const result = await query(h.options)
 
-    expect(result.reason).toBe('aborted')
+    expect(result.terminal).toEqual({ reason: 'aborted_streaming' })
     expect(h.deps.preTurn).toHaveBeenCalledTimes(1)
     expect(h.deps.runStep).not.toHaveBeenCalled()
     expect(h.resultEvents()).toHaveLength(0)
@@ -111,17 +106,31 @@ describe('query loop: abort', () => {
 
   it('stops when the step reports an abort and leaves todos open', async () => {
     const h = createQueryHarness()
-    h.scriptSteps([{ text: 'Partial ans', aborted: true }], () => {
-      h.eventBus.emit('todo_update', { todos: openTodos })
-    })
+    h.scriptSteps(
+      [{ text: 'Partial ans', aborted: true, abortPhase: 'streaming' }],
+      () => {
+        h.eventBus.emit('todo_update', { todos: openTodos })
+      },
+    )
 
     const result = await query(h.options)
 
     expect(result.reason).toBe('aborted')
+    expect(result.terminal).toEqual({ reason: 'aborted_streaming' })
     expect(result.finalText).toBe('Partial ans')
     expect(h.deps.postTurn).not.toHaveBeenCalled()
     expect(h.resultEvents()).toHaveLength(0)
     expect(h.todoUpdates).toHaveLength(1)
+  })
+
+  it('tells an abort after the tools ran from one mid-response', async () => {
+    const h = createQueryHarness()
+    h.scriptSteps([{ ...toolStep('Bash'), aborted: true, abortPhase: 'tools' }])
+
+    const result = await query(h.options)
+
+    expect(result.reason).toBe('aborted')
+    expect(result.terminal).toEqual({ reason: 'aborted_tools' })
   })
 })
 
@@ -136,6 +145,11 @@ describe('query loop: step limit', () => {
     const result = await query(h.options)
 
     expect(result.reason).toBe('max_steps')
+    expect(result.terminal).toEqual({
+      reason: 'max_turns',
+      turnCount: 3,
+      summarized: true,
+    })
     expect(result.finalText).toBe('Summary so far.')
     expect(h.deps.runStep).toHaveBeenCalledTimes(2)
     expect(h.deps.forceFinalAnswerOnMaxSteps).toHaveBeenCalledTimes(1)
@@ -151,6 +165,11 @@ describe('query loop: step limit', () => {
     const result = await query(h.options)
 
     expect(result.reason).toBe('max_steps')
+    expect(result.terminal).toEqual({
+      reason: 'max_turns',
+      turnCount: 2,
+      summarized: false,
+    })
     expect(subtypes(h.resultEvents())).toEqual(['error', 'success'])
     expect(h.resultEvents()[0]).toMatchObject({
       error: 'Reached max steps (1)',
@@ -163,7 +182,7 @@ describe('query loop: step limit', () => {
 
     const result = await query(h.options)
 
-    expect(result.reason).toBe('completed')
+    expect(result.terminal).toEqual({ reason: 'completed' })
     expect(h.deps.forceFinalAnswerOnMaxSteps).not.toHaveBeenCalled()
   })
 })

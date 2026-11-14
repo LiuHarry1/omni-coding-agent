@@ -27,6 +27,8 @@ export interface StreamResult {
   completionError?: string
   /** True when the upstream stream was aborted mid-turn (salvage path). */
   aborted?: boolean
+  /** Where the abort landed: mid-response, or after the step's tools ran. */
+  abortPhase?: 'streaming' | 'tools'
   /** Provider stopped at the output token limit (`finishReason: 'length'`). */
   truncated?: boolean
   /** Tools whose arguments were cut off by the limit; they never ran. */

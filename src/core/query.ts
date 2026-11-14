@@ -22,6 +22,7 @@ import {
 import { productionDeps } from './query/deps.js'
 import { emitTurnEnd } from './query/post-turn.js'
 import { createDumpRecorder } from './query/run-step.js'
+import type { Continue, Terminal } from './query/transitions.js'
 import {
   BASH_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
@@ -37,6 +38,38 @@ const PLAN_IMPLEMENTATION_TOOLS = new Set([
   BASH_TOOL_NAME,
   TODO_WRITE_TOOL_NAME,
 ])
+
+/**
+ * Everything the loop carries from one iteration to the next. Each continue
+ * site assigns a whole new value, so a new field has to be decided at every one.
+ */
+type State = {
+  /** 1-based; the step index on the wire and in logs is `turnCount - 1`. */
+  turnCount: number
+  /** Consecutive steps that stopped at the output token limit. */
+  maxOutputTokensRecoveryCount: number
+  /** Raised output cap for continuations; undefined uses the default. */
+  maxOutputTokensOverride: number | undefined
+  /** Text of the latest step that produced any. */
+  finalText: string
+  /** Why the previous iteration continued; undefined on the first. */
+  transition: Continue | undefined
+}
+
+function stopReasonOf(terminal: Terminal): QueryStopReason {
+  switch (terminal.reason) {
+    case 'completed':
+      return 'completed'
+    case 'aborted_streaming':
+    case 'aborted_tools':
+      return 'aborted'
+    case 'max_turns':
+      return 'max_steps'
+    case 'model_error':
+    case 'max_output_tokens':
+      return 'error'
+  }
+}
 
 /**
  * Unified agent query loop.
@@ -82,7 +115,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const provider = configuredProvider
   const resolvedModel = model ?? provider.defaultModelId()
 
-  let finalText = ''
   let currentTodos: TodoItem[] = []
   const unsubTodo = eventBus.on('todo_update', data => {
     currentTodos = (data as { todos: TodoItem[] }).todos
@@ -96,9 +128,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const toolPolicy: ConcurrencyPolicyFn = concurrencyPolicy ?? (() => false)
   let activeSystemPrompt = systemPrompt
   let planBuildPending = false
-  /** Consecutive steps that stopped at the output token limit. */
-  let truncationRecoveries = 0
-  let outputTokensOverride: number | undefined
 
   const compactEnrichment: CompactEnrichment | undefined = toolUseContext
     ? {
@@ -143,10 +172,58 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       : Number.POSITIVE_INFINITY
 
   const dumpPrompts = createDumpRecorder(sessionId, logLabel)
-  const finalizeQuery = (
-    reason: QueryStopReason,
+
+  let state: State = {
+    turnCount: 1,
+    maxOutputTokensRecoveryCount: 0,
+    maxOutputTokensOverride: undefined,
+    finalText: '',
+    transition: undefined,
+  }
+  const transitions: Continue[] = []
+
+  /**
+   * The only way out of the loop: reports the outcome on the wire, then
+   * returns it. `reported` skips the wire when `runStep` already did it.
+   */
+  const finish = (
+    terminal: Terminal,
     text: string,
+    reported = false,
   ): QueryResult => {
+    if (!reported) {
+      switch (terminal.reason) {
+        case 'completed':
+          autoCompleteTodos(currentTodos, eventBus, wire)
+          wire.done()
+          break
+        case 'max_turns':
+          if (!terminal.summarized) {
+            wire.error(`Reached max steps (${stepLimit})`)
+          }
+          wire.done()
+          break
+        case 'model_error':
+          wire.error(terminal.error)
+          break
+        case 'max_output_tokens': {
+          const hits = state.maxOutputTokensRecoveryCount + 1
+          wire.error(
+            `The response stopped at the output token limit ${hits} times in a row and is incomplete. ` +
+              'Ask for the remaining part, or split the task into smaller pieces.' +
+              (state.maxOutputTokensOverride === undefined
+                ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
+                : ''),
+          )
+          break
+        }
+        case 'aborted_streaming':
+        case 'aborted_tools':
+          // The interrupt marker was written where the abort was noticed.
+          break
+      }
+    }
+    const reason = stopReasonOf(terminal)
     emitTurnEnd(
       sessionId,
       onTurnEnd,
@@ -161,19 +238,61 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       },
       reason,
     )
-    return { finalText: text, messages, reason }
+    return { finalText: text, messages, reason, terminal, transitions }
   }
 
   try {
-    for (let step = 0; step < stepLimit; step++) {
-      if (abortSignal?.aborted) {
-        const text = finalizeInterruptedTurn(messages, wire, {
-          toolUse: false,
-          finalText,
-          signal: abortSignal,
+    while (true) {
+      const {
+        turnCount,
+        maxOutputTokensRecoveryCount,
+        maxOutputTokensOverride,
+        finalText: priorText,
+        transition,
+      } = state
+      if (transition) transitions.push(transition)
+      const step = turnCount - 1
+
+      /** Abort noticed between requests: nothing in flight to salvage. */
+      const finishInterrupted = (): QueryResult =>
+        finish(
+          { reason: 'aborted_streaming' },
+          finalizeInterruptedTurn(messages, wire, {
+            toolUse: false,
+            finalText: priorText,
+            signal: abortSignal,
+          }),
+        )
+
+      if (turnCount > stepLimit) {
+        autoCompleteTodos(currentTodos, eventBus, wire)
+        const text = extractPartialResult(messages) ?? priorText
+        console.log(
+          `[agent] maxSteps=${stepLimit} reached — forcing final answer (tools disabled)`,
+        )
+        const summary = await deps.forceFinalAnswerOnMaxSteps({
+          messages,
+          systemPrompt: activeSystemPrompt,
+          provider,
+          resolvedModel,
+          eventBus,
+          wire,
+          step: stepLimit,
+          currentTodos,
+          cwd,
+          compaction,
+          sessionMemory,
+          sessionId,
+          onFullCompaction,
+          compactEnrichment,
         })
-        return finalizeQuery('aborted', text)
+        return finish(
+          { reason: 'max_turns', turnCount, summarized: summary !== '' },
+          summary || text,
+        )
       }
+
+      if (abortSignal?.aborted) return finishInterrupted()
       wire.stepStart(step)
       const stepStart = Date.now()
 
@@ -198,14 +317,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         tools: activeTools,
       })
 
-      if (abortSignal?.aborted) {
-        const text = finalizeInterruptedTurn(messages, wire, {
-          toolUse: false,
-          finalText,
-          signal: abortSignal,
-        })
-        return finalizeQuery('aborted', text)
-      }
+      if (abortSignal?.aborted) return finishInterrupted()
 
       wire.turnState('requesting', 'model.request', 'Waiting for model')
       const stepResult = await deps.runStep({
@@ -236,26 +348,29 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         dumpPrompts,
         runAgent,
         turnProfiler,
-        maxOutputTokensOverride: outputTokensOverride,
+        maxOutputTokensOverride,
       })
 
       if (stepResult === null) {
-        if (abortSignal?.aborted) {
-          const text = finalizeInterruptedTurn(messages, wire, {
-            toolUse: false,
-            finalText,
-            signal: abortSignal,
-          })
-          return finalizeQuery('aborted', text)
-        }
-        const text = extractPartialResult(messages) ?? finalText
-        return finalizeQuery('error', text)
+        if (abortSignal?.aborted) return finishInterrupted()
+        return finish(
+          { reason: 'model_error', error: 'Upstream stream failed' },
+          extractPartialResult(messages) ?? priorText,
+          true,
+        )
       }
 
       if (stepResult.aborted) {
-        const text =
-          extractPartialResult(messages) ?? (finalText || stepResult.text || '')
-        return finalizeQuery('aborted', text)
+        return finish(
+          {
+            reason:
+              stepResult.abortPhase === 'tools'
+                ? 'aborted_tools'
+                : 'aborted_streaming',
+          },
+          extractPartialResult(messages) ??
+            (priorText || stepResult.text || ''),
+        )
       }
 
       // A truncated step is recoverable even when a tool input was cut off:
@@ -265,13 +380,16 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         // Persist that valid prefix, but never turn an interrupted stream into
         // a successful turn or replay tools that may already have side effects.
         await onStepCommitted?.(messages)
-        const text =
-          extractPartialResult(messages) ?? (finalText || stepResult.text || '')
-        wire.error(
-          stepResult.completionError ??
-            'Upstream stream ended before the response completed.',
+        return finish(
+          {
+            reason: 'model_error',
+            error:
+              stepResult.completionError ??
+              'Upstream stream ended before the response completed.',
+          },
+          extractPartialResult(messages) ??
+            (priorText || stepResult.text || ''),
         )
-        return finalizeQuery('error', text)
       }
 
       // Tools are settled; show planning while the step is committed so the UI
@@ -297,8 +415,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       })
       await onStepCommitted?.(messages)
 
-      const { text, toolCalls } = stepResult
-      if (text) finalText = text
+      const { toolCalls } = stepResult
+      const finalText = stepResult.text || priorText
 
       if (
         planBuildPending &&
@@ -316,101 +434,80 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         stepResult.truncated &&
         (toolCalls.length === 0 || !!stepResult.truncatedToolNames?.length)
       if (cutOff) {
-        if (truncationRecoveries >= MAX_TRUNCATION_RECOVERIES) {
+        if (maxOutputTokensRecoveryCount >= MAX_TRUNCATION_RECOVERIES) {
           console.warn(
-            `[${agentLogTag(logLabel)}] output token limit hit ${truncationRecoveries + 1} times in a row -- giving up`,
+            `[${agentLogTag(logLabel)}] output token limit hit ${maxOutputTokensRecoveryCount + 1} times in a row -- giving up`,
           )
-          wire.error(
-            `The response stopped at the output token limit ${truncationRecoveries + 1} times in a row and is incomplete. ` +
-              'Ask for the remaining part, or split the task into smaller pieces.' +
-              (outputTokensOverride === undefined
-                ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
-                : ''),
-          )
-          return finalizeQuery(
-            'error',
+          return finish(
+            { reason: 'max_output_tokens' },
             extractPartialResult(messages) ?? finalText,
           )
         }
-        truncationRecoveries++
-        outputTokensOverride ??= escalatedMaxOutputTokens(
-          compaction?.maxOutputTokens ?? getMaxOutputTokens(),
-          provider.maxOutputTokenCap?.(),
-        )
+        const attempt = maxOutputTokensRecoveryCount + 1
+        const override =
+          maxOutputTokensOverride ??
+          escalatedMaxOutputTokens(
+            compaction?.maxOutputTokens ?? getMaxOutputTokens(),
+            provider.maxOutputTokenCap?.(),
+          )
         messages.push(buildTruncationReminder(stepResult.truncatedToolNames))
         console.log(
-          `[${agentLogTag(logLabel)}] output token limit hit -- continuation ${truncationRecoveries}/${MAX_TRUNCATION_RECOVERIES}` +
+          `[${agentLogTag(logLabel)}] output token limit hit -- continuation ${attempt}/${MAX_TRUNCATION_RECOVERIES}` +
             (stepResult.truncatedToolNames?.length
               ? ` (dropped tool input: ${stepResult.truncatedToolNames.join(', ')})`
               : '') +
-            (outputTokensOverride
-              ? `, maxOutputTokens=${outputTokensOverride}`
-              : ''),
+            (override ? `, maxOutputTokens=${override}` : ''),
         )
         wire.thinking()
+        state = {
+          turnCount: turnCount + 1,
+          maxOutputTokensRecoveryCount: attempt,
+          maxOutputTokensOverride: override,
+          finalText,
+          transition: { reason: 'max_output_tokens_recovery', attempt },
+        }
         continue
       }
-      truncationRecoveries = 0
-      outputTokensOverride = undefined
 
       if (toolCalls.length === 0) {
-        if (planBuildPending) {
-          planBuildPending = false
-          messages.push(
-            ensureMessageUuid({
-              role: 'user',
-              content: `<system-reminder>
+        if (!planBuildPending) {
+          return finish(
+            { reason: 'completed' },
+            extractPartialResult(messages) ?? finalText,
+          )
+        }
+        planBuildPending = false
+        messages.push(
+          ensureMessageUuid({
+            role: 'user',
+            content: `<system-reminder>
 The user approved your plan and expects implementation to start now.
 Do not reply with a summary or status update only -- call TodoWrite, Write, Edit, or Bash to make the first code change from the approved plan.
 </system-reminder>`,
-            }),
-          )
-          console.log(
-            '[agent] plan approved but no tools called -- forcing implementation step',
-          )
-          wire.thinking()
-          continue
+          }),
+        )
+        console.log(
+          '[agent] plan approved but no tools called -- forcing implementation step',
+        )
+        wire.thinking()
+        state = {
+          turnCount: turnCount + 1,
+          maxOutputTokensRecoveryCount: 0,
+          maxOutputTokensOverride: undefined,
+          finalText,
+          transition: { reason: 'plan_build_kickoff' },
         }
-        autoCompleteTodos(currentTodos, eventBus, wire)
-        wire.done()
-        const completedText = extractPartialResult(messages) ?? finalText
-        return finalizeQuery('completed', completedText)
+        continue
       }
-    }
 
-    autoCompleteTodos(currentTodos, eventBus, wire)
-    let text = extractPartialResult(messages) ?? finalText
-    if (typeof maxSteps === 'number' && maxSteps > 0) {
-      console.log(
-        `[agent] maxSteps=${maxSteps} reached — forcing final answer (tools disabled)`,
-      )
-      const summary = await deps.forceFinalAnswerOnMaxSteps({
-        messages,
-        systemPrompt: activeSystemPrompt,
-        provider,
-        resolvedModel,
-        eventBus,
-        wire,
-        step: maxSteps,
-        currentTodos,
-        cwd,
-        compaction,
-        sessionMemory,
-        sessionId,
-        onFullCompaction,
-        compactEnrichment,
-      })
-      if (summary) {
-        text = summary
-        finalText = summary
-      } else {
-        wire.error(`Reached max steps (${maxSteps})`)
+      state = {
+        turnCount: turnCount + 1,
+        maxOutputTokensRecoveryCount: 0,
+        maxOutputTokensOverride: undefined,
+        finalText,
+        transition: { reason: 'next_turn' },
       }
-      wire.done()
-      return finalizeQuery('max_steps', text)
     }
-    wire.done()
-    return finalizeQuery('completed', text)
   } finally {
     unsubPlanReady()
     unsubMode()
