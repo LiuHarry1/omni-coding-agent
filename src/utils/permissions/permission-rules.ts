@@ -1,8 +1,9 @@
 /**
  * Permission rules: `Tool` or `Tool(pattern)`.
  *
- * File-tool subset only (Read / Grep / Glob / LSP / Edit / Write).
- * Bash / PowerShell strings are parsed but ignored by the filesystem checker.
+ * Path matching here serves the file tools (Read / Grep / Glob / LSP / Edit /
+ * Write). Bash / PowerShell rules share the `Tool(content)` syntax and are
+ * matched against commands in `tools/BashTool/bashPermissions.ts`.
  */
 import ignore from 'ignore'
 import * as os from 'os'

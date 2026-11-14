@@ -158,6 +158,8 @@ const PermissionsSchema = z.object({
   allow: z.array(z.string()).optional(),
   /** `Tool` / `Tool(pattern)` rules that always deny (deny wins). */
   deny: z.array(z.string()).optional(),
+  /** Shell rules that always ask, e.g. `Bash(git push:*)`. Ask wins over allow. */
+  ask: z.array(z.string()).optional(),
   /**
    * Filesystem defaultMode (implemented subset).
    * `default` → ask outside; `dontAsk` → deny outside;

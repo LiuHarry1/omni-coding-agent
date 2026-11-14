@@ -145,8 +145,10 @@
 
   "permissions": {
     "defaultMode": "dontAsk",
-    "allow": ["Read(docs/**)"],
+    "allow": ["Read(docs/**)", "Bash(npm run:*)", "Bash(git commit *)"],
+    "ask": ["Bash(git push:*)"],
     "deny": [
+      "Bash(rm -rf:*)",
       "Read(.env)",
       "Read(.env.*)",
       "Read(**/.env)",

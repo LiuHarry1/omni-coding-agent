@@ -60,6 +60,8 @@ export function bubbleToPart(b) {
         toolName: b.toolName,
         title: b.title,
         description: b.description,
+        command: b.command,
+        alwaysRules: b.alwaysRules,
         status: b.status,
         decision: b.decision,
       }
@@ -304,6 +306,8 @@ export function messagesToBubbles(messages) {
           toolName: part.toolName,
           title: part.title,
           description: part.description,
+          command: part.command,
+          alwaysRules: part.alwaysRules,
           status: part.status,
           decision: part.decision,
         })

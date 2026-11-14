@@ -212,6 +212,10 @@ export function canUseToolRequest(input: {
   input: Record<string, unknown>
   title?: string
   description?: string
+  /** Shell command awaiting approval. */
+  command?: string
+  /** Rules "Always allow" would add; absent for path prompts. */
+  always_rules?: string[]
 }): ControlRequest {
   return {
     type: 'control_request',
@@ -223,6 +227,10 @@ export function canUseToolRequest(input: {
       input: input.input,
       title: input.title,
       description: input.description,
+      ...(input.command !== undefined ? { command: input.command } : {}),
+      ...(input.always_rules !== undefined
+        ? { always_rules: input.always_rules }
+        : {}),
     },
   }
 }

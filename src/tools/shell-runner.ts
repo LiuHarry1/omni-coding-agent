@@ -6,7 +6,15 @@ import type {
   ToolDefinition,
   ToolContext,
 } from '../core/types.js'
-import { isShellInputConcurrencySafe } from '../core/shell/shell-readonly.js'
+import {
+  isShellCommandReadOnly,
+  isShellInputConcurrencySafe,
+} from '../core/shell/shell-readonly.js'
+import { checkShellCommandPermission } from './BashTool/bashPermissions.js'
+import {
+  policyFromContext,
+  type ToolPermissionDecision,
+} from '../utils/permissions/filesystem.js'
 import { runShellCommand, type ShellKind } from '../core/shell/spawn-shell.js'
 import { spawnShellTask } from '../tasks/LocalShellTask/LocalShellTask.js'
 import {
@@ -83,6 +91,11 @@ function unknownWorkerOutcome(): DualChannelToolResult<ShellToolOutput> {
 
 const PROGRESS_INTERVAL_MS = 2_000
 
+function commandOf(input: unknown): string {
+  const command = (input as { command?: unknown } | null)?.command
+  return typeof command === 'string' ? command : ''
+}
+
 export interface ShellToolOptions {
   name: string
   description: string
@@ -98,7 +111,41 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
     name,
     description: briefDescription,
     isConcurrencySafe: isShellInputConcurrencySafe,
+    isReadOnly: input => isShellCommandReadOnly(commandOf(input)),
     interruptBehavior: () => 'block' as const,
+    checkPermissions(
+      input,
+      { cwd, permissionContext },
+    ): ToolPermissionDecision {
+      const command = commandOf(input)
+      if (!command.trim()) return { behavior: 'allow' }
+      const ctx = policyFromContext(cwd, permissionContext)
+      const result = checkShellCommandPermission(name, command, cwd, ctx)
+      switch (result.behavior) {
+        case 'allow':
+          return { behavior: 'allow' }
+        case 'deny':
+          return { behavior: 'deny', message: result.message }
+        case 'ask':
+          // A rule asked for this; no mode skips it.
+          return {
+            behavior: 'ask',
+            message: result.message,
+            command: command.trim(),
+            rules: [],
+            whenUnattended: 'deny',
+          }
+        case 'passthrough':
+          if (ctx.mode === 'bypassPermissions') return { behavior: 'allow' }
+          return {
+            behavior: 'ask',
+            message: result.message,
+            command: command.trim(),
+            rules: result.suggestions,
+            whenUnattended: 'allow',
+          }
+      }
+    },
     // Mode C — model may get wrappers in `text`; UI uses stdout/stderr
     outputSchema: ShellToolOutputSchema,
     mapToolResultToToolResultBlockParam(output, toolUseID) {
@@ -167,6 +214,18 @@ export function createShellTool(opts: ShellToolOptions): ToolDefinition {
 
           if (!command?.trim()) {
             return 'Error: provide `command` to run.'
+          }
+
+          // Deny rules hold on every path to this tool, including runs that
+          // do not go through the permission prompt.
+          const refused = checkShellCommandPermission(
+            name,
+            command,
+            cwd,
+            policyFromContext(cwd, context.permissionContext),
+          )
+          if (refused.behavior === 'deny') {
+            return `Error: ${refused.message}`
           }
 
           const sessionId = context.sessionId ?? 'default'

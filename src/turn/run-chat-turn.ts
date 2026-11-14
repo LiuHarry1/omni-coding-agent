@@ -789,6 +789,18 @@ export async function runChatTurn(
           )
         }
       }
+      const canUseTool = createCanUseTool({
+        cwd,
+        getDefinition: prepared.getToolDefinition,
+        permissionContext: prepared.toolContext.permissionContext,
+        session,
+        wire,
+        abortSignal: turnAbort.signal,
+        // A scheduled turn has nobody watching it.
+        interactive: !isMeta,
+      })
+      // Subagents ask through the same gate as the main agent.
+      prepared.toolContext.canUseTool = canUseTool
       finalText = await runAgent(prepared.effectiveMessage, {
         tools: prepared.tools,
         systemPrompt,
@@ -808,14 +820,7 @@ export async function runChatTurn(
         subagentNames: prepared.subagentNames,
         deferredToolPool: prepared.deferredToolPool,
         getToolDefinition: prepared.getToolDefinition,
-        canUseTool: createCanUseTool({
-          cwd,
-          getDefinition: prepared.getToolDefinition,
-          permissionContext: prepared.toolContext.permissionContext,
-          session,
-          wire,
-          abortSignal: turnAbort.signal,
-        }),
+        canUseTool,
         concurrencyPolicy: prepared.concurrencyPolicy,
         sessionId: session.id,
         turnProfiler: turnProfile,

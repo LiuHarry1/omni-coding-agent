@@ -541,6 +541,7 @@ function mergePermissionsConfig(
     ...new Set([...(base?.allow ?? []), ...(overlay?.allow ?? [])]),
   ]
   const deny = [...new Set([...(base?.deny ?? []), ...(overlay?.deny ?? [])])]
+  const ask = [...new Set([...(base?.ask ?? []), ...(overlay?.ask ?? [])])]
   const out: NonNullable<AppConfig['permissions']> = {
     ...(base ?? {}),
     ...(overlay ?? {}),
@@ -556,6 +557,8 @@ function mergePermissionsConfig(
   else delete out.allow
   if (deny.length > 0) out.deny = deny
   else delete out.deny
+  if (ask.length > 0) out.ask = ask
+  else delete out.ask
   return out
 }
 
@@ -1108,6 +1111,15 @@ export function persistAlwaysAllowDirectory(cwd: string, absDir: string): void {
   patchSettings(cwd, 'user', {
     permissions: { additionalDirectories: [path.resolve(absDir)] },
   })
+}
+
+/**
+ * Persist Always-allow command rules to the project's local settings
+ * (`permissions.allow`), which are not shared through version control.
+ */
+export function persistAlwaysAllowRules(cwd: string, rules: string[]): void {
+  if (rules.length === 0) return
+  patchSettings(cwd, 'local', { permissions: { allow: rules } })
 }
 
 export function setMCPServer(

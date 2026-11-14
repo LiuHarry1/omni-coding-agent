@@ -5,6 +5,11 @@
  *   - allow → execute
  *   - ask + dontAsk (SSO) → deny
  *   - ask + default (desktop) → control_request can_use_tool
+ *
+ * A shell command that needs approval follows the same route, except that
+ * where nobody can answer (`dontAsk`, scheduled turns) the tool says what
+ * happens instead: a command under an ask rule is refused, a command no rule
+ * mentions runs.
  */
 import { randomUUID } from 'crypto'
 import {
@@ -18,10 +23,14 @@ import {
   denyOutsideMessage,
   filePathFromInput,
   policyFromContext,
+  type CommandPermissionAsk,
   type FilesystemPermissionContext,
   type FsPermissionDecision,
 } from '../utils/permissions/filesystem.js'
-import { persistAlwaysAllowDirectory } from './settings-manager.js'
+import {
+  persistAlwaysAllowDirectory,
+  persistAlwaysAllowRules,
+} from './settings-manager.js'
 import { resolvePath } from '../tools/utils.js'
 import {
   registerPermission,
@@ -54,6 +63,8 @@ export type CreateCanUseToolOptions = {
   session?: Session
   wire: WireEmitter
   abortSignal?: AbortSignal
+  /** False when no person is attached to the turn (scheduled tasks). Default true. */
+  interactive?: boolean
 }
 
 function inputRecord(input: unknown): Record<string, unknown> {
@@ -102,6 +113,34 @@ function applyAlwaysAllow(
   }
 }
 
+function applyAlwaysAllowRules(
+  rules: string[],
+  permissionContext: FilesystemPermissionContext,
+  cwd: string,
+): void {
+  for (const rule of rules) {
+    if (!permissionContext.allow.includes(rule)) {
+      permissionContext.allow.push(rule)
+    }
+  }
+  try {
+    persistAlwaysAllowRules(cwd, rules)
+  } catch (err) {
+    console.warn(
+      `[permissions] failed to persist Always allow ${rules.join(', ')}: ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    )
+  }
+}
+
+function isCommandAsk(
+  decision:
+    Extract<FsPermissionDecision, { behavior: 'ask' }> | CommandPermissionAsk,
+): decision is CommandPermissionAsk {
+  return 'command' in decision
+}
+
 /**
  * Permission pipeline: checkPermissions → dontAsk maps ask to deny
  * → default mode prompts Allow / Always / Reject.
@@ -109,6 +148,7 @@ function applyAlwaysAllow(
 export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
   const { cwd, getDefinition, session, wire, abortSignal } = opts
   const permissionContext = opts.permissionContext ?? policyFromContext(cwd)
+  const interactive = opts.interactive ?? true
 
   return async (toolName, input, meta) => {
     const def = getDefinition?.(toolName)
@@ -123,14 +163,23 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
       return { behavior: 'deny', message: decision.message }
     }
 
-    const access = WRITE_TOOLS.has(toolName) ? 'write' : 'read'
-    if (permissionContext.mode === 'dontAsk') {
+    const commandAsk = isCommandAsk(decision) ? decision : undefined
+    const pathAsk = isCommandAsk(decision) ? undefined : decision
+
+    if (commandAsk && (permissionContext.mode === 'dontAsk' || !interactive)) {
+      if (commandAsk.whenUnattended === 'allow') return { behavior: 'allow' }
+      return {
+        behavior: 'deny',
+        message: `${toolName} needs approval to run ${commandAsk.command}, and nobody can be asked in this session.`,
+      }
+    }
+    if (pathAsk && permissionContext.mode === 'dontAsk') {
       return {
         behavior: 'deny',
         message: denyOutsideMessage(
-          decision.path,
+          pathAsk.path,
           permissionContext.root,
-          access,
+          WRITE_TOOLS.has(toolName) ? 'write' : 'read',
         ),
       }
     }
@@ -143,6 +192,9 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
       input: inputRecord(input),
       title: toolName,
       description: decision.message,
+      ...(commandAsk
+        ? { command: commandAsk.command, always_rules: commandAsk.rules }
+        : {}),
     })
 
     const result = await registerPermission(
@@ -165,17 +217,23 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
     if (answer.behavior === 'deny') {
       return {
         behavior: 'deny',
-        message: `User rejected ${toolName} on ${decision.path}.`,
+        message: commandAsk
+          ? `User rejected ${toolName} command ${commandAsk.command}.`
+          : `User rejected ${toolName} on ${pathAsk?.path}.`,
       }
     }
 
     if (answer.behavior === 'always') {
-      applyAlwaysAllow(
-        grantPath(cwd, def, input, decision),
-        permissionContext,
-        session,
-        cwd,
-      )
+      if (commandAsk) {
+        applyAlwaysAllowRules(commandAsk.rules, permissionContext, cwd)
+      } else if (pathAsk) {
+        applyAlwaysAllow(
+          grantPath(cwd, def, input, pathAsk),
+          permissionContext,
+          session,
+          cwd,
+        )
+      }
     }
 
     return { behavior: 'allow' }

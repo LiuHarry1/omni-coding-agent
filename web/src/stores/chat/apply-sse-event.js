@@ -220,6 +220,8 @@ export function applySseEvent(data, { set, get, mutators: m }) {
           toolName: data.request.tool_name,
           title: data.request.title,
           description: data.request.description,
+          command: data.request.command,
+          alwaysRules: data.request.always_rules,
           status: 'pending',
         })
         set({ isAwaitingInteraction: true })

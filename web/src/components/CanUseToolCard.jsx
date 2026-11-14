@@ -57,6 +57,10 @@ export default function CanUseToolCard({ part }) {
   const target = parseAskTarget(part.description)
   const outside = isOutsideAsk(part.description)
   const toolLabel = part.title || part.toolName || 'File permission'
+  // A command prompt carries the command and the rules "Always allow" adds.
+  const command = typeof part.command === 'string' ? part.command : null
+  const alwaysRules = Array.isArray(part.alwaysRules) ? part.alwaysRules : []
+  const canAlwaysAllow = command == null || alwaysRules.length > 0
 
   if (done) {
     const label =
@@ -65,7 +69,12 @@ export default function CanUseToolCard({ part }) {
         : choice === 'allow'
           ? 'Allowed'
           : 'Rejected'
-    const hint = resultHint(part.description, choice)
+    const hint =
+      command != null
+        ? choice === 'always' && alwaysRules.length > 0
+          ? alwaysRules.join(', ')
+          : command
+        : resultHint(part.description, choice)
     const tone =
       choice === 'reject' ? 'perm-card--rejected' : 'perm-card--allowed'
     return (
@@ -73,7 +82,9 @@ export default function CanUseToolCard({ part }) {
         <div className='perm-card__done-row'>
           <span className='perm-card__status'>{label}</span>
           {choice === 'always' && hint && (
-            <span className='perm-card__badge'>Directory</span>
+            <span className='perm-card__badge'>
+              {command != null ? 'Rule' : 'Directory'}
+            </span>
           )}
         </div>
         {hint && <code className='perm-card__path'>{hint}</code>}
@@ -87,7 +98,9 @@ export default function CanUseToolCard({ part }) {
         <span className='perm-card__title'>{toolLabel}</span>
         {outside && <span className='perm-card__badge'>Outside workspace</span>}
       </div>
-      {target ? (
+      {command != null ? (
+        <code className='perm-card__path'>{command}</code>
+      ) : target ? (
         <code className='perm-card__path'>{target}</code>
       ) : (
         part.description && (
@@ -103,14 +116,19 @@ export default function CanUseToolCard({ part }) {
         >
           Allow
         </button>
-        <button
-          type='button'
-          className='perm-card__btn'
-          disabled={submitting}
-          onClick={() => handle('always')}
-        >
-          Always allow
-        </button>
+        {canAlwaysAllow && (
+          <button
+            type='button'
+            className='perm-card__btn'
+            disabled={submitting}
+            title={alwaysRules.length > 0 ? alwaysRules.join(', ') : undefined}
+            onClick={() => handle('always')}
+          >
+            {alwaysRules.length > 0
+              ? `Always allow ${alwaysRules.join(', ')}`
+              : 'Always allow'}
+          </button>
+        )}
         <button
           type='button'
           className='perm-card__btn perm-card__btn--reject'

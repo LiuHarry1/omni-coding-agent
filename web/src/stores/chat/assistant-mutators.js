@@ -195,6 +195,8 @@ export function createAssistantMutators(set, get) {
             toolName: part.toolName,
             title: part.title,
             description: part.description,
+            command: part.command,
+            alwaysRules: part.alwaysRules,
             status: part.status || 'pending',
           })
         } else if (part.type === 'compaction_start') {

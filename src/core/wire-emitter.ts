@@ -197,6 +197,8 @@ export class WireEmitter {
     input: Record<string, unknown>
     title?: string
     description?: string
+    command?: string
+    always_rules?: string[]
   }): void {
     this.emit(canUseToolRequest(input))
   }

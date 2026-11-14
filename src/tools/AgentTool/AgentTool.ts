@@ -290,6 +290,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             compaction,
             sessionId: context.sessionId,
             permissionContext,
+            canUseTool: context.canUseTool,
             cwd: context.cwd ?? cwd,
             execution: context.execution,
             autoMemory: context.autoMemory,
@@ -364,6 +365,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 : undefined,
               sessionId: context.sessionId,
               abortSignal,
+              getToolDefinition: name => registry.get(name),
+              canUseTool: context.canUseTool,
             })
 
             if (abortSignal?.aborted) {

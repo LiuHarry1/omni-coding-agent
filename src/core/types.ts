@@ -89,6 +89,11 @@ export interface ToolContext {
    */
   permissionContext?: import('../utils/permissions/filesystem.js').FilesystemPermissionContext
   /**
+   * The turn's permission gate, so tools that run their own tool loop
+   * (subagents) ask through the same prompt as the main agent.
+   */
+  canUseTool?: import('./can-use-tool.js').CanUseToolFn
+  /**
    * Tool execution via isomorphic Agent Worker (RuntimePort RPC).
    * Always set for both local and SSH workspaces.
    */
@@ -188,8 +193,8 @@ export interface ToolDefinition {
    */
   interruptBehavior?: () => 'cancel' | 'block'
   /**
-   * Filesystem permission check. Read/Write tools
-   * return allow / ask / deny; `createCanUseTool` maps ask under `dontAsk`.
+   * Permission check. File tools judge the path, shell tools the command.
+   * Returns allow / ask / deny; `createCanUseTool` maps ask under `dontAsk`.
    */
   checkPermissions?: (
     input: unknown,
@@ -198,8 +203,10 @@ export interface ToolDefinition {
       permissionContext?: import('../utils/permissions/filesystem.js').FilesystemPermissionContext
     },
   ) =>
-    | import('../utils/permissions/filesystem.js').FsPermissionDecision
-    | Promise<import('../utils/permissions/filesystem.js').FsPermissionDecision>
+    | import('../utils/permissions/filesystem.js').ToolPermissionDecision
+    | Promise<
+        import('../utils/permissions/filesystem.js').ToolPermissionDecision
+      >
   /** Path argument used for Always-allow working-dir grants. */
   getPath?: (input: unknown) => string | undefined
   /**
@@ -1125,6 +1132,8 @@ export interface AppConfig {
     additionalDirectories?: string[]
     allow?: string[]
     deny?: string[]
+    /** Shell rules that always ask, e.g. `Bash(git push:*)`. */
+    ask?: string[]
     /** Filesystem `permissions.defaultMode` (implemented subset). */
     defaultMode?: 'default' | 'dontAsk' | 'bypassPermissions'
   }

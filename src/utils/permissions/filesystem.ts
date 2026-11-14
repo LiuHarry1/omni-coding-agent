@@ -42,6 +42,24 @@ export type FsPermissionDecision =
   | { behavior: 'ask'; message: string; path: string }
   | { behavior: 'deny'; message: string }
 
+/** A shell command that needs someone's approval before it runs. */
+export type CommandPermissionAsk = {
+  behavior: 'ask'
+  message: string
+  command: string
+  /** Rules "Always allow" would add. Empty when no rule describes the command. */
+  rules: string[]
+  /**
+   * What happens when nobody can be asked (`dontAsk`, scheduled turns).
+   * A rule that says "ask" refuses; a command no rule mentions runs, as it
+   * did before command rules existed.
+   */
+  whenUnattended: 'allow' | 'deny'
+}
+
+/** What a tool's `checkPermissions` may return. */
+export type ToolPermissionDecision = FsPermissionDecision | CommandPermissionAsk
+
 export interface FilesystemPermissionContext {
   mode: FilesystemPermissionMode
   /** Primary working directory (project cwd / pinned user workspace). */
@@ -52,8 +70,10 @@ export interface FilesystemPermissionContext {
   additionalWorkingDirectories: string[]
   /** `permissions.allow` — File-tool rules. Ignored under dontAsk. */
   allow: string[]
-  /** `permissions.deny` — File-tool rules. Always applied. */
+  /** `permissions.deny` — File-tool and shell rules. Always applied. */
   deny: string[]
+  /** `permissions.ask` — shell rules that always ask. Always applied. */
+  ask: string[]
 }
 
 function isAuthEnabledEnv(): boolean {
@@ -102,6 +122,7 @@ export type CreateFilesystemPermissionContextOptions = {
   additionalWorkingDirectories?: string[]
   allow?: string[]
   deny?: string[]
+  ask?: string[]
   /** Override AUTH-derived mode (e.g. `permissions.defaultMode`). */
   mode?: FilesystemPermissionMode
 }
@@ -110,6 +131,7 @@ export type SettingsPermissions = {
   additionalDirectories?: string[]
   allow?: string[]
   deny?: string[]
+  ask?: string[]
   defaultMode?: PermissionDefaultMode
 }
 
@@ -123,7 +145,7 @@ export function settingsPermissionOpts(
   permissions?: SettingsPermissions,
 ): Pick<
   CreateFilesystemPermissionContextOptions,
-  'additionalWorkingDirectories' | 'allow' | 'deny' | 'mode'
+  'additionalWorkingDirectories' | 'allow' | 'deny' | 'ask' | 'mode'
 > {
   const auth = isAuthEnabledEnv()
   const mode = filesystemModeFromDefaultMode(permissions?.defaultMode)
@@ -134,6 +156,7 @@ export function settingsPermissionOpts(
       : (permissions?.additionalDirectories ?? []),
     allow: mode === 'dontAsk' ? [] : (permissions?.allow ?? []),
     deny: permissions?.deny ?? [],
+    ask: permissions?.ask ?? [],
   }
 }
 
@@ -166,6 +189,7 @@ export function createFilesystemPermissionContext(
     }),
     allow: [...(opts?.allow ?? [])],
     deny: [...(opts?.deny ?? [])],
+    ask: [...(opts?.ask ?? [])],
   }
 }
 
