@@ -117,7 +117,7 @@ Subagents run `PreToolUse` and `PostToolUse` hooks for their tool calls. `Stop` 
 - A hook that cannot start, times out, exits with a code other than 0 or 2, or prints JSON that is not a hook answer is logged and ignored. A broken hook does not stop the agent, so do not rely on a hook alone to enforce a rule; use `permissions.deny` for that.
 - Only `type: "command"` hooks and the four events above run. Other hook types and events in a settings file are skipped with one log line each.
 - A `systemMessage` in a hook's JSON answer is written to the server log only.
-- When a hook ends a turn, the reason appears at the end of the reply while the turn is live. It is stored for the model, but is not shown again when the session is reloaded.
+- When a hook ends a turn, the reason appears at the end of the reply as `Stopped by hook: …`.
 
 ## Source map
 

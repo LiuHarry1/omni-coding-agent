@@ -19,7 +19,11 @@ import {
   getMaxOutputTokens,
   syncToolSet,
 } from './query/helpers.js'
-import { hookResultMessages, hookStoppedMessage } from './hooks/messages.js'
+import {
+  hookResultMessages,
+  hookStopNotice,
+  hookStoppedMessage,
+} from './hooks/messages.js'
 import { productionDeps } from './query/deps.js'
 import { emitTurnEnd } from './query/post-turn.js'
 import { createDumpRecorder } from './query/run-step.js'
@@ -498,7 +502,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         return finish(
           {
             reason: 'hook_stopped',
-            notice: `Stopped by hook: ${stepResult.hookStopped}`,
+            notice: hookStopNotice(stepResult.hookStopped),
           },
           extractPartialResult(messages) ?? finalText,
         )
@@ -585,7 +589,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
               return finish(
                 {
                   reason: 'stop_hook_prevented',
-                  notice: `Stopped by hook: ${hookStoppedMessage(stop)}`,
+                  notice: hookStopNotice(hookStoppedMessage(stop)),
                 },
                 extractPartialResult(messages) ?? finalText,
               )

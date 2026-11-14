@@ -122,3 +122,57 @@ describe('sessionToUIMessages output-limit continuation', () => {
     ).toEqual(['text:Writing the file.', 'text:Trying again.'])
   })
 })
+
+describe('sessionToUIMessages and a turn a hook ended', () => {
+  const stoppedBy = (hookName: string, message: string): Message => ({
+    type: 'attachment',
+    uuid: `stop-${hookName}`,
+    timestamp: '2026-11-14T00:00:00.000Z',
+    isMeta: true,
+    attachment: { type: 'hook_stopped_continuation', hookName, message },
+  })
+
+  const texts = (messages: Message[]) =>
+    (
+      sessionToUIMessages(messages) as Array<{
+        type: string
+        parts?: Array<{ type: string; content?: string }>
+      }>
+    )
+      .filter(message => message.type === 'assistant')
+      .map(message =>
+        (message.parts ?? [])
+          .filter(part => part.type === 'text')
+          .map(part => part.content),
+      )
+
+  it('shows the reason after the reply, as it was shown live', () => {
+    expect(
+      texts([
+        { role: 'user', content: 'work' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+        stoppedBy('Stop', 'Budget used up'),
+      ]),
+    ).toEqual([['Done.', 'Stopped by hook: Budget used up']])
+  })
+
+  it('shows nothing for the other hook notes', () => {
+    expect(
+      texts([
+        { role: 'user', content: 'work' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+        {
+          type: 'attachment',
+          uuid: 'context-1',
+          timestamp: '2026-11-14T00:00:00.000Z',
+          isMeta: true,
+          attachment: {
+            type: 'hook_additional_context',
+            hookName: 'Stop',
+            content: ['Use pnpm.'],
+          },
+        },
+      ]),
+    ).toEqual([['Done.']])
+  })
+})

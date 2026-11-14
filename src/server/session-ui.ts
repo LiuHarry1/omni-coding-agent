@@ -2,6 +2,7 @@ import type { Message, TodoItem, ToolResultOutput } from '../core/types.js'
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
+import { hookStopNotice } from '../core/hooks/messages.js'
 import { isCompactBoundaryMessage } from '../core/messages/compact-boundary.js'
 import { getSessionTranscriptPath } from '../session/index.js'
 import { parseSessionJsonLine } from '../session/json-serialize.js'
@@ -211,7 +212,20 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
   let resumesCutText = false
 
   for (const msg of messages) {
-    if (isAttachmentMessage(msg)) continue
+    if (isAttachmentMessage(msg)) {
+      // The one attachment with a visible trace: live, the reason a hook
+      // ended the turn is appended to the reply.
+      if (
+        msg.attachment.type === 'hook_stopped_continuation' &&
+        currentAssistant
+      ) {
+        currentAssistant.parts.push({
+          type: 'text',
+          content: hookStopNotice(msg.attachment.message),
+        })
+      }
+      continue
+    }
     if (isCompactBoundaryMessage(msg)) {
       currentAssistant = null
       currentBoundary = {

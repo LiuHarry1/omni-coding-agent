@@ -16,6 +16,11 @@ export function hookStoppedMessage(result: AggregatedHookResult): string {
   return result.stopReason || 'Execution stopped by hook'
 }
 
+/** The line that tells the user a hook ended the turn, live and on reload. */
+export function hookStopNotice(message: string): string {
+  return `Stopped by hook: ${message}`
+}
+
 /**
  * What a hook result adds to the transcript for the model to read:
  * its blocking errors (unless the caller reports them another way), the
