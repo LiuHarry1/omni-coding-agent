@@ -7,7 +7,7 @@ import {
   roughTokenCountEstimation,
   roughTokenCountEstimationForFileType,
 } from '../../services/tokenEstimation.js'
-import { DEFAULT_MAX_OUTPUT_TOKENS, MAX_LINES_TO_READ } from './limits.js'
+import { DEFAULT_FILE_READ_MAX_TOKENS, MAX_LINES_TO_READ } from './limits.js'
 import type { ReadTextOutput } from './types.js'
 import {
   MaxFileReadLinesExceededError,
@@ -65,8 +65,11 @@ function assertOutputTokenBudget(content: string, displayPath: string): void {
   if (!content) return
   const ext = path.extname(displayPath).toLowerCase().slice(1)
   const tokens = roughTokenCountEstimationForFileType(content, ext)
-  if (tokens > DEFAULT_MAX_OUTPUT_TOKENS) {
-    throw new MaxFileReadTokenExceededError(tokens, DEFAULT_MAX_OUTPUT_TOKENS)
+  if (tokens > DEFAULT_FILE_READ_MAX_TOKENS) {
+    throw new MaxFileReadTokenExceededError(
+      tokens,
+      DEFAULT_FILE_READ_MAX_TOKENS,
+    )
   }
 }
 

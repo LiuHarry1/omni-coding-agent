@@ -1,7 +1,7 @@
 /** Aligned with `constants/apiLimits.ts` + `FileReadTool/limits.ts`. */
 
 export const MAX_OUTPUT_SIZE_BYTES = 256 * 1024
-export const DEFAULT_MAX_OUTPUT_TOKENS = 25_000
+export const DEFAULT_FILE_READ_MAX_TOKENS = 25_000
 export const MAX_LINES_TO_READ = 2000
 
 export const API_IMAGE_MAX_BASE64_SIZE = 5 * 1024 * 1024
@@ -16,7 +16,7 @@ export const IMAGE_MAX_HEIGHT = 2000
  */
 export const READ_IMAGE_MAX_WIDTH = 1600
 export const READ_IMAGE_MAX_HEIGHT = 1600
-export const READ_IMAGE_TOKEN_BUDGET = DEFAULT_MAX_OUTPUT_TOKENS
+export const READ_IMAGE_TOKEN_BUDGET = DEFAULT_FILE_READ_MAX_TOKENS
 
 export const PDF_TARGET_RAW_SIZE = 20 * 1024 * 1024
 export const PDF_AT_MENTION_INLINE_THRESHOLD = 10
