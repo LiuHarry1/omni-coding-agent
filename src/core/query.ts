@@ -25,6 +25,8 @@ import {
   hookStoppedMessage,
 } from './hooks/messages.js'
 import { productionDeps } from './query/deps.js'
+import type { StreamResult } from './agent/streamConsumer.js'
+import type { ToolUseSummary } from '../services/toolUseSummary/toolUseSummaryGenerator.js'
 import { emitTurnEnd } from './query/post-turn.js'
 import { createDumpRecorder } from './query/run-step.js'
 import type { Continue, Terminal } from './query/transitions.js'
@@ -70,6 +72,12 @@ type State = {
    * as `stop_hook_active` so it can let the turn end instead of looping.
    */
   stopHookActive: boolean
+  /**
+   * The label being written for the previous step's tool calls. It is
+   * collected once the next step is done, so the small model works while
+   * the main one does.
+   */
+  pendingToolUseSummary: Promise<ToolUseSummary | null> | undefined
   /** Why the previous iteration continued; undefined on the first. */
   transition: Continue | undefined
 }
@@ -227,6 +235,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       systemPrompt: nextSystemPrompt,
       finalText: current.finalText,
       stopHookActive: current.stopHookActive,
+      pendingToolUseSummary: current.pendingToolUseSummary,
       transition: current.transition,
     }
   }
@@ -248,9 +257,34 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     systemPrompt,
     finalText: '',
     stopHookActive: false,
+    pendingToolUseSummary: undefined,
     transition: undefined,
   }
   const transitions: Continue[] = []
+
+  /** Asks the small model for a label; settles to null when it has none. */
+  const summarizeToolUse = (
+    stepResult: StreamResult,
+    summarizer: NonNullable<QueryOptions['toolUseSummary']>,
+  ): Promise<ToolUseSummary | null> => {
+    const precedingToolUseIds = stepResult.toolCalls.map(tc => tc.toolCallId)
+    return deps
+      .generateToolUseSummary({
+        tools: stepResult.toolCalls.map(tc => ({
+          name: tc.toolName,
+          input: tc.input,
+          output:
+            stepResult.toolResults.find(tr => tr.toolCallId === tc.toolCallId)
+              ?.result ?? null,
+        })),
+        provider: summarizer.provider,
+        model: summarizer.model,
+        signal: abortSignal,
+        lastAssistantText: stepResult.text || undefined,
+      })
+      .then(summary => (summary ? { summary, precedingToolUseIds } : null))
+      .catch(() => null)
+  }
 
   /**
    * The only way out of the loop. Emits the turn's single result event (an
@@ -322,6 +356,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         systemPrompt: activeSystemPrompt,
         finalText: priorText,
         stopHookActive,
+        pendingToolUseSummary,
         transition,
       } = state
       if (transition) transitions.push(transition)
@@ -474,6 +509,24 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       // has no status gap between the last tool row and the next request.
       if (stepResult.toolCalls.length > 0) wire.thinking()
 
+      // The label for the previous step's tools had this whole step to be
+      // written. It goes to the UI and, for reloads, into the transcript.
+      if (pendingToolUseSummary) {
+        const summary = await pendingToolUseSummary
+        if (summary) {
+          wire.toolUseSummary(summary.summary, summary.precedingToolUseIds)
+          messages.push(
+            ensureMessageUuid({
+              type: 'attachment',
+              attachment: { type: 'tool_use_summary', ...summary },
+              uuid: '',
+              timestamp: new Date().toISOString(),
+              isMeta: true,
+            }),
+          )
+        }
+      }
+
       await deps.postTurn({
         step,
         stepResult,
@@ -567,6 +620,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           systemPrompt: activeSystemPrompt,
           finalText,
           stopHookActive: false,
+          pendingToolUseSummary: undefined,
           transition: { reason: 'max_output_tokens_recovery', attempt },
         }
         continue
@@ -619,6 +673,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
                 systemPrompt: activeSystemPrompt,
                 finalText,
                 stopHookActive: true,
+                pendingToolUseSummary: undefined,
                 transition: { reason: 'stop_hook_blocking' },
               }
               continue
@@ -652,10 +707,18 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           systemPrompt: activeSystemPrompt,
           finalText,
           stopHookActive: false,
+          pendingToolUseSummary: undefined,
           transition: { reason: 'plan_build_kickoff' },
         }
         continue
       }
+
+      // Start the label for this step's tools without waiting for it: the
+      // next request goes out now.
+      const nextPendingToolUseSummary =
+        opts.toolUseSummary && !abortSignal?.aborted
+          ? summarizeToolUse(stepResult, opts.toolUseSummary)
+          : undefined
 
       state = {
         turnCount: turnCount + 1,
@@ -667,6 +730,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         systemPrompt: activeSystemPrompt,
         finalText,
         stopHookActive,
+        pendingToolUseSummary: nextPendingToolUseSummary,
         transition: { reason: 'next_turn' },
       }
     }

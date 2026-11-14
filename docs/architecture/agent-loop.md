@@ -74,6 +74,16 @@ flowchart TD
    `query()` loops; otherwise it completes.
 6. After an approved plan, a no-tool response may be overridden once with a
    reminder that forces an implementation step.
+7. Before a no-tool response completes the turn, configured `Stop` hooks run.
+   Feedback from one goes back to the model and the loop continues; see
+   [Hooks](../features/hooks.md).
+8. After a step with tool calls, the small model writes a short label for the
+   batch ("Fixed NPE in UserService") while the next request runs. Once that
+   next step is done the label is emitted as `system/tool_use_summary` and
+   stored as an attachment the model never reads; the web client shows the
+   labels on the collapsed work of a finished turn. Only the main agent's
+   batches are labelled, a label that fails is skipped, and
+   `"toolUseSummaries": false` in settings turns the feature off.
 
 ## Failure boundaries
 
@@ -117,5 +127,6 @@ flowchart LR
 - Stream consumption: `src/core/agent/streamConsumer.ts`
 - Tool queue and concurrency: `src/services/tools/StreamingToolExecutor.ts`
 - Forced final response: `src/core/query/force-final-answer.ts`
+- Tool batch labels: `src/services/toolUseSummary/toolUseSummaryGenerator.ts`
 
 Last verified: 2026-09-13

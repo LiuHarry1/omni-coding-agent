@@ -113,6 +113,8 @@ type UIPart = {
   status?: string
   isSubagent?: boolean
   todos?: TodoItem[]
+  /** Label of the batch of tool calls this one ran in. */
+  batchSummary?: string
 }
 
 type UIAssistantMessage = {
@@ -213,8 +215,17 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
 
   for (const msg of messages) {
     if (isAttachmentMessage(msg)) {
-      // The one attachment with a visible trace: live, the reason a hook
-      // ended the turn is appended to the reply.
+      // The attachments with a visible trace: a label for a batch of tool
+      // calls, and the reason a hook ended the turn (live, it is appended
+      // to the reply).
+      if (msg.attachment.type === 'tool_use_summary' && currentAssistant) {
+        const ids = new Set(msg.attachment.precedingToolUseIds)
+        for (const part of currentAssistant.parts) {
+          if (part.type === 'tool_call' && ids.has(part.toolCallId ?? '')) {
+            part.batchSummary = msg.attachment.summary
+          }
+        }
+      }
       if (
         msg.attachment.type === 'hook_stopped_continuation' &&
         currentAssistant

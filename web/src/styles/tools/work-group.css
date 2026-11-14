@@ -48,6 +48,20 @@
   font-variant-numeric: tabular-nums;
   transition: color 100ms ease-in-out;
 }
+/* What the work was; the first part of the label to give way. */
+.work-group-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-tier-4);
+  font-weight: 400;
+  transition: color 100ms ease-in-out;
+}
+.work-group-action,
+.work-group-details {
+  flex-shrink: 0;
+}
+.work-group-header:hover .work-group-summary { color: var(--text-tier-3); }
 .work-group-header:hover .work-group-action { color: var(--text-tier-2); }
 .work-group-header:hover .work-group-details { color: var(--text-tier-3); }
 .work-group.active .work-group-action { color: var(--text-tier-2); }

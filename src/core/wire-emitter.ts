@@ -257,6 +257,16 @@ export class WireEmitter {
     })
   }
 
+  toolUseSummary(summary: string, precedingToolUseIds: string[]): void {
+    this.emit({
+      type: 'system',
+      subtype: 'tool_use_summary',
+      summary,
+      preceding_tool_use_ids: precedingToolUseIds,
+      ...this.#env,
+    })
+  }
+
   processOutput(toolUseId: string, toolName: string, output: string): void {
     this.emit({
       type: 'tool_progress',

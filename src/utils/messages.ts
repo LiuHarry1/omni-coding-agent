@@ -280,6 +280,10 @@ You have exited plan mode. You can now make edits, run tools, and take actions.$
         ),
       ])
 
+    case 'tool_use_summary':
+      // A label for the UI; not part of what the model reads.
+      return []
+
     case 'hook_stopped_continuation':
       return wrapMessagesInSystemReminder([
         metaUserMessage(

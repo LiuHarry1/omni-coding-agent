@@ -23,6 +23,7 @@
     }
   },
   "fallbackModelTier": "medium",
+  "toolUseSummaries": true,
   "compaction": {
     "enabled": true,
     "contextWindow": 200000,

@@ -105,6 +105,7 @@ export function toolBubbleToPart(b) {
     startTime: b.startTime,
     endTime: b.endTime,
     duration: b.duration,
+    batchSummary: b.batchSummary,
     liveTask: b.liveTask,
     liveLabel: b.liveLabel,
     liveOutput: b.liveOutput,
@@ -279,6 +280,7 @@ export function messagesToBubbles(messages) {
           startTime: part.startTime,
           endTime: part.endTime,
           duration: part.duration,
+          batchSummary: part.batchSummary,
         })
       } else if (part.type === 'todo_list') {
         state = appendBubble(state, {

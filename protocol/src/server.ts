@@ -235,6 +235,18 @@ export const ToolTimingMessageSchema = z.object({
   ...envelopeFields,
 })
 
+/**
+ * A short label for a finished batch of tool calls ("Fixed NPE in
+ * UserService"). Arrives after the batch, any time before the turn's result.
+ */
+export const ToolUseSummaryMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('tool_use_summary'),
+  summary: z.string(),
+  preceding_tool_use_ids: z.array(z.string()),
+  ...envelopeFields,
+})
+
 /** User stopped the turn (CC Esc) — transcript also has the interrupt user msg. */
 export const InterruptedMessageSchema = z.object({
   type: z.literal('system'),
@@ -294,6 +306,7 @@ export const ServerMessageSchema = z.union([
   CompactionStartMessageSchema,
   CompactionDoneMessageSchema,
   ToolTimingMessageSchema,
+  ToolUseSummaryMessageSchema,
   InterruptedMessageSchema,
   ScheduledTurnMessageSchema,
   ToolProgressMessageSchema,

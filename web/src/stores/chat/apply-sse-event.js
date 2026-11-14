@@ -164,6 +164,9 @@ export function applySseEvent(data, { set, get, mutators: m }) {
         case 'tool_timing':
           m._updateLastToolTiming(data)
           break
+        case 'tool_use_summary':
+          m._setToolUseSummary(data)
+          break
         case 'interrupted':
           m._onInterrupted(data)
           break

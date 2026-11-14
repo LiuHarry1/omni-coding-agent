@@ -172,6 +172,9 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
     case 'hook_stopped_continuation':
       // Handled in messages.normalizeAttachmentForAPI (system-reminder path).
       return []
+    case 'tool_use_summary':
+      // For the UI only.
+      return []
     default: {
       const _exhaustive: never = attachment
       return _exhaustive

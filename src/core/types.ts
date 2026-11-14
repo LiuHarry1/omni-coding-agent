@@ -532,6 +532,11 @@ export interface AgentOptions {
    * overloaded. Omitted: keep retrying `provider` and fail when it gives up.
    */
   fallbackProvider?: IProvider
+  /**
+   * Model that labels each finished batch of tool calls. Omitted: no labels
+   * (subagents and forks never get one).
+   */
+  toolUseSummary?: { provider: IProvider; model: string }
   /** Request workspace; used by compaction and subagent runs. */
   cwd?: string
   /** Request-scoped compaction settings. */
@@ -1058,6 +1063,11 @@ export interface AppConfig {
    * overloaded. Unset: no fallback, the turn fails once retries run out.
    */
   fallbackModelTier?: 'medium' | 'small'
+  /**
+   * Have the small model write a short label for each batch of tool calls,
+   * shown on the collapsed work of a turn. Unset means on.
+   */
+  toolUseSummaries?: boolean
   compaction: CompactionConfig
   sessionMemory: SessionMemoryConfig
   /**

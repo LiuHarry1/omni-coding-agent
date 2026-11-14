@@ -36,6 +36,7 @@ const TOOL_STREAM_KEYS = new Set([
   '_appendSubagentEvent',
   '_updateToolResult',
   '_updateLastToolTiming',
+  '_setToolUseSummary',
   '_updateProcessOutput',
   '_appendToolInputDelta',
   '_appendToolInputPreviewDelta',
@@ -589,6 +590,25 @@ export function createAssistantMutators(set, get) {
           }
         }
         return s
+      })
+    },
+
+    /** Label the tool calls of one batch (`tool_use_summary`). */
+    _setToolUseSummary: data => {
+      const summary = typeof data.summary === 'string' ? data.summary : ''
+      const toolCallIds = Array.isArray(data.preceding_tool_use_ids)
+        ? data.preceding_tool_use_ids
+        : []
+      if (!summary || toolCallIds.length === 0) return
+      toolSet.schedule(s => {
+        let next = s
+        for (const toolCallId of toolCallIds) {
+          const id = toolBubbleId(toolCallId)
+          if (next.bubblesById[id]?.kind === 'tool') {
+            next = patchBubble(next, id, { batchSummary: summary })
+          }
+        }
+        return next === s ? s : transcriptPatch(next)
       })
     },
 

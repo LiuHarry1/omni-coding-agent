@@ -1,6 +1,9 @@
 import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 import { useChatStore } from '../../stores/chat-store.js'
-import { expandFoldableSegment } from '../../lib/bubbles/flat-elements.js'
+import {
+  expandFoldableSegment,
+  workGroupSummaries,
+} from '../../lib/bubbles/flat-elements.js'
 import WorkGroup from '../WorkGroup.jsx'
 import BubbleRow from './BubbleRow.jsx'
 import ToolGroupRow from './ToolGroupRow.jsx'
@@ -26,6 +29,15 @@ function WorkGroupRow({ memberIds, durationMs, defaultOpen = false }) {
     return n
   })
 
+  // Joined so the selector returns a stable value while nothing changes.
+  const summaryKey = useChatStore(s =>
+    workGroupSummaries(memberIds, s.bubblesById).join('\n'),
+  )
+  const summaries = useMemo(
+    () => (summaryKey ? summaryKey.split('\n') : []),
+    [summaryKey],
+  )
+
   const childElements = useMemo(() => {
     const byId = useChatStore.getState().bubblesById
     return expandFoldableSegment(memberIds, byId)
@@ -37,6 +49,7 @@ function WorkGroupRow({ memberIds, durationMs, defaultOpen = false }) {
     <div className='msg msg-assistant'>
       <WorkGroup
         durationMs={durationMs}
+        summaries={summaries}
         runningTaskCount={runningTaskCount}
         open={open}
         onOpenChange={onOpenChange}

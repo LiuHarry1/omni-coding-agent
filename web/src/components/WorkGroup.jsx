@@ -5,7 +5,9 @@ import ChevronIcon from './ChevronIcon.jsx'
 /**
  * Default-chat `workGroup` disclosure (completed turn only).
  *
- * Label ≈ action "Worked" + details `formatWorkedDuration(durationMs)` → "for 7s".
+ * Label ≈ action "Worked" + details `formatWorkedDuration(durationMs)` → "for 7s",
+ * followed by what the work was when the server labelled its tool batches:
+ * "Worked for 7s · Searched in auth/ · Fixed NPE in UserService".
  * With running tasks: "N working" (`runningTaskCount`).
  *
  * Controlled open via `open` + `onOpenChange` (parent keys by stable rowId).
@@ -13,6 +15,7 @@ import ChevronIcon from './ChevronIcon.jsx'
 export default function WorkGroup({
   children,
   durationMs,
+  summaries = [],
   runningTaskCount = 0,
   defaultOpen = false,
   open: openControlled,
@@ -30,6 +33,7 @@ export default function WorkGroup({
 
   const dur = formatWorkedDuration(durationMs)
   const isRunning = runningTaskCount > 0
+  const summaryText = summaries.join(' · ')
 
   return (
     <div
@@ -51,6 +55,11 @@ export default function WorkGroup({
             <>
               <span className='work-group-action'>Worked</span>
               {dur ? <span className='work-group-details'>{dur}</span> : null}
+              {summaryText ? (
+                <span className='work-group-summary' title={summaryText}>
+                  · {summaryText}
+                </span>
+              ) : null}
             </>
           )}
         </span>

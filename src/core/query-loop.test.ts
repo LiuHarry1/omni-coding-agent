@@ -4,7 +4,7 @@ import { createQueryHarness, type StepScript } from './query-test-harness.js'
 import type { HookRunner } from './hooks/hooks.js'
 import type { AggregatedHookResult } from './hooks/types.js'
 import type { IProvider } from './llm/types.js'
-import type { AnyTool, TodoItem } from './types.js'
+import type { AnyTool, AttachmentMessage, TodoItem } from './types.js'
 
 const toolStep = (toolName: string): StepScript => ({
   toolCalls: [{ toolCallId: `call-${toolName}`, toolName, input: {} }],
@@ -634,5 +634,173 @@ describe('query loop: hooks', () => {
     for (const [args] of h.deps.runStep.mock.calls) {
       expect(args.hooks).toBe(hooks)
     }
+  })
+})
+
+describe('query loop: tool use summaries', () => {
+  const summarizer = {
+    provider: { defaultModelId: () => 'small-model' } as IProvider,
+    model: 'small-model',
+  }
+
+  const readStep = (id: string, file: string): StepScript => ({
+    text: `Reading ${file}`,
+    toolCalls: [
+      { toolCallId: id, toolName: 'Read', input: { file_path: file } },
+    ],
+    toolResults: [
+      { toolCallId: id, toolName: 'Read', result: `contents of ${file}` },
+    ],
+  })
+
+  const summaryEvents = (events: Array<Record<string, unknown>>) =>
+    events.filter(event => event.subtype === 'tool_use_summary')
+
+  const summaryAttachments = (messages: unknown[]) =>
+    (messages as AttachmentMessage[])
+      .filter(message => message.attachment?.type === 'tool_use_summary')
+      .map(message => message.attachment)
+
+  it('labels each batch of tool calls and reports it before the turn ends', async () => {
+    const h = createQueryHarness({ toolUseSummary: summarizer })
+    h.deps.generateToolUseSummary.mockImplementation(
+      async ({ tools }) =>
+        `Read ${(tools[0]!.input as { file_path: string }).file_path}`,
+    )
+    h.scriptSteps([
+      readStep('call-1', 'a.ts'),
+      readStep('call-2', 'b.ts'),
+      { text: 'Done.' },
+    ])
+
+    const result = await query(h.options)
+
+    expect(h.deps.generateToolUseSummary).toHaveBeenCalledTimes(2)
+    expect(h.deps.generateToolUseSummary.mock.calls[0]![0]).toMatchObject({
+      tools: [
+        {
+          name: 'Read',
+          input: { file_path: 'a.ts' },
+          output: 'contents of a.ts',
+        },
+      ],
+      provider: summarizer.provider,
+      model: 'small-model',
+      lastAssistantText: 'Reading a.ts',
+    })
+    expect(summaryEvents(h.events)).toMatchObject([
+      { summary: 'Read a.ts', preceding_tool_use_ids: ['call-1'] },
+      { summary: 'Read b.ts', preceding_tool_use_ids: ['call-2'] },
+    ])
+    // Kept for reloads, in the same order.
+    expect(summaryAttachments(result.messages)).toEqual([
+      {
+        type: 'tool_use_summary',
+        summary: 'Read a.ts',
+        precedingToolUseIds: ['call-1'],
+      },
+      {
+        type: 'tool_use_summary',
+        summary: 'Read b.ts',
+        precedingToolUseIds: ['call-2'],
+      },
+    ])
+    // Nothing follows the result event.
+    expect(h.events.at(-1)).toMatchObject({ type: 'result' })
+  })
+
+  it('does not hold the next request back while the label is written', async () => {
+    const h = createQueryHarness({ toolUseSummary: summarizer })
+    let finishLabel!: (label: string) => void
+    h.deps.generateToolUseSummary.mockImplementation(
+      () => new Promise<string | null>(resolve => (finishLabel = resolve)),
+    )
+    h.scriptSteps([readStep('call-1', 'a.ts'), { text: 'Done.' }], index => {
+      if (index === 1) {
+        // The second request is already running; the label arrives now.
+        expect(summaryEvents(h.events)).toEqual([])
+        finishLabel('Read a.ts')
+      }
+    })
+
+    await query(h.options)
+
+    expect(summaryEvents(h.events)).toMatchObject([{ summary: 'Read a.ts' }])
+  })
+
+  it('covers every call of a batch with one label', async () => {
+    const h = createQueryHarness({ toolUseSummary: summarizer })
+    h.deps.generateToolUseSummary.mockResolvedValue('Read two files')
+    h.scriptSteps([
+      {
+        toolCalls: [
+          ...readStep('call-1', 'a.ts').toolCalls!,
+          ...readStep('call-2', 'b.ts').toolCalls!,
+        ],
+      },
+      { text: 'Done.' },
+    ])
+
+    await query(h.options)
+
+    expect(summaryEvents(h.events)).toMatchObject([
+      {
+        summary: 'Read two files',
+        preceding_tool_use_ids: ['call-1', 'call-2'],
+      },
+    ])
+  })
+
+  it('writes no labels unless a summary model is given', async () => {
+    const h = createQueryHarness()
+    h.scriptSteps([readStep('call-1', 'a.ts'), { text: 'Done.' }])
+
+    const result = await query(h.options)
+
+    expect(h.deps.generateToolUseSummary).not.toHaveBeenCalled()
+    expect(summaryEvents(h.events)).toEqual([])
+    expect(summaryAttachments(result.messages)).toEqual([])
+  })
+
+  it.each([
+    ['has nothing to say', async () => null],
+    [
+      'fails',
+      async () => {
+        throw new Error('small model unavailable')
+      },
+    ],
+  ] as Array<[string, () => Promise<string | null>]>)(
+    'carries on without a label when the summary model %s',
+    async (_name, answer) => {
+      const h = createQueryHarness({ toolUseSummary: summarizer })
+      h.deps.generateToolUseSummary.mockImplementation(answer)
+      h.scriptSteps([readStep('call-1', 'a.ts'), { text: 'Done.' }])
+
+      const result = await query(h.options)
+
+      expect(result.terminal).toEqual({ reason: 'completed' })
+      expect(result.finalText).toBe('Done.')
+      expect(summaryEvents(h.events)).toEqual([])
+      expect(summaryAttachments(result.messages)).toEqual([])
+    },
+  )
+
+  it('drops the label of a batch when the next step is aborted', async () => {
+    const controller = new AbortController()
+    const h = createQueryHarness({
+      toolUseSummary: summarizer,
+      abortSignal: controller.signal,
+    })
+    h.deps.generateToolUseSummary.mockResolvedValue('Read a.ts')
+    h.scriptSteps([
+      readStep('call-1', 'a.ts'),
+      { aborted: true, abortPhase: 'streaming' },
+    ])
+
+    const result = await query(h.options)
+
+    expect(result.reason).toBe('aborted')
+    expect(summaryEvents(h.events)).toEqual([])
   })
 })

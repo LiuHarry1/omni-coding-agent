@@ -831,6 +831,13 @@ export async function runChatTurn(
         wire,
         provider,
         fallbackProvider: models.fallbackProvider('large'),
+        toolUseSummary:
+          resolvedSettings.config.toolUseSummaries === false
+            ? undefined
+            : {
+                provider: models.provider('small'),
+                model: models.profile('small').model,
+              },
         cwd,
         compaction: resolvedSettings.config.compaction,
         sessionMemory: resolvedSettings.config.sessionMemory,

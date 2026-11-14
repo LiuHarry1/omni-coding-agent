@@ -91,6 +91,26 @@ export function expandFoldableSegment(ids, byId) {
   return out
 }
 
+/**
+ * The labels of the tool batches in a work group, in order. Every tool of a
+ * batch carries the same label, so repeats next to each other count once.
+ *
+ * @param {string[]} ids
+ * @param {Record<string, object>} byId
+ * @returns {string[]}
+ */
+export function workGroupSummaries(ids, byId) {
+  const out = []
+  for (const id of ids || []) {
+    const b = byId[id]
+    if (b?.kind !== 'tool') continue
+    const summary =
+      typeof b.batchSummary === 'string' ? b.batchSummary.trim() : ''
+    if (summary && out[out.length - 1] !== summary) out.push(summary)
+  }
+  return out
+}
+
 function hasRealWork(ids, byId) {
   return ids.some(id => {
     const b = byId[id]

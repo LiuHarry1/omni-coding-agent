@@ -707,6 +707,10 @@ function applyLayer(config: AppConfig, layer: PartialAppConfig): void {
     config.fallbackModelTier = layer.fallbackModelTier
   }
 
+  if (typeof layer.toolUseSummaries === 'boolean') {
+    config.toolUseSummaries = layer.toolUseSummaries
+  }
+
   // Prefer nested autoMemory.{enabled,directory,cacheSafe,modelTier}.
   // Flat autoMemoryEnabled / autoMemoryDirectory remain supported aliases;
   // flat autoMemoryCacheSafe / autoMemoryModelTier are legacy agent aliases.

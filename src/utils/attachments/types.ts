@@ -200,7 +200,18 @@ export type HookStoppedContinuationAttachment = {
   message: string
 }
 
+/**
+ * A label for a batch of tool calls, kept in the transcript so the UI can
+ * show it again after a reload. The model never sees it.
+ */
+export type ToolUseSummaryAttachment = {
+  type: 'tool_use_summary'
+  summary: string
+  precedingToolUseIds: string[]
+}
+
 export type Attachment =
+  | ToolUseSummaryAttachment
   | EditedTextFileAttachment
   | TodoReminderAttachment
   | HookBlockingErrorAttachment

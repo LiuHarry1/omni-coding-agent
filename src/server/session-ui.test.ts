@@ -176,3 +176,63 @@ describe('sessionToUIMessages and a turn a hook ended', () => {
     ).toEqual([['Done.']])
   })
 })
+
+describe('sessionToUIMessages and tool batch labels', () => {
+  const call = (toolCallId: string) => ({
+    type: 'tool-call' as const,
+    toolCallId,
+    toolName: 'Read',
+    input: {},
+  })
+  const result = (toolCallId: string) => ({
+    type: 'tool-result' as const,
+    toolCallId,
+    toolName: 'Read',
+    output: { type: 'text' as const, value: 'ok' },
+  })
+  const label = (summary: string, ids: string[]): Message => ({
+    type: 'attachment',
+    uuid: `label-${ids.join('-')}`,
+    timestamp: '2026-11-14T00:00:00.000Z',
+    isMeta: true,
+    attachment: {
+      type: 'tool_use_summary',
+      summary,
+      precedingToolUseIds: ids,
+    },
+  })
+
+  it('puts each label on the tool calls of its batch', () => {
+    const ui = sessionToUIMessages([
+      { role: 'user', content: 'work' },
+      { role: 'assistant', content: [call('a'), call('b')] },
+      { role: 'tool', content: [result('a'), result('b')] },
+      { role: 'assistant', content: [call('c')] },
+      { role: 'tool', content: [result('c')] },
+      // Written while the second batch ran, so stored after it.
+      label('Read two files', ['a', 'b']),
+      { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+      label('Read config', ['c']),
+    ] as Message[]) as Array<{
+      type: string
+      parts?: Array<{
+        type: string
+        toolCallId?: string
+        batchSummary?: string
+      }>
+    }>
+
+    const assistant = ui.filter(message => message.type === 'assistant')
+    // The labels add no bubble of their own.
+    expect(assistant).toHaveLength(1)
+    expect(
+      assistant[0]!
+        .parts!.filter(part => part.type === 'tool_call')
+        .map(part => [part.toolCallId, part.batchSummary]),
+    ).toEqual([
+      ['a', 'Read two files'],
+      ['b', 'Read two files'],
+      ['c', 'Read config'],
+    ])
+  })
+})

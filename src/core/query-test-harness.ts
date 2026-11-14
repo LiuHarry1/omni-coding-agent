@@ -40,6 +40,9 @@ export function createQueryHarness(overrides: Overrides = {}) {
     forceFinalAnswerOnMaxSteps: vi.fn<QueryDeps['forceFinalAnswerOnMaxSteps']>(
       async () => '',
     ),
+    generateToolUseSummary: vi.fn<QueryDeps['generateToolUseSummary']>(
+      async () => null,
+    ),
   }
 
   /** Queue one `runStep` result per call; `onStep` runs before it returns. */

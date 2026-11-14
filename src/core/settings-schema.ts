@@ -205,6 +205,8 @@ export const SettingsFileSchema = z.object({
   models: ModelsSchema.optional(),
   /** Tier to switch to for the rest of a turn when a larger tier's model stays overloaded. */
   fallbackModelTier: z.enum(['medium', 'small']).optional(),
+  /** Label each batch of tool calls with the small model. Default true. */
+  toolUseSummaries: z.boolean().optional(),
   compaction: CompactionConfigSchema.optional(),
   sessionMemory: SessionMemoryConfigSchema.optional(),
   autoMemoryEnabled: z.boolean().optional(),
