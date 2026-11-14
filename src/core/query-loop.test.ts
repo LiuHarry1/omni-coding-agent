@@ -58,6 +58,29 @@ describe('query loop: approved plan', () => {
     ])
   })
 
+  it('sends no reminder when the approving step also started implementing', async () => {
+    const h = createQueryHarness()
+    h.scriptSteps(
+      [
+        {
+          toolCalls: [
+            ...toolStep('ExitPlanMode').toolCalls!,
+            ...toolStep('TodoWrite').toolCalls!,
+          ],
+        },
+        { text: 'Done.' },
+      ],
+      index => {
+        if (index === 0) h.eventBus.emit('plan_ready', { approved: true })
+      },
+    )
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([{ reason: 'next_turn' }])
+  })
+
   it('ignores a plan that was not approved', async () => {
     const h = createQueryHarness()
     h.scriptSteps([toolStep('ExitPlanMode'), { text: 'Revising.' }], index => {
@@ -259,6 +282,50 @@ describe('query loop: permission mode change', () => {
     expect(prompts).toEqual(['system', 'plan-mode system'])
     const nextTools = h.deps.runStep.mock.calls[1]![0].tools
     expect(Object.keys(nextTools).sort()).toEqual(['ExitPlanMode', 'Read'])
+  })
+
+  const promptsAfterModeChange = async (
+    refreshSystemPrompt: () => Promise<string>,
+  ) => {
+    const h = createQueryHarness({ refreshSystemPrompt })
+    h.scriptSteps(
+      [toolStep('EnterPlanMode'), toolStep('Read'), { text: 'Done.' }],
+      index => {
+        if (index === 0) h.eventBus.emit('mode_changed', { mode: 'plan' })
+      },
+    )
+    const result = await query(h.options)
+    return {
+      result,
+      prompts: h.deps.runStep.mock.calls.map(([args]) => args.systemPrompt),
+      preTurnPrompts: h.deps.preTurn.mock.calls.map(
+        ([args]) => args.systemPrompt,
+      ),
+    }
+  }
+
+  it('waits for a slow system prompt refresh before the next request', async () => {
+    let refreshes = 0
+    const { prompts, preTurnPrompts } = await promptsAfterModeChange(
+      async () => {
+        refreshes++
+        await new Promise(resolve => setTimeout(resolve, 20))
+        return 'plan-mode system'
+      },
+    )
+
+    expect(prompts).toEqual(['system', 'plan-mode system', 'plan-mode system'])
+    expect(preTurnPrompts).toEqual(prompts)
+    expect(refreshes).toBe(1)
+  })
+
+  it('keeps the previous system prompt when the refresh fails', async () => {
+    const { result, prompts } = await promptsAfterModeChange(async () => {
+      throw new Error('settings unreadable')
+    })
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(prompts).toEqual(['system', 'system', 'system'])
   })
 })
 

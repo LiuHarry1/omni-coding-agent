@@ -50,6 +50,10 @@ type State = {
   maxOutputTokensRecoveryCount: number
   /** Raised output cap for continuations; undefined uses the default. */
   maxOutputTokensOverride: number | undefined
+  /** The user approved a plan and no implementation tool has run since. */
+  planBuildPending: boolean
+  /** Changes when the permission mode does. */
+  systemPrompt: string
   /** Text of the latest step that produced any. */
   finalText: string
   /** Why the previous iteration continued; undefined on the first. */
@@ -126,8 +130,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   }
   const pool = deferredToolPool ? { ...deferredToolPool } : undefined
   const toolPolicy: ConcurrencyPolicyFn = concurrencyPolicy ?? (() => false)
-  let activeSystemPrompt = systemPrompt
-  let planBuildPending = false
 
   const compactEnrichment: CompactEnrichment | undefined = toolUseContext
     ? {
@@ -137,34 +139,64 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       }
     : undefined
 
-  const applyPermissionModeRefresh = (newMode: string) => {
-    if (refreshTools) {
-      syncToolSet(activeTools, refreshTools())
-      console.log(
-        `[${agentLogTag(logLabel)}] refreshed tools for mode=${newMode}: ${Object.keys(activeTools).join(', ')}`,
-      )
-    }
-    if (refreshSystemPrompt) {
-      void Promise.resolve(refreshSystemPrompt()).then(prompt => {
-        activeSystemPrompt = prompt
-        console.log(
-          `[${agentLogTag(logLabel)}] refreshed system prompt for mode=${newMode}`,
-        )
-      })
-    }
+  /**
+   * Raised by tools while a step runs. The handlers only take notes; the
+   * loop folds them into `state` when the next iteration starts.
+   */
+  const pendingEvents: { planApproved: boolean; mode: string | undefined } = {
+    planApproved: false,
+    mode: undefined,
   }
 
   const unsubPlanReady = eventBus.on('plan_ready', data => {
     if ((data as { approved?: boolean }).approved) {
-      planBuildPending = true
+      pendingEvents.planApproved = true
     }
   })
 
   const unsubMode = eventBus.on('mode_changed', data => {
     const newMode = (data as { mode?: string }).mode
     if (!newMode) return
-    applyPermissionModeRefresh(newMode)
+    // The tool set cannot wait for the step boundary: it is the only thing
+    // keeping a Write queued behind EnterPlanMode in this step from running.
+    if (refreshTools) {
+      syncToolSet(activeTools, refreshTools())
+      console.log(
+        `[${agentLogTag(logLabel)}] refreshed tools for mode=${newMode}: ${Object.keys(activeTools).join(', ')}`,
+      )
+    }
+    pendingEvents.mode = newMode
   })
+
+  const applyPendingEvents = async (current: State): Promise<State> => {
+    const { planApproved, mode } = pendingEvents
+    if (!planApproved && mode === undefined) return current
+    pendingEvents.planApproved = false
+    pendingEvents.mode = undefined
+
+    let nextSystemPrompt = current.systemPrompt
+    if (mode !== undefined && refreshSystemPrompt) {
+      try {
+        nextSystemPrompt = await refreshSystemPrompt()
+        console.log(
+          `[${agentLogTag(logLabel)}] refreshed system prompt for mode=${mode}`,
+        )
+      } catch (err) {
+        console.warn(
+          `[${agentLogTag(logLabel)}] system prompt refresh for mode=${mode} failed -- keeping the previous prompt: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
+    }
+    return {
+      turnCount: current.turnCount,
+      maxOutputTokensRecoveryCount: current.maxOutputTokensRecoveryCount,
+      maxOutputTokensOverride: current.maxOutputTokensOverride,
+      planBuildPending: current.planBuildPending || planApproved,
+      systemPrompt: nextSystemPrompt,
+      finalText: current.finalText,
+      transition: current.transition,
+    }
+  }
 
   const stepLimit =
     typeof maxSteps === 'number' && maxSteps > 0
@@ -177,6 +209,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     turnCount: 1,
     maxOutputTokensRecoveryCount: 0,
     maxOutputTokensOverride: undefined,
+    planBuildPending: false,
+    systemPrompt,
     finalText: '',
     transition: undefined,
   }
@@ -223,7 +257,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       onTurnEnd,
       {
         messages: getActiveModelMessages(messages, sessionId),
-        systemPrompt: activeSystemPrompt,
+        systemPrompt: state.systemPrompt,
         tools: { ...activeTools },
         provider,
         model: resolvedModel,
@@ -237,10 +271,13 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
 
   try {
     while (true) {
+      state = await applyPendingEvents(state)
       const {
         turnCount,
         maxOutputTokensRecoveryCount,
         maxOutputTokensOverride,
+        planBuildPending,
+        systemPrompt: activeSystemPrompt,
         finalText: priorText,
         transition,
       } = state
@@ -404,15 +441,19 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       const { toolCalls } = stepResult
       const finalText = stepResult.text || priorText
 
-      if (
-        planBuildPending &&
-        toolCalls.some(tc => PLAN_IMPLEMENTATION_TOOLS.has(tc.toolName))
-      ) {
-        planBuildPending = false
+      // Implementation has begun, so no kickoff is owed -- also when the
+      // approval arrived during this very step and is still waiting in
+      // `pendingEvents`.
+      const implementing = toolCalls.some(tc =>
+        PLAN_IMPLEMENTATION_TOOLS.has(tc.toolName),
+      )
+      if (implementing && (planBuildPending || pendingEvents.planApproved)) {
+        pendingEvents.planApproved = false
         console.log(
           '[agent] plan approved -- implementation tool called, skipping build kickoff',
         )
       }
+      const kickoffOwed = planBuildPending && !implementing
 
       // A cut that only followed complete tool calls needs no nudge: their
       // results carry the turn forward like any other tool step.
@@ -449,6 +490,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           turnCount: turnCount + 1,
           maxOutputTokensRecoveryCount: attempt,
           maxOutputTokensOverride: override,
+          planBuildPending: kickoffOwed,
+          systemPrompt: activeSystemPrompt,
           finalText,
           transition: { reason: 'max_output_tokens_recovery', attempt },
         }
@@ -456,13 +499,12 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       }
 
       if (toolCalls.length === 0) {
-        if (!planBuildPending) {
+        if (!kickoffOwed) {
           return finish(
             { reason: 'completed' },
             extractPartialResult(messages) ?? finalText,
           )
         }
-        planBuildPending = false
         messages.push(
           ensureMessageUuid({
             role: 'user',
@@ -480,6 +522,8 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           turnCount: turnCount + 1,
           maxOutputTokensRecoveryCount: 0,
           maxOutputTokensOverride: undefined,
+          planBuildPending: false,
+          systemPrompt: activeSystemPrompt,
           finalText,
           transition: { reason: 'plan_build_kickoff' },
         }
@@ -490,6 +534,8 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         turnCount: turnCount + 1,
         maxOutputTokensRecoveryCount: 0,
         maxOutputTokensOverride: undefined,
+        planBuildPending: kickoffOwed,
+        systemPrompt: activeSystemPrompt,
         finalText,
         transition: { reason: 'next_turn' },
       }
