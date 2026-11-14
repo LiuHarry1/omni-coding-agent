@@ -67,4 +67,10 @@ export interface ExecutionBackend {
   fsPort?: FsPort
   /** Release per-consumer runtime listeners; does not stop the shared worker. */
   dispose?(): void
+  /**
+   * A second backend on the same worker, for work that outlives the turn
+   * (background tasks). The turn releases its own backend when it ends; the
+   * caller releases this one.
+   */
+  fork?(): ExecutionBackend
 }

@@ -476,6 +476,17 @@ export class WorkerExecutionBackend implements ExecutionBackend {
     this.unsub()
     this.failChannel('WorkerExecutionBackend disposed with pending RPCs')
   }
+
+  fork(): WorkerExecutionBackend {
+    return new WorkerExecutionBackend(
+      this.environmentId,
+      this.runtime,
+      this.pathStyle,
+      this.cwd,
+      this.lspServers,
+      this.additionalRoots,
+    )
+  }
 }
 
 export function isWorkerExecutionBackend(

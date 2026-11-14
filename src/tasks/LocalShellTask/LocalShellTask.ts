@@ -273,13 +273,16 @@ export async function spawnShellTask(
     }))
   }
 
+  // The command usually outlives the turn that started it, and the turn
+  // releases its backend when it ends: watch through one of our own.
+  const watcherExecution = execution?.fork?.()
   void watchUntilDone({
     sessionId,
     taskId,
     description,
     toolUseId: input.toolUseId,
-    execution,
-  })
+    execution: watcherExecution ?? execution,
+  }).finally(() => watcherExecution?.dispose?.())
 
   return {
     taskId,

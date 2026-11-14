@@ -240,6 +240,58 @@ describe('Worker channel loss', () => {
     })
   })
 
+  it('keeps watching a background command after the turn that started it released its backend', async () => {
+    const runtime = new FakeRuntime()
+    const answer = (data: unknown) => {
+      const request = runtime.messages.at(-1) as { requestId: string }
+      runtime.emit({
+        type: 'fs_op_result',
+        requestId: request.requestId,
+        ok: true,
+        data,
+      } as RuntimeServerMessage)
+    }
+    const pollsSent = () =>
+      runtime.messages.filter(
+        m => (m as { op?: { op?: string } }).op?.op === 'exec_bg_poll',
+      ).length
+    const execution = new WorkerExecutionBackend(
+      'ssh:test',
+      runtime,
+      'posix',
+      '/workspace',
+    )
+
+    await runWithRequestScope({ agentHome, cwd: '/workspace' }, async () => {
+      const spawning = spawnShellTask(
+        {
+          command: 'npm run build',
+          description: 'build',
+          sessionId,
+          cwd: '/workspace',
+        },
+        { execution },
+      )
+      await vi.waitFor(() => expect(runtime.messages).toHaveLength(1))
+      answer({ pid: 42 })
+      const handle = await spawning
+
+      // The turn ends.
+      execution.dispose()
+
+      await vi.waitFor(() => expect(pollsSent()).toBe(1), { timeout: 2_000 })
+      expect(getTask(sessionId, handle.taskId)?.status).toBe('running')
+      answer({ done: true, exitCode: 0 })
+
+      await vi.waitFor(() =>
+        expect(getTask(sessionId, handle.taskId)?.status).toBe('completed'),
+      )
+      const notifications = dequeueAll(sessionId)
+      expect(notifications).toHaveLength(1)
+      expect(notifications[0]?.value).toContain('<status>completed</status>')
+    })
+  })
+
   it('marks a missing Worker background task unknown', async () => {
     const execution = {
       kind: 'worker',
