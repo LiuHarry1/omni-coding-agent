@@ -331,7 +331,6 @@ export async function runChatTurn(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     wire.error(msg)
-    wire.done()
     if (transport !== noopTransport) transport.end()
     return finish({ finalText: '', error: e as Error })
   }
@@ -876,8 +875,13 @@ export async function runChatTurn(
   }
   persistPendingMessages()
 
-  if (runError) wire.error(runError.message)
-  wire.done()
+  // A turn ends with one result event. query() emits it for every exit but
+  // an abort; fill in only when it stayed silent or never got to run.
+  const queryReported = queryReason !== undefined && queryReason !== 'aborted'
+  if (!queryReported) {
+    if (runError) wire.error(runError.message)
+    else wire.done()
+  }
   if (transport !== noopTransport) transport.end()
 
   return finish({
