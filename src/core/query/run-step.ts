@@ -45,6 +45,7 @@ import { consumeStream, type StreamResult } from '../agent/streamConsumer.js'
 import type { WireEmitter } from '../wire-emitter.js'
 import { stripToolExecute } from '../agent/prepareTools.js'
 import { buildToolMessage } from '../../services/tools/tool_execution.js'
+import { enforceToolResultBudget } from '../../services/tool-storage/message-budget.js'
 import { StreamingToolExecutor } from '../../services/tools/StreamingToolExecutor.js'
 import { allowAllTools, type CanUseToolFn } from '../can-use-tool.js'
 import type { ToolUseContext } from '../agent/tool-use-context.js'
@@ -341,6 +342,12 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
       ensureMessageUuids(sdkMessages)
 
       if (stepResult.toolResults.length > 0) {
+        // These results become one message; bound them together before it is
+        // committed, so what the model sees never changes afterwards.
+        stepResult.toolResults = enforceToolResultBudget(
+          stepResult.toolResults,
+          sessionId,
+        )
         messages.push(
           ensureMessageUuid(buildToolMessage(stepResult.toolResults)),
         )
