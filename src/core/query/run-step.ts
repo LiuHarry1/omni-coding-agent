@@ -14,6 +14,7 @@ import {
 } from '../../services/session-memory/index.js'
 import {
   isContextLengthError,
+  isInvalidRequestError,
   isTransientStreamError,
   parseMaxTokensContextOverflowError,
 } from '../stream-errors.js'
@@ -118,6 +119,19 @@ function withoutEmptyAssistantContent(msgs: RoleMessage[]): RoleMessage[] {
   })
 }
 
+/**
+ * The step's tool calls in stream order, as the executor ran them (it may
+ * have resolved a misspelled name). Calls the consumer settled itself, such
+ * as ones with unparsed arguments, never reach the executor and are kept.
+ */
+export function withExecutorToolCalls(
+  streamed: StreamResult['toolCalls'],
+  executed: StreamResult['toolCalls'],
+): StreamResult['toolCalls'] {
+  const executedById = new Map(executed.map(tc => [tc.toolCallId, tc]))
+  return streamed.map(tc => executedById.get(tc.toolCallId) ?? tc)
+}
+
 export function shouldAttemptReactiveCompaction(
   contextLengthAttempts: number,
   error: unknown,
@@ -159,7 +173,14 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
   let ctxLengthAttempt = 0
   let overflowAttempt = 0
   let lastOverflowTotal: number | undefined
-  let maxTokensOverride: number | undefined = args.maxOutputTokensOverride
+  // The raised cap comes from settings and may be more than this endpoint
+  // accepts; it is dropped for the rest of the step if a request is refused.
+  let raisedOutputCap = args.maxOutputTokensOverride
+  let maxTokensOverride: number | undefined = raisedOutputCap
+  const outputCapOutcome = (): Pick<StreamResult, 'outputCapRejected'> =>
+    args.maxOutputTokensOverride !== undefined && raisedOutputCap === undefined
+      ? { outputCapRejected: true }
+      : {}
   let transientAttempt = 0
   let reactiveCompacted = false
   let requestStart = Date.now()
@@ -295,14 +316,10 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         for await (const result of streamingExecutor.getRemainingResults()) {
           stepResult.toolResults.push(result)
         }
-        // Calls the consumer settled itself (unparsed arguments) never reach
-        // the executor; keep them so the step still counts as a tool step.
-        const executed = streamingExecutor.getAllToolCalls()
-        const executedIds = new Set(executed.map(tc => tc.toolCallId))
-        stepResult.toolCalls = [
-          ...executed,
-          ...stepResult.toolCalls.filter(tc => !executedIds.has(tc.toolCallId)),
-        ]
+        stepResult.toolCalls = withExecutorToolCalls(
+          stepResult.toolCalls,
+          streamingExecutor.getAllToolCalls(),
+        )
       }
 
       const response = await stream.response
@@ -386,7 +403,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         sessionId,
         logLabel,
       })
-      return stepResult
+      return { ...stepResult, ...outputCapOutcome() }
     } catch (err) {
       if (
         abortSignal?.aborted ||
@@ -472,7 +489,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
           args.onFullCompaction,
           sessionId,
         )
-        maxTokensOverride = args.maxOutputTokensOverride
+        maxTokensOverride = raisedOutputCap
         overflowAttempt = 0
         lastOverflowTotal = undefined
         ctxLengthAttempt++
@@ -505,6 +522,20 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         continue
       }
       const message = err instanceof Error ? err.message : String(err)
+      if (raisedOutputCap !== undefined && isInvalidRequestError(err)) {
+        console.warn(
+          `[${agentLogTag(logLabel)}] step ${step} request refused with maxOutputTokens=${raisedOutputCap} -> retrying at the default. ` +
+            `If this repeats, lower maxOutputTokens for this model in settings.json. ${message}`,
+        )
+        raisedOutputCap = undefined
+        maxTokensOverride = undefined
+        overflowAttempt = 0
+        lastOverflowTotal = undefined
+        requestStart = Date.now()
+        streamingExecutor?.discard()
+        streamingExecutor = createStreamingExecutor()
+        continue
+      }
       const cause =
         err instanceof Error && err.cause instanceof Error
           ? ` (${err.cause.message})`
@@ -519,6 +550,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         toolResults: [],
         completedCleanly: false,
         completionError: `Upstream stream failed: ${message}${cause}. Try again or check your proxy logs.`,
+        ...outputCapOutcome(),
       }
     }
   }

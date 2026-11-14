@@ -148,6 +148,30 @@ describe('query output-limit truncation recovery', () => {
     ])
   })
 
+  it('stops raising max_tokens once the endpoint refuses the declared cap', async () => {
+    const { overrides } = await run(
+      [
+        truncatedText('a'),
+        { ...truncatedText('b'), outputCapRejected: true },
+        truncatedText('c'),
+        { toolCalls: [toolCall('Read')] },
+        truncatedText('d'),
+        { text: 'e' },
+      ],
+      { cap: 128_000 },
+    )
+
+    // Refused on the second request; not tried again for the rest of the turn.
+    expect(overrides).toEqual([
+      undefined,
+      65_536,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
+
   it('raises max_tokens for continuations only when the model declares a higher cap', async () => {
     const withCap = await run(
       [

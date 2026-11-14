@@ -33,6 +33,8 @@ export interface StreamResult {
   truncated?: boolean
   /** Tools whose arguments were cut off by the limit; they never ran. */
   truncatedToolNames?: string[]
+  /** The endpoint refused the raised output cap; the step ran at the default. */
+  outputCapRejected?: boolean
 }
 
 export const TRUNCATED_TOOL_INPUT_RESULT =

@@ -50,6 +50,8 @@ type State = {
   maxOutputTokensRecoveryCount: number
   /** Raised output cap for continuations; undefined uses the default. */
   maxOutputTokensOverride: number | undefined
+  /** The endpoint refused a raised cap; continuations stay at the default. */
+  outputCapRejected: boolean
   /** The user approved a plan and no implementation tool has run since. */
   planBuildPending: boolean
   /** Changes when the permission mode does. */
@@ -191,6 +193,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       turnCount: current.turnCount,
       maxOutputTokensRecoveryCount: current.maxOutputTokensRecoveryCount,
       maxOutputTokensOverride: current.maxOutputTokensOverride,
+      outputCapRejected: current.outputCapRejected,
       planBuildPending: current.planBuildPending || planApproved,
       systemPrompt: nextSystemPrompt,
       finalText: current.finalText,
@@ -209,6 +212,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     turnCount: 1,
     maxOutputTokensRecoveryCount: 0,
     maxOutputTokensOverride: undefined,
+    outputCapRejected: false,
     planBuildPending: false,
     systemPrompt,
     finalText: '',
@@ -240,7 +244,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         wire.error(
           `The response stopped at the output token limit ${hits} times in a row and is incomplete. ` +
             'Ask for the remaining part, or split the task into smaller pieces.' +
-            (state.maxOutputTokensOverride === undefined
+            (state.maxOutputTokensOverride === undefined &&
+            !state.outputCapRejected
               ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
               : ''),
         )
@@ -276,6 +281,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         turnCount,
         maxOutputTokensRecoveryCount,
         maxOutputTokensOverride,
+        outputCapRejected: capRejectedBefore,
         planBuildPending,
         systemPrompt: activeSystemPrompt,
         finalText: priorText,
@@ -454,6 +460,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         )
       }
       const kickoffOwed = planBuildPending && !implementing
+      const outputCapRejected =
+        capRejectedBefore || stepResult.outputCapRejected === true
 
       // A cut that only followed complete tool calls needs no nudge: their
       // results carry the turn forward like any other tool step.
@@ -471,12 +479,13 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           )
         }
         const attempt = maxOutputTokensRecoveryCount + 1
-        const override =
-          maxOutputTokensOverride ??
-          escalatedMaxOutputTokens(
-            compaction?.maxOutputTokens ?? getMaxOutputTokens(),
-            provider.maxOutputTokenCap?.(),
-          )
+        const override = outputCapRejected
+          ? undefined
+          : (maxOutputTokensOverride ??
+            escalatedMaxOutputTokens(
+              compaction?.maxOutputTokens ?? getMaxOutputTokens(),
+              provider.maxOutputTokenCap?.(),
+            ))
         messages.push(buildTruncationReminder(stepResult.truncatedToolNames))
         console.log(
           `[${agentLogTag(logLabel)}] output token limit hit -- continuation ${attempt}/${MAX_TRUNCATION_RECOVERIES}` +
@@ -490,6 +499,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           turnCount: turnCount + 1,
           maxOutputTokensRecoveryCount: attempt,
           maxOutputTokensOverride: override,
+          outputCapRejected,
           planBuildPending: kickoffOwed,
           systemPrompt: activeSystemPrompt,
           finalText,
@@ -522,6 +532,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           turnCount: turnCount + 1,
           maxOutputTokensRecoveryCount: 0,
           maxOutputTokensOverride: undefined,
+          outputCapRejected,
           planBuildPending: false,
           systemPrompt: activeSystemPrompt,
           finalText,
@@ -534,6 +545,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         turnCount: turnCount + 1,
         maxOutputTokensRecoveryCount: 0,
         maxOutputTokensOverride: undefined,
+        outputCapRejected,
         planBuildPending: kickoffOwed,
         systemPrompt: activeSystemPrompt,
         finalText,

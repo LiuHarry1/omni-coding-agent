@@ -141,6 +141,13 @@ export function isContextLengthError(err: unknown): boolean {
  * mid-flight (proxy timeout, ECONNRESET, undici "terminated", flaky 5xx)?
  * For these the right move is to retry the same request, not to compact.
  */
+/** The endpoint refused the request itself (400/422), not its size or rate. */
+export function isInvalidRequestError(err: unknown): boolean {
+  const e = err as { statusCode?: number; status?: number } | null | undefined
+  const status = e?.statusCode ?? e?.status
+  return status === 400 || status === 422
+}
+
 export function isTransientStreamError(err: unknown): boolean {
   if (!err) return false
   const e = err as {
