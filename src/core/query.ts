@@ -19,6 +19,7 @@ import {
   getMaxOutputTokens,
   syncToolSet,
 } from './query/helpers.js'
+import { hookResultMessages, hookStoppedMessage } from './hooks/messages.js'
 import { productionDeps } from './query/deps.js'
 import { emitTurnEnd } from './query/post-turn.js'
 import { createDumpRecorder } from './query/run-step.js'
@@ -60,6 +61,11 @@ type State = {
   systemPrompt: string
   /** Text of the latest step that produced any. */
   finalText: string
+  /**
+   * The model is answering Stop hook feedback. Passed to the next Stop hook
+   * as `stop_hook_active` so it can let the turn end instead of looping.
+   */
+  stopHookActive: boolean
   /** Why the previous iteration continued; undefined on the first. */
   transition: Continue | undefined
 }
@@ -67,6 +73,8 @@ type State = {
 function stopReasonOf(terminal: Terminal): QueryStopReason {
   switch (terminal.reason) {
     case 'completed':
+    case 'hook_stopped':
+    case 'stop_hook_prevented':
       return 'completed'
     case 'aborted_streaming':
     case 'aborted_tools':
@@ -96,6 +104,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     deferredToolPool,
     getToolDefinition,
     canUseTool,
+    hooks,
     concurrencyPolicy,
     sessionId,
     toolUseContext,
@@ -213,6 +222,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       planBuildPending: current.planBuildPending || planApproved,
       systemPrompt: nextSystemPrompt,
       finalText: current.finalText,
+      stopHookActive: current.stopHookActive,
       transition: current.transition,
     }
   }
@@ -233,6 +243,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     planBuildPending: false,
     systemPrompt,
     finalText: '',
+    stopHookActive: false,
     transition: undefined,
   }
   const transitions: Continue[] = []
@@ -245,6 +256,12 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const finish = (terminal: Terminal, text: string): QueryResult => {
     switch (terminal.reason) {
       case 'completed':
+        wire.done()
+        break
+      case 'hook_stopped':
+      case 'stop_hook_prevented':
+        // Say why the turn ended here; nothing else on screen would.
+        wire.textDelta(`\n\n${terminal.notice}`)
         wire.done()
         break
       case 'max_turns':
@@ -300,6 +317,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         planBuildPending,
         systemPrompt: activeSystemPrompt,
         finalText: priorText,
+        stopHookActive,
         transition,
       } = state
       if (transition) transitions.push(transition)
@@ -389,6 +407,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         concurrencyPolicy: toolPolicy,
         getToolDefinition,
         canUseTool,
+        hooks,
         cwd,
         compaction,
         sessionMemory,
@@ -473,6 +492,18 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       const { toolCalls } = stepResult
       const finalText = stepResult.text || priorText
 
+      // A PreToolUse / PostToolUse hook answered `continue: false`. The tool
+      // results are committed; the model is not asked again.
+      if (stepResult.hookStopped !== undefined) {
+        return finish(
+          {
+            reason: 'hook_stopped',
+            notice: `Stopped by hook: ${stepResult.hookStopped}`,
+          },
+          extractPartialResult(messages) ?? finalText,
+        )
+      }
+
       // Implementation has begun, so no kickoff is owed -- also when the
       // approval arrived during this very step and is still waiting in
       // `pendingEvents`.
@@ -531,6 +562,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           planBuildPending: kickoffOwed,
           systemPrompt: activeSystemPrompt,
           finalText,
+          stopHookActive: false,
           transition: { reason: 'max_output_tokens_recovery', attempt },
         }
         continue
@@ -538,6 +570,56 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
 
       if (toolCalls.length === 0) {
         if (!kickoffOwed) {
+          // The model is done. Stop hooks may end the turn with a reason of
+          // their own, or send it back to work with feedback.
+          if (hooks?.has('Stop')) {
+            wire.turnState('tool-use', 'hooks.stop', 'Running Stop hooks')
+            const stop = await hooks.stop(stopHookActive, abortSignal)
+            if (abortSignal?.aborted) return finishInterrupted()
+            const notes = hookResultMessages(stop)
+            for (const note of notes) {
+              messages.push(ensureMessageUuid(note))
+            }
+            if (notes.length > 0) await onStepCommitted?.(messages)
+            if (stop.preventContinuation) {
+              return finish(
+                {
+                  reason: 'stop_hook_prevented',
+                  notice: `Stopped by hook: ${hookStoppedMessage(stop)}`,
+                },
+                extractPartialResult(messages) ?? finalText,
+              )
+            }
+            if (stop.blockingErrors.length > 0) {
+              for (const { blockingError } of stop.blockingErrors) {
+                messages.push(
+                  ensureMessageUuid({
+                    role: 'user',
+                    content: `Stop hook feedback:\n${blockingError}`,
+                    isMeta: true,
+                  }),
+                )
+              }
+              await onStepCommitted?.(messages)
+              console.log(
+                `[${agentLogTag(logLabel)}] Stop hook blocked the ending -- continuing with its feedback`,
+              )
+              wire.thinking()
+              state = {
+                turnCount: turnCount + 1,
+                maxOutputTokensRecoveryCount: 0,
+                maxOutputTokensOverride: undefined,
+                outputCapRejected,
+                usingFallbackModel: onFallbackModel,
+                planBuildPending: false,
+                systemPrompt: activeSystemPrompt,
+                finalText,
+                stopHookActive: true,
+                transition: { reason: 'stop_hook_blocking' },
+              }
+              continue
+            }
+          }
           return finish(
             { reason: 'completed' },
             extractPartialResult(messages) ?? finalText,
@@ -565,6 +647,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           planBuildPending: false,
           systemPrompt: activeSystemPrompt,
           finalText,
+          stopHookActive: false,
           transition: { reason: 'plan_build_kickoff' },
         }
         continue
@@ -579,6 +662,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         planBuildPending: kickoffOwed,
         systemPrompt: activeSystemPrompt,
         finalText,
+        stopHookActive,
         transition: { reason: 'next_turn' },
       }
     }

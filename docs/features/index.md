@@ -14,6 +14,7 @@ The HTTP, Electron, CLI, and ACP entry points converge on the same session, tool
 
 - [Scheduled tasks](scheduled-tasks.md) run prompts later in an existing session.
 - [Permissions](permissions.md) gate filesystem tools by workspace, rules, and deployment mode.
+- [Hooks](hooks.md) run your own commands before and after tool calls, on a submitted prompt, and when a turn ends.
 - [Attachments](attachments.md) project files, images, diagnostics, plans, and internal context into model messages.
 - [Primary agents](primary-agents.md) replace the main-thread profile without becoming a subagent.
 - [Slash commands](slash-commands.md) unify built-ins, Markdown commands, and skills.

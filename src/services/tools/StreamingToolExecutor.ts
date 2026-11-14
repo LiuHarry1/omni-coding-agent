@@ -5,8 +5,12 @@
 import type { CanUseToolFn } from '../../core/can-use-tool.js'
 import { createChildAbortController } from '../../utils/abortController.js'
 import { BASH_TOOL_NAME } from '../../constants/tool_names.js'
-import type { ToolDefinition } from '../../core/types.js'
+import type { Message, ToolDefinition } from '../../core/types.js'
 import { validateToolCall } from '../../core/tool-definition.js'
+import {
+  hookResultMessages,
+  hookStoppedMessage,
+} from '../../core/hooks/messages.js'
 import type { ToolUseContext } from '../../core/agent/tool-use-context.js'
 import {
   executeOneTool,
@@ -237,14 +241,21 @@ export class StreamingToolExecutor {
   }
 
   /** Settle a call that will not run with an error result. */
-  #rejectTool(tool: TrackedTool, result: string): void {
+  #rejectTool(
+    tool: TrackedTool,
+    result: string,
+    extra: Pick<
+      ExecutedToolResult,
+      'followUpMessages' | 'preventContinuation'
+    > = {},
+  ): void {
     const { toolCallId, toolName } = tool.call
     this.#ctx.wire.toolResult({
       tool_use_id: toolCallId,
       result,
       is_error: true,
     })
-    tool.result = { toolCallId, toolName, result, isError: true }
+    tool.result = { toolCallId, toolName, result, isError: true, ...extra }
     tool.status = 'completed'
   }
 
@@ -290,13 +301,89 @@ export class StreamingToolExecutor {
         return
       }
 
+      // PreToolUse hooks see the call after it is known to be well-formed
+      // and before anyone is asked to approve it.
+      const hooks = this.#ctx.hooks
+      const hookMessages: Message[] = []
+      let hookPermission:
+        { behavior: 'allow' | 'ask'; reason?: string } | undefined
+      if (hooks?.has('PreToolUse')) {
+        const pre = await hooks.preToolUse(
+          {
+            toolName: tool.call.toolName,
+            toolInput: tool.call.input,
+            toolUseId: tool.call.toolCallId,
+          },
+          this.#siblingAbortController.signal,
+        )
+        hookMessages.push(...hookResultMessages(pre))
+        if (pre.preventContinuation) {
+          const reason = hookStoppedMessage(pre)
+          this.#rejectTool(
+            tool,
+            `${pre.hookName} hook stopped continuation: ${reason}`,
+            {
+              followUpMessages: hookMessages,
+              preventContinuation: reason,
+            },
+          )
+          this.#updateInterruptibleState()
+          return
+        }
+        const blocked = pre.blockingErrors[0]
+        if (blocked || pre.permissionBehavior === 'deny') {
+          this.#rejectTool(
+            tool,
+            `${pre.hookName} hook error: ${blocked?.blockingError ?? pre.permissionReason ?? 'Blocked by hook'}`,
+            { followUpMessages: hookMessages },
+          )
+          this.#updateInterruptibleState()
+          return
+        }
+        if (pre.updatedInput) {
+          // The hook rewrote the arguments; they must still fit the tool.
+          const rechecked = await validateToolInput(
+            this.#ctx.tools[tool.call.toolName],
+            tool.call.toolName,
+            pre.updatedInput,
+          )
+          if (!rechecked.ok) {
+            this.#rejectTool(tool, rechecked.message, {
+              followUpMessages: hookMessages,
+            })
+            this.#updateInterruptibleState()
+            return
+          }
+          tool.call = { ...tool.call, input: rechecked.input }
+          const revalidated = await validateToolCall(
+            this.#ctx.tools[tool.call.toolName],
+            tool.call.input,
+          )
+          if (!revalidated.result) {
+            this.#rejectTool(tool, revalidated.message, {
+              followUpMessages: hookMessages,
+            })
+            this.#updateInterruptibleState()
+            return
+          }
+        }
+        if (pre.permissionBehavior) {
+          hookPermission = {
+            behavior: pre.permissionBehavior,
+            reason: pre.permissionReason,
+          }
+        }
+      }
+
       const permission = await this.#canUseTool(
         tool.call.toolName,
         tool.call.input,
-        { toolUseId: tool.call.toolCallId },
+        { toolUseId: tool.call.toolCallId, hookPermission },
       )
       if (permission.behavior === 'deny') {
-        this.#rejectTool(tool, permission.message)
+        this.#rejectTool(tool, permission.message, {
+          followUpMessages: hookMessages,
+        })
         this.#updateInterruptibleState()
         return
       }
@@ -333,6 +420,34 @@ export class StreamingToolExecutor {
         this.#ctx.getDefinition,
         toolAbort.signal,
       )
+
+      // PostToolUse hooks run for a tool that finished; their feedback and
+      // context follow its result in the transcript.
+      if (
+        hooks?.has('PostToolUse') &&
+        !executed.isError &&
+        !this.#getAbortReason(tool)
+      ) {
+        const post = await hooks.postToolUse(
+          {
+            toolName: tool.call.toolName,
+            toolInput: input,
+            toolResponse: executed.toolUseResult ?? executed.result,
+            toolUseId: tool.call.toolCallId,
+          },
+          toolAbort.signal,
+        )
+        hookMessages.push(...hookResultMessages(post, { blockingErrors: true }))
+        if (post.preventContinuation) {
+          executed.preventContinuation = hookStoppedMessage(post)
+        }
+      }
+      if (hookMessages.length > 0) {
+        executed.followUpMessages = [
+          ...(executed.followUpMessages ?? []),
+          ...hookMessages,
+        ]
+      }
 
       const abortReason = this.#getAbortReason(tool)
       // The tool already ran: keep its real (possibly partial) output so the

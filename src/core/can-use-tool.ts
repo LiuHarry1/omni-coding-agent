@@ -26,6 +26,7 @@ import {
   type CommandPermissionAsk,
   type FilesystemPermissionContext,
   type FsPermissionDecision,
+  type ToolPermissionDecision,
 } from '../utils/permissions/filesystem.js'
 import {
   persistAlwaysAllowDirectory,
@@ -41,7 +42,14 @@ export type PermissionDecision =
   | { behavior: 'allow'; updatedInput?: unknown }
   | { behavior: 'deny'; message: string }
 
-export type CanUseToolMeta = { toolUseId?: string }
+export type CanUseToolMeta = {
+  toolUseId?: string
+  /**
+   * What a PreToolUse hook decided. `allow` skips the prompt for a call no
+   * rule singles out; deny and ask rules still hold. `ask` forces a prompt.
+   */
+  hookPermission?: { behavior: 'allow' | 'ask'; reason?: string }
+}
 
 export type CanUseToolFn = (
   toolName: string,
@@ -145,6 +153,16 @@ function isCommandAsk(
  * Permission pipeline: checkPermissions → dontAsk maps ask to deny
  * → default mode prompts Allow / Always / Reject.
  */
+/** One line naming a tool call in a prompt a hook asked for. */
+function describeCall(toolName: string, input: unknown): string {
+  const record = inputRecord(input)
+  for (const key of ['command', 'file_path', 'path', 'url']) {
+    const value = record[key]
+    if (typeof value === 'string' && value) return `${toolName}: ${value}`
+  }
+  return toolName
+}
+
 export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
   const { cwd, getDefinition, session, wire, abortSignal } = opts
   const permissionContext = opts.permissionContext ?? policyFromContext(cwd)
@@ -152,16 +170,35 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
 
   return async (toolName, input, meta) => {
     const def = getDefinition?.(toolName)
-    if (!def?.checkPermissions) return { behavior: 'allow' }
-
-    const decision = await def.checkPermissions(input, {
-      cwd,
-      permissionContext,
-    })
-    if (decision.behavior === 'allow') return { behavior: 'allow' }
-    if (decision.behavior === 'deny') {
-      return { behavior: 'deny', message: decision.message }
+    const hook = meta?.hookPermission
+    const checked: ToolPermissionDecision = def?.checkPermissions
+      ? await def.checkPermissions(input, { cwd, permissionContext })
+      : { behavior: 'allow' }
+    if (checked.behavior === 'deny') {
+      return { behavior: 'deny', message: checked.message }
     }
+
+    let decision = checked
+    // A hook wants a person to confirm a call nothing else objected to.
+    const askedByHook = checked.behavior === 'allow'
+    if (checked.behavior === 'allow') {
+      if (hook?.behavior !== 'ask') return { behavior: 'allow' }
+      decision = {
+        behavior: 'ask',
+        message:
+          hook.reason ??
+          `A hook asked for confirmation before ${toolName} runs.`,
+        command: describeCall(toolName, input),
+        rules: [],
+        whenUnattended: 'deny',
+      }
+    } else if (hook?.behavior === 'allow') {
+      // The hook vouches for the call, except where a rule insists on asking.
+      const askedByRule =
+        isCommandAsk(checked) && checked.whenUnattended === 'deny'
+      if (!askedByRule) return { behavior: 'allow' }
+    }
+    if (decision.behavior !== 'ask') return { behavior: 'allow' }
 
     const commandAsk = isCommandAsk(decision) ? decision : undefined
     const pathAsk = isCommandAsk(decision) ? undefined : decision
@@ -170,7 +207,9 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
       if (commandAsk.whenUnattended === 'allow') return { behavior: 'allow' }
       return {
         behavior: 'deny',
-        message: `${toolName} needs approval to run ${commandAsk.command}, and nobody can be asked in this session.`,
+        message: askedByHook
+          ? `A hook requires approval for ${commandAsk.command}, and nobody can be asked in this session.`
+          : `${toolName} needs approval to run ${commandAsk.command}, and nobody can be asked in this session.`,
       }
     }
     if (pathAsk && permissionContext.mode === 'dontAsk') {
@@ -217,9 +256,11 @@ export function createCanUseTool(opts: CreateCanUseToolOptions): CanUseToolFn {
     if (answer.behavior === 'deny') {
       return {
         behavior: 'deny',
-        message: commandAsk
-          ? `User rejected ${toolName} command ${commandAsk.command}.`
-          : `User rejected ${toolName} on ${pathAsk?.path}.`,
+        message: askedByHook
+          ? `User rejected ${commandAsk?.command ?? toolName}.`
+          : commandAsk
+            ? `User rejected ${toolName} command ${commandAsk.command}.`
+            : `User rejected ${toolName} on ${pathAsk?.path}.`,
       }
     }
 

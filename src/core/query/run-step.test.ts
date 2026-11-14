@@ -8,6 +8,8 @@ import { z } from 'zod'
 import { isPersistedReference } from '../../services/tool-storage/index.js'
 import { runWithRequestScope } from '../../utils/request-scope.js'
 import { EventBus } from '../event-bus.js'
+import { createHookRunner } from '../hooks/hooks.js'
+import type { HooksConfig } from '../hooks/types.js'
 import type { IProvider } from '../llm/types.js'
 import { registerSessionLocation } from '../session-paths.js'
 import type { Message } from '../types.js'
@@ -360,6 +362,143 @@ describe('runStep tool result budget', () => {
     ).toEqual([true, false, false])
   })
 })
+
+describe.skipIf(process.platform === 'win32')(
+  'runStep with hook commands',
+  () => {
+    let dir: string
+
+    beforeEach(() => {
+      dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-step-hooks-'))
+    })
+
+    afterEach(() => {
+      fs.rmSync(dir, { recursive: true, force: true })
+    })
+
+    /** A hook command running `body` with the event available as `input`. */
+    const hookCommand = (name: string, body: string) => {
+      const file = path.join(dir, `${name}.cjs`)
+      fs.writeFileSync(
+        file,
+        `const input = JSON.parse(require('fs').readFileSync(0, 'utf8'))\n${body}\n`,
+      )
+      return {
+        type: 'command' as const,
+        command: `"${process.execPath}" "${file}"`,
+      }
+    }
+
+    /** One step in which the model calls Bash with each of `commands`. */
+    function bashStep(commands: string[], hooks: HooksConfig) {
+      const ran: string[] = []
+      const tools = {
+        Bash: tool({
+          description: 'Run a command',
+          inputSchema: z.object({ command: z.string() }),
+          execute: async ({ command }) => {
+            ran.push(command)
+            return `ran ${command}`
+          },
+        }),
+      } as unknown as RunStepArgs['tools']
+      const step = stepArgs(
+        () => ({
+          stream: simulateReadableStream({
+            chunks: [
+              { type: 'stream-start', warnings: [] },
+              ...commands.map((command, index) => ({
+                type: 'tool-call',
+                toolCallId: `call-${index}`,
+                toolName: 'Bash',
+                input: JSON.stringify({ command }),
+              })),
+              {
+                type: 'finish',
+                finishReason: { unified: 'tool-calls', raw: 'tool_use' },
+                usage,
+              },
+            ] as never,
+          }),
+        }),
+        {
+          tools,
+          hooks: createHookRunner({ hooks, cwd: dir, sessionId: 'session-1' }),
+        },
+      )
+      return { ...step, ran }
+    }
+
+    it('lets a PreToolUse command stop one call and not the others', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+      const { args, ran } = bashStep(['rm -rf build', 'npm test'], {
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [
+              hookCommand(
+                'guard',
+                `if (input.tool_input.command.startsWith('rm -rf')) {
+                  console.error('rm -rf is not allowed here')
+                  process.exit(2)
+                }`,
+              ),
+            ],
+          },
+        ],
+      })
+
+      const result = await runStep(args)
+      warn.mockRestore()
+
+      expect(ran).toEqual(['npm test'])
+      expect(result.toolResults).toMatchObject([
+        {
+          toolCallId: 'call-0',
+          isError: true,
+          result: expect.stringMatching(
+            /^PreToolUse:Bash hook error: \[.*guard\.cjs"\]: rm -rf is not allowed here$/,
+          ),
+        },
+        { toolCallId: 'call-1', result: 'ran npm test' },
+      ])
+      expect(result.hookStopped).toBeUndefined()
+    })
+
+    it('ends the turn when a PostToolUse command says not to continue', async () => {
+      const { args, ran, messages } = bashStep(['npm test'], {
+        PostToolUse: [
+          {
+            hooks: [
+              hookCommand(
+                'budget',
+                `console.log(JSON.stringify({
+                  continue: false,
+                  stopReason: 'Saw ' + input.tool_response,
+                }))`,
+              ),
+            ],
+          },
+        ],
+      })
+
+      const result = await runStep(args)
+
+      expect(ran).toEqual(['npm test'])
+      expect(result.hookStopped).toBe('Saw ran npm test')
+      // The note follows the tool result it belongs to.
+      expect(messages.at(-2)).toMatchObject({ role: 'tool' })
+      expect(messages.at(-1)).toMatchObject({
+        type: 'attachment',
+        attachment: {
+          type: 'hook_stopped_continuation',
+          hookName: 'PostToolUse:Bash',
+          message: 'Saw ran npm test',
+        },
+      })
+    })
+  },
+)
 
 describe('withExecutorToolCalls', () => {
   const call = (toolCallId: string, toolName: string) => ({

@@ -93,6 +93,8 @@ export interface ToolContext {
    * (subagents) ask through the same prompt as the main agent.
    */
   canUseTool?: import('./can-use-tool.js').CanUseToolFn
+  /** The turn's hooks, so subagent tool calls run them too. */
+  hooks?: import('./hooks/hooks.js').HookRunner
   /**
    * Tool execution via isomorphic Agent Worker (RuntimePort RPC).
    * Always set for both local and SSH workspaces.
@@ -509,6 +511,8 @@ export interface AgentOptions {
    * turn, after `@mention` attachments.
    */
   attachmentPrelude?: Message[]
+  /** Appended right after the user turn (UserPromptSubmit hook context). */
+  afterUserMessages?: Message[]
   /** File-chip metadata stored on the visible user turn. */
   attachmentFiles?: UserFileAttachment[]
   /** Original composer text persisted for transcript rendering. */
@@ -599,6 +603,11 @@ export interface AgentOptions {
    * tighter gate of their own; omitted → allow-all in the streaming executor.
    */
   canUseTool?: import('./can-use-tool.js').CanUseToolFn
+  /**
+   * User-configured lifecycle hooks: PreToolUse / PostToolUse around every
+   * tool call, Stop when the model ends the turn.
+   */
+  hooks?: import('./hooks/hooks.js').HookRunner
   /**
    * Per-tool concurrency policy for manual tool orchestration. When omitted,
    * all tools run serially (safe default).
@@ -1137,6 +1146,11 @@ export interface AppConfig {
     /** Filesystem `permissions.defaultMode` (implemented subset). */
     defaultMode?: 'default' | 'dontAsk' | 'bypassPermissions'
   }
+  /**
+   * Commands run at lifecycle events (Claude Code's `hooks` settings).
+   * Hooks from every settings file are combined.
+   */
+  hooks?: import('./hooks/types.js').HooksConfig
   /**
    * Extra SSH hosts for the execution EnvironmentRegistry (merged with ~/.ssh/config).
    */

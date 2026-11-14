@@ -66,6 +66,7 @@ import {
   type DumpPromptsRecorder,
 } from '../../services/api/dumpPrompts.js'
 import type { ConcurrencyPolicyFn } from '../concurrency-policy.js'
+import type { HookRunner } from '../hooks/hooks.js'
 import type { AnyTool } from '../types.js'
 import {
   agentLogTag,
@@ -113,6 +114,8 @@ export interface RunStepArgs {
   maxOutputTokensOverride?: number
   /** Model to switch to when `provider` stays overloaded. */
   fallback?: { provider: IProvider; model: string }
+  /** User-configured hooks for this step's tool calls. */
+  hooks?: HookRunner
 }
 
 /** A response cut off before any visible output must not leave empty text blocks. */
@@ -227,6 +230,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
       getDefinition: getToolDefinition,
       abortController: toolAbortController,
       concurrencyPolicy,
+      hooks: args.hooks,
     }
     return new StreamingToolExecutor(
       canUseTool ?? allowAllTools,
@@ -368,6 +372,9 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
             for (const fm of tr.followUpMessages) {
               messages.push(ensureMessageUuid(fm))
             }
+          }
+          if (tr.preventContinuation !== undefined) {
+            stepResult.hookStopped ??= tr.preventContinuation
           }
         }
       }

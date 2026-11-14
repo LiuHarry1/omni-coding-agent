@@ -2,6 +2,10 @@
  * Transport-agnostic turn host (QueryEngine analogue).
  * HTTP / stdio / ACP adapters call this; persistence still uses server/session.
  */
+import {
+  createSessionHookRunner,
+  submitUserPrompt,
+} from '../core/hooks/session-hooks.js'
 import type {
   Session,
   RunAgentFn,
@@ -31,6 +35,7 @@ import {
   appendMessage,
   appendTurnTiming,
   appendModeChange,
+  getSessionTranscriptPath,
 } from '../session/index.js'
 import {
   prepareChatTurn,
@@ -801,6 +806,24 @@ export async function runChatTurn(
       })
       // Subagents ask through the same gate as the main agent.
       prepared.toolContext.canUseTool = canUseTool
+
+      const hooks = createSessionHookRunner({
+        hooks: resolvedSettings.config.hooks,
+        remote: isRemoteWorkspace(session.workspace),
+        cwd,
+        sessionId: session.id,
+        transcriptPath: getSessionTranscriptPath(session.id) ?? undefined,
+        getPermissionMode: () => session.permissionMode?.mode,
+      })
+      prepared.toolContext.hooks = hooks
+      // UserPromptSubmit hooks see what the user typed before the model does.
+      // A scheduled turn has no user prompt to submit.
+      // A refusal throws: the prompt never reaches the model or the
+      // transcript, and the reason is the turn's error.
+      const afterUserMessages =
+        hooks && !isMeta
+          ? await submitUserPrompt(hooks, message, turnAbort.signal)
+          : undefined
       finalText = await runAgent(prepared.effectiveMessage, {
         tools: prepared.tools,
         systemPrompt,
@@ -814,6 +837,7 @@ export async function runChatTurn(
         messages: session.messages,
         images: imageRefs,
         attachmentPrelude,
+        afterUserMessages,
         attachmentFiles,
         displayUserMessage: message,
         isMeta,
@@ -821,6 +845,7 @@ export async function runChatTurn(
         deferredToolPool: prepared.deferredToolPool,
         getToolDefinition: prepared.getToolDefinition,
         canUseTool,
+        hooks,
         concurrencyPolicy: prepared.concurrencyPolicy,
         sessionId: session.id,
         turnProfiler: turnProfile,

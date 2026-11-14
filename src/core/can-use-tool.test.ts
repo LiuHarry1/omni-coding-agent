@@ -57,9 +57,12 @@ function gate(
     ),
     interactive: options.interactive,
   })
-  const run = (command: string, toolUseId = 'call-1') =>
-    canUseTool('Bash', { command }, { toolUseId })
-  return { run, prompts, permissionContext }
+  const run = (
+    command: string,
+    toolUseId = 'call-1',
+    hookPermission?: { behavior: 'allow' | 'ask'; reason?: string },
+  ) => canUseTool('Bash', { command }, { toolUseId, hookPermission })
+  return { run, prompts, permissionContext, canUseTool }
 }
 
 /** Resolves once the gate has put a prompt on the wire. */
@@ -187,5 +190,89 @@ describe('createCanUseTool: shell commands', () => {
         behavior: 'deny',
       })
     })
+  })
+})
+
+describe('createCanUseTool: a PreToolUse hook decision', () => {
+  const hookAllows = { behavior: 'allow' as const, reason: 'tests are fine' }
+  const hookAsks = { behavior: 'ask' as const, reason: 'Touches production' }
+
+  it('runs a command the hook allowed without asking', async () => {
+    const { run, prompts } = gate()
+
+    await expect(run('npm run build', 'call-1', hookAllows)).resolves.toEqual({
+      behavior: 'allow',
+    })
+    expect(prompts).toEqual([])
+  })
+
+  it('still refuses a denied command the hook allowed', async () => {
+    const { run } = gate({ deny: ['Bash(rm -rf:*)'] })
+
+    await expect(
+      run('rm -rf build', 'call-1', hookAllows),
+    ).resolves.toMatchObject({ behavior: 'deny' })
+  })
+
+  it('still asks for a command under an ask rule the hook allowed', async () => {
+    const { run, prompts } = gate({ ask: ['Bash(git push:*)'] })
+
+    const decision = run('git push origin main', 'call-1', hookAllows)
+    const prompt = await prompted(prompts)
+    answerPermission(prompt.request_id, { behavior: 'allow' })
+
+    await expect(decision).resolves.toEqual({ behavior: 'allow' })
+  })
+
+  it('asks before a read-only command when the hook wants a prompt', async () => {
+    const { run, prompts, permissionContext } = gate()
+
+    const decision = run('git status', 'call-1', hookAsks)
+    const prompt = await prompted(prompts)
+    expect(prompt.request).toMatchObject({
+      subtype: 'can_use_tool',
+      tool_name: 'Bash',
+      description: 'Touches production',
+      command: 'Bash: git status',
+      // Nothing to remember: the hook decides each time.
+      always_rules: [],
+    })
+    answerPermission(prompt.request_id, { behavior: 'always' })
+
+    await expect(decision).resolves.toEqual({ behavior: 'allow' })
+    expect(permissionContext.allow).toEqual([])
+    expect(localSettings()).toEqual({})
+  })
+
+  it('asks for a tool without a permission check of its own', async () => {
+    const { canUseTool, prompts } = gate()
+
+    const decision = canUseTool(
+      'WebFetch',
+      { url: 'https://example.test' },
+      { toolUseId: 'call-1', hookPermission: { behavior: 'ask' } },
+    )
+    const prompt = await prompted(prompts)
+    expect(prompt.request).toMatchObject({
+      description: 'A hook asked for confirmation before WebFetch runs.',
+      command: 'WebFetch: https://example.test',
+    })
+    answerPermission(prompt.request_id, { behavior: 'deny' })
+
+    await expect(decision).resolves.toEqual({
+      behavior: 'deny',
+      message: 'User rejected WebFetch: https://example.test.',
+    })
+  })
+
+  it('refuses when the hook wants a prompt and nobody can be asked', async () => {
+    const { run, prompts } = gate({ interactive: false })
+
+    await expect(run('git status', 'call-1', hookAsks)).resolves.toEqual({
+      behavior: 'deny',
+      message:
+        'A hook requires approval for Bash: git status, and nobody can be asked in this session.',
+    })
+    expect(prompts).toEqual([])
   })
 })

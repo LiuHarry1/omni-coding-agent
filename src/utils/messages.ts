@@ -255,6 +255,37 @@ You have exited plan mode. You can now make edits, run tools, and take actions.$
       }
       return wrapMessagesInSystemReminder([metaUserMessage(message)])
     }
+
+    // Wording of the hook messages follows Claude Code.
+    case 'hook_blocking_error':
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          `${attachment.hookName} hook blocking error from command: "${attachment.blockingError.command}": ${attachment.blockingError.blockingError}`,
+        ),
+      ])
+
+    case 'hook_success':
+      if (attachment.content === '') return []
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          `${attachment.hookName} hook success: ${attachment.content}`,
+        ),
+      ])
+
+    case 'hook_additional_context':
+      if (attachment.content.length === 0) return []
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          `${attachment.hookName} hook additional context: ${attachment.content.join('\n')}`,
+        ),
+      ])
+
+    case 'hook_stopped_continuation':
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          `${attachment.hookName} hook stopped continuation: ${attachment.message}`,
+        ),
+      ])
   }
 }
 

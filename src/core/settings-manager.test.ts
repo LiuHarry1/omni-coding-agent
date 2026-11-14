@@ -1,12 +1,13 @@
 import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSafeMCPServerMetadata } from './mcp-policy.js'
 import {
   getSafeSettings,
   resetSettingsCache,
   resolveEffectiveSettings,
+  resolveSettings,
   validateMCPRemoval,
 } from './settings-manager.js'
 import { runWithRequestScope } from '../utils/request-scope.js'
@@ -149,5 +150,111 @@ describe('MCP settings provenance', () => {
     expect(
       validateMCPRemoval(effective.mcpProvenance, 'projectOnly', 'project'),
     ).toBeNull()
+  })
+})
+
+describe('hooks settings', () => {
+  beforeEach(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-settings-'))
+    home = path.join(root, 'home')
+    workspace = path.join(root, 'workspace')
+    managed = path.join(root, 'managed')
+    fs.mkdirSync(home)
+    fs.mkdirSync(workspace)
+    fs.mkdirSync(managed)
+    // With sign-in on, the user settings come from `home` rather than from
+    // the home directory of whoever runs the tests.
+    process.env.AUTH_ENABLED = 'true'
+    process.env.AI_AGENT_MANAGED_DIR = managed
+    resetSettingsCache()
+  })
+
+  afterEach(() => {
+    resetSettingsCache()
+    fs.rmSync(root, { recursive: true, force: true })
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[name]
+      else process.env[name] = value
+    }
+  })
+
+  const resolveHooks = () =>
+    runWithRequestScope({ agentHome: home, cwd: workspace }, () =>
+      resolveSettings(workspace),
+    ).config.hooks
+
+  it('combines the hooks of every settings file', () => {
+    writeJson(path.join(home, '.ai-agent', 'settings.json'), {
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: 'notify-done' }] }],
+        PreToolUse: [
+          {
+            matcher: 'Bash',
+            hooks: [{ type: 'command', command: 'guard', timeout: 5 }],
+          },
+        ],
+      },
+    })
+    writeJson(path.join(workspace, '.ai-agent', 'settings.json'), {
+      hooks: {
+        PreToolUse: [
+          {
+            matcher: 'Edit|Write',
+            hooks: [{ type: 'command', command: 'check-paths' }],
+          },
+        ],
+      },
+    })
+
+    expect(resolveHooks()).toEqual({
+      Stop: [{ hooks: [{ type: 'command', command: 'notify-done' }] }],
+      PreToolUse: [
+        {
+          matcher: 'Bash',
+          hooks: [{ type: 'command', command: 'guard', timeout: 5 }],
+        },
+        {
+          matcher: 'Edit|Write',
+          hooks: [{ type: 'command', command: 'check-paths' }],
+        },
+      ],
+    })
+  })
+
+  it('skips events and hook types it does not run, keeping the rest', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      writeJson(path.join(workspace, '.ai-agent', 'settings.json'), {
+        hooks: {
+          SessionStart: [
+            { hooks: [{ type: 'command', command: 'load-context' }] },
+          ],
+          PostToolUse: [
+            {
+              matcher: 'Edit',
+              hooks: [
+                { type: 'prompt', prompt: 'Was this edit safe?' },
+                { type: 'command', command: 'format' },
+              ],
+            },
+            { hooks: [{ type: 'prompt', prompt: 'Only a prompt hook' }] },
+          ],
+        },
+      })
+
+      expect(resolveHooks()).toEqual({
+        PostToolUse: [
+          { matcher: 'Edit', hooks: [{ type: 'command', command: 'format' }] },
+        ],
+      })
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('leaves hooks unset when no file configures any', () => {
+    writeJson(path.join(workspace, '.ai-agent', 'settings.json'), {})
+
+    expect(resolveHooks()).toBeUndefined()
   })
 })

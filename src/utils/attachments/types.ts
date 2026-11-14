@@ -171,9 +171,42 @@ export type TodoReminderAttachment = {
   itemCount: number
 }
 
+/** A hook refused something (exit code 2 or `decision: block`). */
+export type HookBlockingErrorAttachment = {
+  type: 'hook_blocking_error'
+  /** `PostToolUse:Edit`, `Stop`, ... */
+  hookName: string
+  blockingError: { blockingError: string; command: string }
+}
+
+/** Text a hook asked to be shown to the model. */
+export type HookAdditionalContextAttachment = {
+  type: 'hook_additional_context'
+  hookName: string
+  content: string[]
+}
+
+/** Plain output of a hook that succeeded (UserPromptSubmit context). */
+export type HookSuccessAttachment = {
+  type: 'hook_success'
+  hookName: string
+  content: string
+}
+
+/** A hook answered `continue: false`. */
+export type HookStoppedContinuationAttachment = {
+  type: 'hook_stopped_continuation'
+  hookName: string
+  message: string
+}
+
 export type Attachment =
   | EditedTextFileAttachment
   | TodoReminderAttachment
+  | HookBlockingErrorAttachment
+  | HookAdditionalContextAttachment
+  | HookSuccessAttachment
+  | HookStoppedContinuationAttachment
   | FileAttachment
   | UploadedBinaryAttachment
   | PdfReferenceAttachment

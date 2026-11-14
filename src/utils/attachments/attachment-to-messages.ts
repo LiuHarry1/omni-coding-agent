@@ -166,6 +166,10 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
     case 'conditional_rules':
     case 'edited_text_file':
     case 'todo_reminder':
+    case 'hook_blocking_error':
+    case 'hook_additional_context':
+    case 'hook_success':
+    case 'hook_stopped_continuation':
       // Handled in messages.normalizeAttachmentForAPI (system-reminder path).
       return []
     default: {

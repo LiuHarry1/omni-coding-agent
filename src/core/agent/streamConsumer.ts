@@ -40,6 +40,8 @@ export interface StreamResult {
    * model; the rest of the query stays on it.
    */
   modelFallback?: boolean
+  /** A tool hook answered `continue: false`; holds its stop reason. */
+  hookStopped?: string
 }
 
 export const TRUNCATED_TOOL_INPUT_RESULT =

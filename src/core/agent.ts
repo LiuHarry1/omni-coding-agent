@@ -46,6 +46,9 @@ export async function runAgent(
       opts.displayUserMessage,
     ),
   )
+  for (const extra of opts.afterUserMessages ?? []) {
+    messages.push(extra)
+  }
   ensureMessageUuids(messages)
   await opts.onMessagesSeeded?.(messages)
 

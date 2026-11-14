@@ -1,3 +1,4 @@
+import { withoutStopHooks } from '../../core/hooks/hooks.js'
 import { tool } from 'ai'
 import { z } from 'zod'
 import path from 'path'
@@ -279,6 +280,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 }
               : parentPerm
 
+          // Tool hooks apply to a subagent's calls; Stop is the main agent's.
+          const subHooks = context.hooks
+            ? withoutStopHooks(context.hooks)
+            : undefined
           const subContext: ToolContext = {
             eventBus,
             wire: subWire,
@@ -291,6 +296,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             sessionId: context.sessionId,
             permissionContext,
             canUseTool: context.canUseTool,
+            hooks: subHooks,
             cwd: context.cwd ?? cwd,
             execution: context.execution,
             autoMemory: context.autoMemory,
@@ -367,6 +373,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               abortSignal,
               getToolDefinition: name => registry.get(name),
               canUseTool: context.canUseTool,
+              hooks: subHooks,
             })
 
             if (abortSignal?.aborted) {

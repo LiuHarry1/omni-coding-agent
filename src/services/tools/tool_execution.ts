@@ -80,6 +80,8 @@ export interface ExecutedToolResult {
   toolUseResult?: unknown
   followUpMessages?: Message[]
   isError?: boolean
+  /** A hook on this call answered `continue: false`; the turn ends here. */
+  preventContinuation?: string
 }
 
 function isDualChannelReturn(raw: unknown): raw is DualChannelToolResult {

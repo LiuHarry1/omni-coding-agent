@@ -180,6 +180,26 @@ const PermissionsSchema = z.object({
   ),
 })
 
+/**
+ * Claude Code's hook settings shape. Entries of a type other than
+ * `command` are accepted and skipped, so a settings file written for
+ * Claude Code still loads.
+ */
+const HookMatcherSchema = z.object({
+  matcher: z.string().optional(),
+  hooks: z.array(
+    z
+      .object({
+        type: z.string(),
+        command: z.string().optional(),
+        timeout: z.number().positive().optional(),
+      })
+      .passthrough(),
+  ),
+})
+
+const HooksSchema = z.record(z.string(), z.array(HookMatcherSchema))
+
 /** Parsed settings layer before merge into AppConfig. */
 export const SettingsFileSchema = z.object({
   models: ModelsSchema.optional(),
@@ -200,6 +220,8 @@ export const SettingsFileSchema = z.object({
   marketplaces: MarketplacesConfigSchema.optional(),
   agents: AgentsConfigSchema.optional(),
   permissions: PermissionsSchema.optional(),
+  /** Commands run at lifecycle events: PreToolUse, PostToolUse, UserPromptSubmit, Stop. */
+  hooks: HooksSchema.optional(),
   environments: z
     .object({
       ssh: z.array(SshHostSchema).optional(),

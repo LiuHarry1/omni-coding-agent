@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { query } from './query.js'
 import { createQueryHarness, type StepScript } from './query-test-harness.js'
+import type { HookRunner } from './hooks/hooks.js'
+import type { AggregatedHookResult } from './hooks/types.js'
 import type { IProvider } from './llm/types.js'
 import type { AnyTool, TodoItem } from './types.js'
 
@@ -438,5 +440,199 @@ describe('query loop: completion', () => {
     expect(h.deps.postTurn.mock.calls.map(([args]) => args.step)).toEqual([
       0, 1, 2,
     ])
+  })
+})
+
+describe('query loop: hooks', () => {
+  const hookResult = (
+    hookName: string,
+    overrides: Partial<AggregatedHookResult> = {},
+  ): AggregatedHookResult => ({
+    hookName,
+    blockingErrors: [],
+    additionalContexts: [],
+    outputs: [],
+    preventContinuation: false,
+    systemMessages: [],
+    ...overrides,
+  })
+
+  /** Hooks whose Stop answers come from a list, one per time the model ends. */
+  function stopHooks(answers: Array<Partial<AggregatedHookResult>>) {
+    const seenActive: boolean[] = []
+    const hooks: HookRunner = {
+      has: event => event === 'Stop',
+      preToolUse: async () => hookResult('PreToolUse'),
+      postToolUse: async () => hookResult('PostToolUse'),
+      userPromptSubmit: async () => hookResult('UserPromptSubmit'),
+      stop: async stopHookActive => {
+        seenActive.push(stopHookActive)
+        return hookResult('Stop', answers[seenActive.length - 1])
+      },
+    }
+    return { hooks, seenActive }
+  }
+
+  const blocking = (text: string): Partial<AggregatedHookResult> => ({
+    blockingErrors: [{ blockingError: text, command: 'check' }],
+  })
+
+  it('ends the turn when the Stop hook has no objection', async () => {
+    const { hooks, seenActive } = stopHooks([{}])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([{ text: 'Done.' }])
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(seenActive).toEqual([false])
+    expect(h.deps.runStep).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends the model back to work with the Stop hook feedback', async () => {
+    const { hooks, seenActive } = stopHooks([
+      blocking('[check]: tests are failing'),
+      {},
+    ])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([{ text: 'Done.' }, { text: 'Fixed the tests.' }])
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(result.transitions).toEqual([{ reason: 'stop_hook_blocking' }])
+    expect(result.messages.at(-2)).toMatchObject({
+      role: 'user',
+      isMeta: true,
+      content: 'Stop hook feedback:\n[check]: tests are failing',
+    })
+    expect(result.finalText).toBe('Fixed the tests.')
+    // The second run of the hook is told it already sent the model back.
+    expect(seenActive).toEqual([false, true])
+    expect(h.resultEvents()).toHaveLength(1)
+  })
+
+  it('keeps telling the Stop hook it is active through the tool steps that follow its feedback', async () => {
+    const { hooks, seenActive } = stopHooks([blocking('add a test'), {}, {}])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([
+      { text: 'Done.' },
+      toolStep('Write'),
+      { text: 'Added a test.' },
+    ])
+
+    const result = await query(h.options)
+
+    expect(result.transitions).toEqual([
+      { reason: 'stop_hook_blocking' },
+      { reason: 'next_turn' },
+    ])
+    // The tool step is still the model answering the hook's feedback.
+    expect(seenActive).toEqual([false, true])
+  })
+
+  it('does not run the Stop hook after a step that called tools', async () => {
+    const { hooks, seenActive } = stopHooks([{}])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }])
+
+    await query(h.options)
+
+    expect(seenActive).toEqual([false])
+  })
+
+  it('ends the turn with the reason when the Stop hook says stop', async () => {
+    const { hooks } = stopHooks([
+      { preventContinuation: true, stopReason: 'Budget used up' },
+    ])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([{ text: 'Done.' }])
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({
+      reason: 'stop_hook_prevented',
+      notice: 'Stopped by hook: Budget used up',
+    })
+    expect(result.reason).toBe('completed')
+    expect(result.messages.at(-1)).toMatchObject({
+      type: 'attachment',
+      attachment: {
+        type: 'hook_stopped_continuation',
+        hookName: 'Stop',
+        message: 'Budget used up',
+      },
+    })
+    // The user is told why, then the turn ends once and successfully.
+    expect(JSON.stringify(h.events)).toContain(
+      'Stopped by hook: Budget used up',
+    )
+    expect(h.resultEvents()).toEqual([
+      expect.objectContaining({ subtype: 'success', reason: 'done' }),
+    ])
+  })
+
+  it('stopping wins over feedback when a Stop hook gives both', async () => {
+    const { hooks } = stopHooks([
+      { ...blocking('keep going'), preventContinuation: true },
+    ])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([{ text: 'Done.' }])
+
+    const result = await query(h.options)
+
+    expect(result.terminal.reason).toBe('stop_hook_prevented')
+    expect(h.deps.runStep).toHaveBeenCalledTimes(1)
+  })
+
+  it('treats an abort during the Stop hook as an abort', async () => {
+    const controller = new AbortController()
+    const hooks: HookRunner = {
+      ...stopHooks([]).hooks,
+      stop: async () => {
+        controller.abort()
+        return hookResult('Stop', blocking('keep going'))
+      },
+    }
+    const h = createQueryHarness({ hooks, abortSignal: controller.signal })
+    h.scriptSteps([{ text: 'Done.' }])
+
+    const result = await query(h.options)
+
+    expect(result.reason).toBe('aborted')
+    expect(h.deps.runStep).toHaveBeenCalledTimes(1)
+  })
+
+  it('ends the turn after a step in which a tool hook said stop', async () => {
+    const { hooks, seenActive } = stopHooks([{}])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([{ ...toolStep('Bash'), hookStopped: 'Too many edits' }])
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({
+      reason: 'hook_stopped',
+      notice: 'Stopped by hook: Too many edits',
+    })
+    expect(result.reason).toBe('completed')
+    expect(h.deps.runStep).toHaveBeenCalledTimes(1)
+    // The step is committed like any other before the turn ends.
+    expect(h.deps.postTurn).toHaveBeenCalledTimes(1)
+    expect(seenActive).toEqual([])
+    expect(h.resultEvents()).toEqual([
+      expect.objectContaining({ subtype: 'success', reason: 'done' }),
+    ])
+  })
+
+  it('hands the hooks to every step', async () => {
+    const { hooks } = stopHooks([{}])
+    const h = createQueryHarness({ hooks })
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }])
+
+    await query(h.options)
+
+    for (const [args] of h.deps.runStep.mock.calls) {
+      expect(args.hooks).toBe(hooks)
+    }
   })
 })

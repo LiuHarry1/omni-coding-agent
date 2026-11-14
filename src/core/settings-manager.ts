@@ -1,3 +1,10 @@
+import {
+  HOOK_EVENTS,
+  type HookCommand,
+  type HookEvent,
+  type HookMatcher,
+  type HooksConfig,
+} from './hooks/types.js'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { AppConfig, AutoMemoryConfig, MCPServerConfig } from './types.js'
@@ -526,6 +533,64 @@ export function resetSettingsCache(): void {
   resolvedCache.clear()
 }
 
+/**
+ * Adds a layer's hooks to those already collected. Only the events and the
+ * `command` hook type this build runs are kept; the rest is named once in
+ * the log so a silently ignored hook is not mistaken for a working one.
+ */
+function mergeHooksConfig(
+  base: HooksConfig | undefined,
+  layer: Record<string, unknown>,
+): HooksConfig {
+  const out: HooksConfig = { ...(base ?? {}) }
+  for (const [event, matchers] of Object.entries(layer)) {
+    if (!(HOOK_EVENTS as readonly string[]).includes(event)) {
+      warnUnsupportedHook(`event "${event}"`)
+      continue
+    }
+    if (!Array.isArray(matchers)) continue
+    const kept: HookMatcher[] = []
+    for (const matcher of matchers) {
+      if (!isRecord(matcher) || !Array.isArray(matcher.hooks)) continue
+      const hooks: HookCommand[] = []
+      for (const hook of matcher.hooks) {
+        if (!isRecord(hook)) continue
+        if (hook.type !== 'command' || typeof hook.command !== 'string') {
+          warnUnsupportedHook(`type "${String(hook.type)}"`)
+          continue
+        }
+        hooks.push({
+          type: 'command',
+          command: hook.command,
+          ...(typeof hook.timeout === 'number'
+            ? { timeout: hook.timeout }
+            : {}),
+        })
+      }
+      if (hooks.length === 0) continue
+      kept.push({
+        ...(typeof matcher.matcher === 'string'
+          ? { matcher: matcher.matcher }
+          : {}),
+        hooks,
+      })
+    }
+    if (kept.length > 0) {
+      const key = event as HookEvent
+      out[key] = [...(out[key] ?? []), ...kept]
+    }
+  }
+  return out
+}
+
+const warnedUnsupportedHooks = new Set<string>()
+
+function warnUnsupportedHook(what: string): void {
+  if (warnedUnsupportedHooks.has(what)) return
+  warnedUnsupportedHooks.add(what)
+  console.warn(`[settings] hooks: ${what} is not supported and was skipped`)
+}
+
 function mergePermissionsConfig(
   base?: AppConfig['permissions'],
   overlay?: AppConfig['permissions'],
@@ -735,6 +800,10 @@ function applyLayer(config: AppConfig, layer: PartialAppConfig): void {
       config.permissions,
       layer.permissions,
     )
+  }
+
+  if (isRecord(layer.hooks)) {
+    config.hooks = mergeHooksConfig(config.hooks, layer.hooks)
   }
 
   if (Array.isArray(layer.disabledTools)) {
