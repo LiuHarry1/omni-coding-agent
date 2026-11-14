@@ -140,10 +140,18 @@ function appendAssistantParts(
     input?: unknown
   }>,
   subagentNames: Set<string>,
+  continuesText = false,
 ): void {
-  for (const part of content) {
+  for (const [index, part] of content.entries()) {
     if (part.type === 'text' && part.text?.trim()) {
-      target.parts.push({ type: 'text', content: part.text })
+      // A reply resumed after an output-limit cut streams into the same text
+      // block it was cut in; rejoin the two halves the same way.
+      const previous = target.parts.at(-1)
+      if (continuesText && index === 0 && previous?.type === 'text') {
+        previous.content = `${previous.content ?? ''}${part.text}`
+      } else {
+        target.parts.push({ type: 'text', content: part.text })
+      }
     } else if (part.type === 'reasoning' && part.text?.trim()) {
       target.parts.push({
         type: 'reasoning',
@@ -199,6 +207,8 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
   const subagentNames = getSubagentNames(defaultRegistry)
   let currentAssistant: UIAssistantMessage | null = null
   let currentBoundary: UICompactBoundaryMessage | null = null
+  /** The next assistant message picks up text cut off at the output limit. */
+  let resumesCutText = false
 
   for (const msg of messages) {
     if (isAttachmentMessage(msg)) continue
@@ -221,7 +231,10 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
       // so reload must not either — and the assistant turn they sit inside
       // stays one bubble, hence no `currentAssistant` reset here. Scheduled
       // turns are the exception: stored meta, but shown live and on reload.
-      if (msg.isMeta && !isScheduledPromptText(content)) continue
+      if (msg.isMeta && !isScheduledPromptText(content)) {
+        resumesCutText = msg.continuation === 'max_output_tokens'
+        continue
+      }
       currentAssistant = null
       if (isSystemReminderContent(content)) continue
       if (isInterruptMessage(msg)) {
@@ -285,7 +298,9 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
           input?: unknown
         }>,
         subagentNames,
+        resumesCutText,
       )
+      resumesCutText = false
     } else if (isRoleMessage(msg) && msg.role === 'tool') {
       currentBoundary = null
       if (currentAssistant) {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { buildTruncationReminder } from '../core/query/helpers.js'
 import type { Message } from '../core/types.js'
 import { TODO_WRITE_TOOL_NAME } from '../constants/tool_names.js'
 import { sessionToUIMessages } from './session-ui.js'
@@ -64,5 +65,60 @@ describe('sessionToUIMessages todo hydration', () => {
       parts?: Array<Record<string, unknown>>
     }>
     expect(ui[0]?.parts?.some(part => part.type === 'todo_list')).toBe(false)
+  })
+})
+
+describe('sessionToUIMessages output-limit continuation', () => {
+  const textParts = (messages: Message[]) => {
+    const ui = sessionToUIMessages(messages) as Array<{
+      type: string
+      parts?: Array<{ type: string; content?: string }>
+    }>
+    const assistants = ui.filter(message => message.type === 'assistant')
+    expect(assistants).toHaveLength(1)
+    return assistants[0]!.parts!.map(part => `${part.type}:${part.content}`)
+  }
+  const text = (value: string): Message => ({
+    role: 'assistant',
+    content: [{ type: 'text', text: value }],
+  })
+
+  it('rejoins a reply that was cut off and resumed', () => {
+    expect(
+      textParts([
+        { role: 'user', content: 'write it' },
+        text('Hello wor'),
+        buildTruncationReminder(),
+        text('ld!'),
+      ]),
+    ).toEqual(['text:Hello world!'])
+  })
+
+  it('keeps the resumed text apart when reasoning comes first', () => {
+    expect(
+      textParts([
+        { role: 'user', content: 'write it' },
+        text('Hello wor'),
+        buildTruncationReminder(),
+        {
+          role: 'assistant',
+          content: [
+            { type: 'reasoning', text: 'picking up' },
+            { type: 'text', text: 'ld!' },
+          ],
+        },
+      ]),
+    ).toEqual(['text:Hello wor', 'reasoning:picking up', 'text:ld!'])
+  })
+
+  it('does not join text across a reminder to reissue a cut tool call', () => {
+    expect(
+      textParts([
+        { role: 'user', content: 'write it' },
+        text('Writing the file.'),
+        buildTruncationReminder(['Write']),
+        text('Trying again.'),
+      ]),
+    ).toEqual(['text:Writing the file.', 'text:Trying again.'])
   })
 })
