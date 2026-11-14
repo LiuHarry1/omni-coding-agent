@@ -37,6 +37,7 @@ import {
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
 import { getActiveModelMessages } from '../services/compact/index.js'
+import { takeQueuedCommands } from '../utils/attachments/queued-commands.js'
 
 /** Plan approved — any of these in the same turn counts as implementation started. */
 const PLAN_IMPLEMENTATION_TOOLS = new Set([
@@ -711,6 +712,28 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
           transition: { reason: 'plan_build_kickoff' },
         }
         continue
+      }
+
+      // Hand over what was queued while the tools ran: messages the user
+      // sent during the turn and anything else marked for the next round.
+      // Task notifications ('later') wait for the turn to end, unless the
+      // host has no queue processor to answer them then. The main agent
+      // takes what is addressed to nobody, a subagent only what is
+      // addressed to it.
+      const drainsQueue = toolUseContext !== undefined || opts.agentId
+      if (sessionId && drainsQueue && !abortSignal?.aborted) {
+        const { commands: queuedCommands, messages: queuedMessages } =
+          takeQueuedCommands(sessionId, opts.agentId)
+        if (queuedCommands.length > 0) {
+          messages.push(...queuedMessages)
+          if (!opts.agentId) {
+            for (const command of queuedCommands) wire.queuedCommand(command)
+          }
+          await onStepCommitted?.(messages)
+          console.log(
+            `[${agentLogTag(logLabel)}] ${queuedCommands.length} queued command(s) handed over between tool rounds`,
+          )
+        }
       }
 
       // Start the label for this step's tools without waiting for it: the

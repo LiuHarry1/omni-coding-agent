@@ -32,6 +32,7 @@ import {
   startCronScheduler,
   stopCronScheduler,
 } from '../services/cron/scheduler.js'
+import { startQueueProcessor } from '../services/queue/queue-processor.js'
 import { getRunAgent } from '../agent-lazy.js'
 import { recoverDurableRuns } from '../services/runs/recovery.js'
 
@@ -78,11 +79,13 @@ export function startServer(_opts: ServerOptions = {}): void {
   const server = http.createServer(handler)
   let shuttingDown = false
   let stopCloudSweeper: () => void = () => {}
+  let stopQueueProcessor: (() => void) | undefined
   const shutdown = (signal: string) => {
     if (shuttingDown) return
     shuttingDown = true
     console.log(`[server] ${signal}: shutting down`)
     stopCronScheduler()
+    stopQueueProcessor?.()
     stopCloudSweeper()
     server.close(() => {
       void (async () => {
@@ -191,6 +194,7 @@ export function startServer(_opts: ServerOptions = {}): void {
         console.log(`[server]   Static files from: ${distDir}`)
       }
       startCronScheduler()
+      stopQueueProcessor = startQueueProcessor()
     })
   })()
 

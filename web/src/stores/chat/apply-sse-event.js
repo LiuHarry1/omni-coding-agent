@@ -173,6 +173,12 @@ export function applySseEvent(data, { set, get, mutators: m }) {
         case 'scheduled_turn':
           m._beginScheduledTurn(data.prompt || '')
           break
+        case 'queued_turn':
+          m._beginQueuedTurn(data)
+          break
+        case 'queued_command':
+          m._onQueuedCommand(data)
+          break
       }
       break
     case 'stream_event':

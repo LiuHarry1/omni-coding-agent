@@ -236,3 +236,123 @@ describe('sessionToUIMessages and tool batch labels', () => {
     ])
   })
 })
+
+describe('sessionToUIMessages and queued commands', () => {
+  const queued = (
+    attachment: Omit<
+      Extract<Message, { type: 'attachment' }>['attachment'] & {
+        type: 'queued_command'
+      },
+      'type'
+    >,
+  ): Message => ({
+    type: 'attachment',
+    uuid: `queued-${attachment.prompt}`,
+    timestamp: '2026-11-14T00:00:00.000Z',
+    isMeta: true,
+    attachment: { type: 'queued_command', ...attachment },
+  })
+
+  const toolRound = (id: string): Message[] => [
+    {
+      role: 'assistant',
+      content: [
+        { type: 'text', text: `Working on ${id}.` },
+        { type: 'tool-call', toolCallId: id, toolName: 'Read', input: {} },
+      ],
+    } as Message,
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: id,
+          toolName: 'Read',
+          output: { type: 'text', value: 'ok' },
+        },
+      ],
+    } as Message,
+  ]
+
+  const outline = (messages: Message[]) =>
+    (
+      sessionToUIMessages(messages) as Array<{
+        type: string
+        content?: string
+        queued?: boolean
+        summaries?: string[]
+        parts?: Array<{ type: string; content?: string }>
+      }>
+    ).map(message => {
+      if (message.type === 'user') {
+        return `user${message.queued ? '(queued)' : ''}:${message.content}`
+      }
+      if (message.type === 'task_notification') {
+        return `notification:${message.summaries?.join('|')}`
+      }
+      return `${message.type}:${(message.parts ?? [])
+        .filter(part => part.type === 'text')
+        .map(part => part.content)
+        .join('|')}`
+    })
+
+  it('shows a message sent during the turn where the model received it', () => {
+    expect(
+      outline([
+        { role: 'user', content: 'fix a.ts' },
+        ...toolRound('call-1'),
+        queued({ prompt: 'also fix b.ts', commandMode: 'prompt' }),
+        ...toolRound('call-2'),
+        { role: 'assistant', content: [{ type: 'text', text: 'Both done.' }] },
+      ]),
+    ).toEqual([
+      'user:fix a.ts',
+      'assistant:Working on call-1.',
+      'user(queued):also fix b.ts',
+      'assistant:Working on call-2.|Both done.',
+    ])
+  })
+
+  it('keeps system-generated queued commands out of the transcript', () => {
+    expect(
+      outline([
+        { role: 'user', content: 'fix a.ts' },
+        ...toolRound('call-1'),
+        queued({
+          prompt: '<task-notification>stalled</task-notification>',
+          commandMode: 'task-notification',
+        }),
+        queued({
+          prompt: 'look at src/ only',
+          commandMode: 'prompt',
+          isMeta: true,
+          origin: { kind: 'coordinator' },
+        }),
+        { role: 'assistant', content: [{ type: 'text', text: 'Done.' }] },
+      ]),
+    ).toEqual(['user:fix a.ts', 'assistant:Working on call-1.|Done.'])
+  })
+
+  it('shows a turn started by finished background tasks as a notice', () => {
+    const notification = (summary: string) =>
+      `<task-notification>\n<task-id>a1</task-id>\n<status>completed</status>\n<summary>${summary}</summary>\n</task-notification>`
+
+    expect(
+      outline([
+        { role: 'user', content: 'start the audit' },
+        { role: 'assistant', content: [{ type: 'text', text: 'Launched.' }] },
+        {
+          role: 'user',
+          isMeta: true,
+          content: `${notification('Agent &quot;audit&quot; completed')}\n\n${notification('Background command &quot;npm test&quot; completed (exit code 0)')}`,
+        },
+        { role: 'assistant', content: [{ type: 'text', text: 'All clear.' }] },
+      ]),
+    ).toEqual([
+      'user:start the audit',
+      'assistant:Launched.',
+      'notification:Agent "audit" completed|Background command "npm test" completed (exit code 0)',
+      'assistant:All clear.',
+    ])
+  })
+})

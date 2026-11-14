@@ -67,6 +67,18 @@ export const agentApi = {
     fetch(apiUrl(`/sessions/${id}`), withAuth({ method: 'DELETE' })),
   getSessionMessages: id => fetchJSON(`/sessions/${id}/messages`),
   listSessionTasks: id => fetchJSON(`/sessions/${id}/tasks`),
+  /** Queue a message for the turn that is running in the session. */
+  queueMessage: (sessionId, { id, message }) =>
+    fetchJSON(`/sessions/${encodeURIComponent(sessionId)}/queue`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, message }),
+    }),
+  removeQueuedMessage: (sessionId, id) =>
+    fetchJSON(
+      `/sessions/${encodeURIComponent(sessionId)}/queue/${encodeURIComponent(id)}`,
+      { method: 'DELETE' },
+    ),
   stopSessionTask: (sessionId, taskId) =>
     fetchJSON(`/sessions/${sessionId}/tasks/${taskId}/stop`, {
       method: 'POST',

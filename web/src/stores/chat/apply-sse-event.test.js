@@ -69,3 +69,55 @@ describe('tool use summary SSE reduction', () => {
     expect(target.ctx.mutators._setToolUseSummary).toHaveBeenCalledWith(event)
   })
 })
+
+describe('queued command SSE reduction', () => {
+  it('hands a message picked up mid-turn to the transcript', () => {
+    const target = context()
+    target.ctx.mutators._onQueuedCommand = vi.fn()
+    const event = {
+      type: 'system',
+      subtype: 'queued_command',
+      prompt: 'also fix b.ts',
+      command_mode: 'prompt',
+      command_uuid: 'q1',
+    }
+
+    applySseEvent(event, target.ctx)
+
+    expect(target.ctx.mutators._onQueuedCommand).toHaveBeenCalledWith(event)
+  })
+
+  it('opens a turn the server started for finished background tasks', () => {
+    const target = context()
+    target.ctx.mutators._beginQueuedTurn = vi.fn()
+    const event = {
+      type: 'system',
+      subtype: 'queued_turn',
+      command_mode: 'task-notification',
+      summaries: ['Agent "audit" completed'],
+    }
+
+    applySseEvent(event, target.ctx)
+
+    expect(target.ctx.mutators._beginQueuedTurn).toHaveBeenCalledWith(event)
+  })
+
+  it('ignores a queued command reported from inside a subagent', () => {
+    const target = context()
+    target.ctx.mutators._onQueuedCommand = vi.fn()
+    target.ctx.mutators._appendSubagentEvent = vi.fn()
+
+    applySseEvent(
+      {
+        type: 'system',
+        subtype: 'queued_command',
+        prompt: 'x',
+        command_mode: 'prompt',
+        parent_tool_use_id: 'agent-call-1',
+      },
+      target.ctx,
+    )
+
+    expect(target.ctx.mutators._onQueuedCommand).not.toHaveBeenCalled()
+  })
+})

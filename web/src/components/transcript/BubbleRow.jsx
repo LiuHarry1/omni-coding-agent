@@ -60,9 +60,26 @@ function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
     )
   }
 
+  if (bubble.kind === 'task_notification') {
+    const summaries = (bubble.summaries || []).filter(Boolean)
+    return wrap(
+      summaries.length > 0 ? (
+        summaries.map((summary, i) => <div key={i}>{summary}</div>)
+      ) : (
+        <div>Background task update</div>
+      ),
+      'msg msg-task-notification',
+    )
+  }
+
   if (bubble.kind === 'user') {
     return (
-      <div className='msg msg-user'>
+      <div
+        className={
+          bubble.queued ? 'msg msg-user msg-user--queued' : 'msg msg-user'
+        }
+        title={bubble.queued ? 'Sent while the agent was working' : undefined}
+      >
         {bubble.images && bubble.images.length > 0 && (
           <div className='msg-user-images'>
             {bubble.images.map((src, i) => (

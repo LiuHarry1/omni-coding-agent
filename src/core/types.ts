@@ -520,6 +520,11 @@ export interface AgentOptions {
   /** System-generated user turn (scheduled tasks). Hidden from some prefetch paths. */
   isMeta?: boolean
   /**
+   * Set for a subagent's loop. Between tool rounds it takes the queued
+   * commands addressed to this id; the main agent (no id) takes the rest.
+   */
+  agentId?: string
+  /**
    * Optional step budget (`maxSteps` / maxTurns). When omitted, the loop runs until
    * the model stops calling tools (or errors) �?no artificial cap.
    */

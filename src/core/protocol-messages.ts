@@ -76,6 +76,20 @@ export function scheduledTurnMessage(
   }
 }
 
+export function queuedTurnMessage(
+  commandMode: 'prompt' | 'task-notification',
+  summaries: string[],
+  env: WireEnvelope,
+): ServerMessage {
+  return {
+    type: 'system',
+    subtype: 'queued_turn',
+    command_mode: commandMode,
+    summaries,
+    ...env,
+  }
+}
+
 export function modeChangedMessage(
   mode: string,
   env: WireEnvelope,

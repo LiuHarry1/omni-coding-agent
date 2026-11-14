@@ -22,6 +22,18 @@ const FOLDABLE_KINDS = new Set([
 /** What Worked may hold: the steps plus any narration between them. */
 const PREFIX_KINDS = new Set([...FOLDABLE_KINDS, 'assistant_text'])
 
+/** Bubbles that stand between two stretches of assistant work. */
+const BOUNDARY_KINDS = new Set([
+  'user',
+  'interrupted',
+  'compact_boundary',
+  'task_notification',
+])
+
+function isTurnBoundary(b) {
+  return BOUNDARY_KINDS.has(b?.kind)
+}
+
 function turnOf(b) {
   return b?.turnId || null
 }
@@ -166,7 +178,8 @@ export function buildFlatElements(
   const byId = bubblesById || {}
   const result = []
 
-  // Partition into turn segments: user | interrupted | compact_boundary reset;
+  // Partition into turn segments: user | interrupted | compact_boundary |
+  // task_notification reset;
   // assistant-side bubbles share turnId.
   let i = 0
   let turnUser = null
@@ -178,11 +191,7 @@ export function buildFlatElements(
       continue
     }
 
-    if (
-      b.kind === 'user' ||
-      b.kind === 'interrupted' ||
-      b.kind === 'compact_boundary'
-    ) {
+    if (isTurnBoundary(b)) {
       turnUser = b.kind === 'user' ? b : null
       result.push({ id: b.id, type: 'bubble', bubbleId: b.id })
       i++
@@ -201,11 +210,7 @@ export function buildFlatElements(
         i++
         continue
       }
-      if (
-        cur.kind === 'user' ||
-        cur.kind === 'interrupted' ||
-        cur.kind === 'compact_boundary'
-      ) {
+      if (isTurnBoundary(cur)) {
         break
       }
       if (turnId && turnOf(cur) && turnOf(cur) !== turnId) {
@@ -296,11 +301,7 @@ function lastAssistantTurnId(order, byId) {
   for (let i = order.length - 1; i >= 0; i--) {
     const b = byId[order[i]]
     if (!b) continue
-    if (
-      b.kind === 'user' ||
-      b.kind === 'interrupted' ||
-      b.kind === 'compact_boundary'
-    ) {
+    if (isTurnBoundary(b)) {
       continue
     }
     return turnOf(b)

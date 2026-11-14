@@ -3,6 +3,8 @@ import {
   ensureMessageUuids,
 } from '../services/session-memory/index.js'
 import { getAttachmentMessages } from '../utils/attachments.js'
+import { takeQueuedCommands } from '../utils/attachments/queued-commands.js'
+import { hasBetweenTurnProcessing } from '../utils/messageQueueManager.js'
 import type { AgentOptions } from './types.js'
 import { buildUserMessage } from './query/helpers.js'
 import { query } from './query.js'
@@ -32,6 +34,11 @@ export async function runAgent(
       messages,
     )) {
       messages.push(ensureMessageUuid(att))
+    }
+    // Background tasks that finished since the last turn. Where a queue
+    // processor runs they have had a turn of their own by now.
+    if (opts.sessionId && !hasBetweenTurnProcessing()) {
+      messages.push(...takeQueuedCommands(opts.sessionId, undefined).messages)
     }
   }
   for (const prelude of opts.attachmentPrelude ?? []) {

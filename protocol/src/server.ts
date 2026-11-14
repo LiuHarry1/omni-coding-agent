@@ -264,6 +264,36 @@ export const ScheduledTurnMessageSchema = z.object({
   ...envelopeFields,
 })
 
+/**
+ * Something queued while the agent was busy was handed to the model between
+ * two tool rounds. For `command_mode: 'prompt'` this is a message the user
+ * sent during the turn; a client that queued it shows it in the transcript
+ * now and does not send it again.
+ */
+export const QueuedCommandMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('queued_command'),
+  prompt: z.string(),
+  command_mode: z.enum(['prompt', 'task-notification']),
+  /** The id the client queued the message under. */
+  command_uuid: z.string().optional(),
+  ...envelopeFields,
+})
+
+/**
+ * The server is starting a turn of its own for queued commands: background
+ * tasks finished while the session was idle. Arrives on the session's live
+ * stream, followed by the turn's events.
+ */
+export const QueuedTurnMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('queued_turn'),
+  command_mode: z.enum(['prompt', 'task-notification']),
+  /** One line per queued command, for display. */
+  summaries: z.array(z.string()),
+  ...envelopeFields,
+})
+
 /** Live shell/process output (`tool_progress`). */
 export const ToolProgressMessageSchema = z.object({
   type: z.literal('tool_progress'),
@@ -309,6 +339,8 @@ export const ServerMessageSchema = z.union([
   ToolUseSummaryMessageSchema,
   InterruptedMessageSchema,
   ScheduledTurnMessageSchema,
+  QueuedCommandMessageSchema,
+  QueuedTurnMessageSchema,
   ToolProgressMessageSchema,
   // The engine can also reach back to the client (permission, plan, …).
   ControlRequestSchema,

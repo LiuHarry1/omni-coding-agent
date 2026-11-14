@@ -203,6 +203,15 @@ export function messagesToBubbles(messages) {
         files: msg.files,
         turnStartTime: msg.turnStartTime,
         turnEndTime: msg.turnEndTime,
+        ...(msg.queued ? { queued: true } : {}),
+      })
+      continue
+    }
+    if (msg.type === 'task_notification') {
+      state = appendBubble(state, {
+        id: msg.id || newId(),
+        kind: 'task_notification',
+        summaries: Array.isArray(msg.summaries) ? msg.summaries : [],
       })
       continue
     }

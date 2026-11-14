@@ -19,6 +19,7 @@ The HTTP, Electron, CLI, and ACP entry points converge on the same session, tool
 - [Primary agents](primary-agents.md) replace the main-thread profile without becoming a subagent.
 - [Slash commands](slash-commands.md) unify built-ins, Markdown commands, and skills.
 - [Background tasks](background-tasks.md) keep long shell commands out of the blocking agent path.
+- [Message queue](message-queue.md) delivers messages sent during a turn and notifications from background tasks.
 - [LSP](lsp.md) provides structured code intelligence through the execution worker.
 - [Large tool outputs](tool-storage.md) persist full payloads while keeping model context bounded.
 

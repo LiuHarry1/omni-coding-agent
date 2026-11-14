@@ -15,6 +15,10 @@ import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
 import type { Attachment } from './attachments/types.js'
 import { attachmentToMessages } from './attachments/attachment-to-messages.js'
 import {
+  queuedCommandOrigin,
+  wrapCommandText,
+} from './attachments/queued-commands.js'
+import {
   ASK_USER_QUESTION_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
   TODO_WRITE_TOOL_NAME,
@@ -216,6 +220,14 @@ You have exited plan mode. You can now make edits, run tools, and take actions.$
 
     case 'task_notification': {
       return wrapMessagesInSystemReminder([metaUserMessage(attachment.rawXml)])
+    }
+
+    case 'queued_command': {
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          wrapCommandText(attachment.prompt, queuedCommandOrigin(attachment)),
+        ),
+      ])
     }
 
     case 'conditional_rules': {

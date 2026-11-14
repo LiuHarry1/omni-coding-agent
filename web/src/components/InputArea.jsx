@@ -55,6 +55,11 @@ export default function InputArea() {
   const viewingOwnerEmail = useChatStore(s => s.viewingOwnerEmail)
   const isAwaitingInteraction = useChatStore(s => s.isAwaitingInteraction)
   const stopStreaming = useChatStore(s => s.stopStreaming)
+  const queueMessage = useChatStore(s => s.queueMessage)
+  const removeQueuedMessage = useChatStore(s => s.removeQueuedMessage)
+  const queuedMessages = useChatStore(s => s.queuedMessages)
+  const restoredDraft = useChatStore(s => s.restoredDraft)
+  const consumeRestoredDraft = useChatStore(s => s.consumeRestoredDraft)
   const workspace = useWorkspaceContextStore(s => s.cwd)
   const workspaceHandle = useWorkspaceContextStore(s => s.handle)
   const agentMode = useChatStore(s => s.agentMode)
@@ -423,8 +428,23 @@ export default function InputArea() {
     const el = textareaRef.current
     if (!el) return
     const text = el.value.trim()
-    if ((!text && attachments.length === 0) || isStreaming || sessionLoading)
+    if ((!text && attachments.length === 0) || sessionLoading) return
+    if (isStreaming) {
+      // The agent is working: the message waits its turn. Files cannot.
+      if (attachments.length > 0) {
+        setAttachError(
+          'Attachments can be sent once the current reply is finished.',
+        )
+        return
+      }
+      el.value = ''
+      setInputValue('')
+      setCursorPos(0)
+      el.style.height = 'auto'
+      setAtSuggestions([])
+      queueMessage(text)
       return
+    }
     el.value = ''
     setInputValue('')
     setCursorPos(0)
@@ -435,7 +455,17 @@ export default function InputArea() {
     setAttachError(null)
     setAtSuggestions([])
     sendMessage(text || describeAttachments(outgoing), outgoing)
-  }, [sendMessage, isStreaming, sessionLoading, attachments])
+  }, [sendMessage, queueMessage, isStreaming, sessionLoading, attachments])
+
+  // A stopped turn hands its queued messages back for editing.
+  useEffect(() => {
+    if (!restoredDraft) return
+    setInputValue(prev =>
+      prev.trim() ? `${restoredDraft.text}\n\n${prev}` : restoredDraft.text,
+    )
+    consumeRestoredDraft()
+    textareaRef.current?.focus()
+  }, [restoredDraft, consumeRestoredDraft])
 
   const handleKeyDown = useCallback(
     e => {
@@ -787,6 +817,29 @@ export default function InputArea() {
             )}
           </div>
         )}
+        {queuedMessages.length > 0 && (
+          <div className='queued-messages' aria-label='Queued messages'>
+            {queuedMessages.map(message => (
+              <div
+                key={message.id}
+                className='queued-message'
+                title='Sent to the agent after its current step'
+              >
+                <span className='queued-message__label'>Queued</span>
+                <span className='queued-message__text'>{message.text}</span>
+                <button
+                  className='queued-message__remove'
+                  onClick={() => removeQueuedMessage(message.id)}
+                  title='Remove'
+                  aria-label='Remove queued message'
+                  type='button'
+                >
+                  &times;
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
         {attachError && (
           <div className='attach-error' role='alert'>
             {attachError}
@@ -833,9 +886,15 @@ export default function InputArea() {
             className='input-textarea'
             rows='1'
             placeholder={
-              MODE_PLACEHOLDERS[agentMode] ?? MODE_PLACEHOLDERS.agent
+              isStreaming
+                ? 'Add a message for the agent — it is picked up after the current step'
+                : (MODE_PLACEHOLDERS[agentMode] ?? MODE_PLACEHOLDERS.agent)
             }
-            title='Enter to send · Shift+Tab switch mode · Shift+Enter newline'
+            title={
+              isStreaming
+                ? 'Enter to queue · Shift+Enter newline'
+                : 'Enter to send · Shift+Tab switch mode · Shift+Enter newline'
+            }
             value={inputValue}
             onChange={handleInput}
             onKeyDown={handleKeyDown}

@@ -10,6 +10,11 @@ import { replayTranscriptMessages } from '../session/compact-replay.js'
 import { getSubagentNames } from '../tools/AgentTool/index.js'
 import { defaultRegistry } from '../tools.js'
 import { isScheduledPromptText } from '../services/cron/scheduled-prompt.js'
+import {
+  isTaskNotificationText,
+  notificationSummariesOf,
+} from '../services/queue/queued-turn-prompt.js'
+import { isQueuedCommandFromUser } from '../utils/attachments/queued-commands.js'
 import { isSystemReminderContent } from '../utils/system-reminder.js'
 import {
   INTERRUPT_MESSAGE,
@@ -235,6 +240,21 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
           content: hookStopNotice(msg.attachment.message),
         })
       }
+      // A message the user sent while the agent was working, handed over
+      // between two tool rounds: shown where the model received it.
+      if (
+        msg.attachment.type === 'queued_command' &&
+        isQueuedCommandFromUser(msg.attachment)
+      ) {
+        currentAssistant = null
+        currentBoundary = null
+        uiMessages.push({
+          type: 'user',
+          id: randomUUID(),
+          content: msg.attachment.prompt,
+          queued: true,
+        })
+      }
       continue
     }
     if (isCompactBoundaryMessage(msg)) {
@@ -256,6 +276,20 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
       // so reload must not either — and the assistant turn they sit inside
       // stays one bubble, hence no `currentAssistant` reset here. Scheduled
       // turns are the exception: stored meta, but shown live and on reload.
+      // A turn the server started because background tasks finished: stored
+      // meta like a scheduled turn, shown as a one-line notice.
+      if (msg.isMeta && isTaskNotificationText(content)) {
+        currentAssistant = null
+        currentBoundary = null
+        const summaries = notificationSummariesOf(content)
+        uiMessages.push({
+          type: 'task_notification',
+          id: randomUUID(),
+          summaries:
+            summaries.length > 0 ? summaries : ['Background task update'],
+        })
+        continue
+      }
       if (msg.isMeta && !isScheduledPromptText(content)) {
         resumesCutText = msg.continuation === 'max_output_tokens'
         continue

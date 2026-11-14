@@ -31,6 +31,7 @@ import {
 } from '../lib/bubbles/messages-to-bubbles.js'
 import { applySseEvent } from './chat/apply-sse-event.js'
 import { createAssistantMutators } from './chat/assistant-mutators.js'
+import { createQueuedMessageActions } from './chat/queued-messages.js'
 import { refreshIdeAfterAgentTurn } from './chat/ide-bridge.js'
 import {
   streamChatTurn,
@@ -155,6 +156,14 @@ export const useChatStore = create((set, get) => {
     scheduledTurnActive: false,
     /** Open live SSE only when this session has (or just got) a timer. */
     liveNeeded: false,
+    /**
+     * This session has had background tasks while on screen. Their results
+     * arrive as a turn the server starts, so the live SSE stays open.
+     */
+    backgroundLiveNeeded: false,
+
+    // ── Messages typed while the agent works ────
+    ...createQueuedMessageActions(set, get),
 
     // ── UI state ────────────────────────────────
     theme: localStorage.getItem('coding_agent_theme') || 'dark',
@@ -450,6 +459,10 @@ export const useChatStore = create((set, get) => {
 
     setLiveNeeded: liveNeeded => set({ liveNeeded: Boolean(liveNeeded) }),
 
+    noteBackgroundTasks: () => {
+      if (!get().backgroundLiveNeeded) set({ backgroundLiveNeeded: true })
+    },
+
     refreshSessions: async () => {
       try {
         const data = await agentApi.listSessions()
@@ -467,6 +480,33 @@ export const useChatStore = create((set, get) => {
     connectSessionLive: sessionId => {
       const abortController = new AbortController()
       let stopped = false
+
+      // The server runs one turn per session at a time, so a live event that
+      // arrives while a turn this client sent is still on screen belongs to
+      // the turn after it. Hold such events until the first one has settled.
+      const held = []
+      let drainTimer = null
+      const ownTurnOnScreen = () =>
+        get().isStreaming && !get().scheduledTurnActive
+      const deliver = data => {
+        handleSse(data)
+        if (
+          data.type === 'system' &&
+          (data.subtype === 'scheduled_turn' || data.subtype === 'queued_turn')
+        ) {
+          void get().refreshSessions()
+        }
+        if (data.type === 'result') settleScheduledTurn()
+      }
+      const drainHeld = () => {
+        drainTimer = null
+        if (stopped || get().currentSessionId !== sessionId) {
+          held.length = 0
+          return
+        }
+        while (held.length > 0 && !ownTurnOnScreen()) deliver(held.shift())
+        if (held.length > 0) drainTimer = setTimeout(drainHeld, 100)
+      }
 
       const settleScheduledTurn = () => {
         if (!get().scheduledTurnActive) return
@@ -503,14 +543,13 @@ export const useChatStore = create((set, get) => {
               signal: abortController.signal,
               onEvent: data => {
                 if (stopped || get().currentSessionId !== sessionId) return
-                handleSse(data)
-                if (
-                  data.type === 'system' &&
-                  data.subtype === 'scheduled_turn'
-                ) {
-                  void get().refreshSessions()
+                if (data.type === 'keep_alive') return
+                if (held.length > 0 || ownTurnOnScreen()) {
+                  held.push(data)
+                  if (!drainTimer) drainTimer = setTimeout(drainHeld, 100)
+                  return
                 }
-                if (data.type === 'result') settleScheduledTurn()
+                deliver(data)
               },
             })
             delay = 1000
@@ -527,6 +566,7 @@ export const useChatStore = create((set, get) => {
       void run()
       return () => {
         stopped = true
+        if (drainTimer) clearTimeout(drainTimer)
         abortController.abort()
       }
     },
@@ -556,6 +596,9 @@ export const useChatStore = create((set, get) => {
         viewingOwnerEmail: readOnly ? selectedSession.ownerEmail : null,
         ...emptyTranscript(),
         todos: [],
+        queuedMessages: [],
+        restoredDraft: null,
+        backgroundLiveNeeded: false,
         sessionLoading: true,
         isAwaitingInteraction: false,
         isStreaming: false,
@@ -594,12 +637,11 @@ export const useChatStore = create((set, get) => {
           !['finished', 'error', 'cancelled', 'interrupted'].includes(
             activeRun.status,
           )
-        const resumedTurnId = isActiveRun
-          ? [...next.bubbleOrder]
-              .reverse()
-              .map(bubbleId => next.bubblesById[bubbleId]?.turnId)
-              .find(Boolean) || newId()
-          : null
+        // The run continues the last stretch of assistant work, unless a
+        // message handed over mid-turn (or nothing at all) comes after it.
+        const lastBubble =
+          next.bubblesById[next.bubbleOrder[next.bubbleOrder.length - 1]]
+        const resumedTurnId = isActiveRun ? lastBubble?.turnId || newId() : null
         const runAbortController = isActiveRun ? new AbortController() : null
         const sessionSelection = ['agent', 'ask', 'plan'].includes(data.mode)
           ? { agentMode: data.mode, agentType: data.agentType ?? null }
@@ -705,6 +747,9 @@ export const useChatStore = create((set, get) => {
         viewingOwnerEmail: null,
         ...emptyTranscript(),
         todos: [],
+        queuedMessages: [],
+        restoredDraft: null,
+        backgroundLiveNeeded: false,
         sessionLoading: false,
         isStreaming: false,
         abortController: null,
@@ -723,6 +768,8 @@ export const useChatStore = create((set, get) => {
 
     stopStreaming: async () => {
       const { currentSessionId, currentRunId } = get()
+      // Nothing queued is sent after a stop; it goes back to the composer.
+      get()._returnQueuedMessagesToComposer()
       // On Esc: settle tools + show Interrupted immediately, then cancel.
       get()._onInterrupted({ tool_use: true })
       set({
@@ -1030,6 +1077,17 @@ export const useChatStore = create((set, get) => {
 
     /** @deprecated Prefer applySseEvent via stream; kept for tests / harness. */
     _handleSSE: (_event, data) => handleSse(data),
+  }
+})
+
+// A turn is over: what was typed during it and not picked up goes out now.
+useChatStore.subscribe((state, prev) => {
+  if (
+    prev.isStreaming &&
+    !state.isStreaming &&
+    state.queuedMessages.length > 0
+  ) {
+    queueMicrotask(() => useChatStore.getState().flushQueuedMessages())
   }
 })
 

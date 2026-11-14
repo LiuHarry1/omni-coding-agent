@@ -14,7 +14,7 @@ import { registerSessionLocation } from '../core/session-paths.js'
 import { runWithRequestScope } from '../utils/request-scope.js'
 import { spawnShellTask } from '../tasks/LocalShellTask/LocalShellTask.js'
 import { clearSessionTasks, getTask } from '../utils/task/framework.js'
-import { drainTaskNotifications } from '../utils/task/pendingNotifications.js'
+import { dequeueAll } from '../utils/messageQueueManager.js'
 import type { ExecutionBackend } from './execution-backend.js'
 import {
   _resetTaskOutputDirForTest,
@@ -229,10 +229,14 @@ describe('Worker channel loss', () => {
         interrupted: true,
         reason: 'worker_lost',
       })
-      const notifications = drainTaskNotifications(sessionId)
+      const notifications = dequeueAll(sessionId)
       expect(notifications).toHaveLength(1)
-      expect(notifications[0]?.status).toBe('unknown')
-      expect(notifications[0]?.summary).toContain('inspect its effects')
+      expect(notifications[0]).toMatchObject({
+        mode: 'task-notification',
+        priority: 'later',
+      })
+      expect(notifications[0]?.value).toContain('<status>unknown</status>')
+      expect(notifications[0]?.value).toContain('inspect its effects')
     })
   })
 

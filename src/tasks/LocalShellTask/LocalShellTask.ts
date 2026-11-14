@@ -20,7 +20,7 @@ import {
   updateTaskState,
   getTask,
 } from '../../utils/task/framework.js'
-import { enqueueTaskNotification } from '../../utils/task/pendingNotifications.js'
+import { enqueuePendingNotification } from '../../utils/messageQueueManager.js'
 import {
   spawnInProcessBackground,
   pollInProcessBackground,
@@ -91,13 +91,9 @@ function enqueueShellNotification(
 <summary>${escapeXml(summary)}</summary>
 </task-notification>`
 
-  enqueueTaskNotification(sessionId, {
-    taskId,
-    outputFile: outputPath,
-    status,
-    summary,
-    toolUseId,
-    rawXml,
+  enqueuePendingNotification(sessionId, {
+    value: rawXml,
+    mode: 'task-notification',
   })
 }
 

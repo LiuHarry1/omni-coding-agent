@@ -21,7 +21,6 @@ import {
 import { getLspWorkspaceKey, hasLspServers } from '../services/lsp/manager.js'
 import { getAvailableShellToolNames } from '../core/shell/shell-utils.js'
 import { getAgentListingDeltaAttachments } from '../tools/AgentTool/agentListing.js'
-import { drainTaskNotifications } from '../utils/task/pendingNotifications.js'
 import { loadConditionalRulesForPaths } from './rules-loader.js'
 import { extractAgentMentions } from './attachments/extract-mentions.js'
 import { getChangedFiles } from './attachments/changed-files.js'
@@ -50,20 +49,6 @@ function getSkillListingAttachments(ctx: ToolUseContext): Attachment[] {
   if (ctx.session.skillListingAnnounced) return []
   ctx.session.skillListingAnnounced = true
   return [{ type: 'skill_listing', content }]
-}
-
-function getTaskNotificationAttachments(ctx: ToolUseContext): Attachment[] {
-  const sessionId = ctx.session?.id
-  if (!sessionId) return []
-  return drainTaskNotifications(sessionId).map(n => ({
-    type: 'task_notification' as const,
-    taskId: n.taskId,
-    outputFile: n.outputFile,
-    status: n.status,
-    summary: n.summary,
-    toolUseId: n.toolUseId,
-    rawXml: n.rawXml,
-  }))
 }
 
 function getConditionalRulesAttachments(
@@ -179,9 +164,6 @@ export async function getAttachments(
       Promise.resolve(getConditionalRulesAttachments(toolUseContext, messages)),
     ),
     maybe('lsp_diagnostics', () => getLSPDiagnosticAttachments(toolUseContext)),
-    maybe('task_notifications', () =>
-      Promise.resolve(getTaskNotificationAttachments(toolUseContext)),
-    ),
   ]
 
   const [userResults, threadResults, mainResults] = await Promise.all([

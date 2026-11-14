@@ -11,7 +11,10 @@ needed.
 3. `TaskOutput` returns new output and task status without replaying the entire
    log into the model context.
 4. `TaskStop` or the session task API terminates the task.
-5. Pending completion notifications are attached to a later step.
+5. When the task ends, a `<task-notification>` goes into the session's
+   [message queue](message-queue.md). It does not interrupt a running turn:
+   once the session is idle, the queued notifications start a turn of their
+   own, so the agent reacts to a finished task without the user writing first.
 
 This design keeps long output out of the active context and prevents a blocked
 command from blocking the agent loop.
@@ -35,5 +38,6 @@ command from blocking the agent loop.
 - `src/tasks/LocalShellTask/`
 - `src/utils/task/`
 - `src/tasks/stopTask.ts`
+- `src/utils/messageQueueManager.ts`, `src/services/queue/queue-processor.ts`
 
-**Last verified:** 2026-09-13
+**Last verified:** 2026-11-14

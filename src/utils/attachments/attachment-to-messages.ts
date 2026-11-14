@@ -162,6 +162,7 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
     case 'agent_listing_delta':
     case 'agent_mention':
     case 'task_notification':
+    case 'queued_command':
     case 'relevant_memories':
     case 'conditional_rules':
     case 'edited_text_file':

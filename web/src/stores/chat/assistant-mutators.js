@@ -63,7 +63,7 @@ function sealTrailingAssistantText(state, turnId) {
   return state
 }
 
-/** No user bubble can be appended mid-turn, so the newest one owns the turn. */
+/** The newest user bubble owns the work that follows it. */
 function stampTurnEnd(state) {
   for (let i = state.bubbleOrder.length - 1; i >= 0; i--) {
     const b = state.bubblesById[state.bubbleOrder[i]]
@@ -720,6 +720,71 @@ export function createAssistantMutators(set, get) {
       })
       get()._setThinking()
     },
+  }
+
+  /**
+   * The server started a turn of its own: background tasks finished while
+   * the session was idle. A notice takes the place of the user bubble.
+   */
+  mutators._beginQueuedTurn = data => {
+    if (get().isStreaming) return
+    const summaries = Array.isArray(data?.summaries)
+      ? data.summaries.filter(s => typeof s === 'string' && s.trim())
+      : []
+    const assistantMsgId = newId()
+    set(s => {
+      const next = appendBubble(s, {
+        id: newId(),
+        kind: 'task_notification',
+        summaries,
+      })
+      return {
+        ...transcriptPatch(next),
+        isStreaming: true,
+        currentStep: 0,
+        activeTurnId: assistantMsgId,
+        scheduledTurnActive: true,
+      }
+    })
+    get()._setThinking()
+  }
+
+  /**
+   * A message sent during the turn reached the model between two tool
+   * rounds. It leaves the queue and appears in the transcript at that point;
+   * the work that follows belongs to it.
+   */
+  mutators._onQueuedCommand = data => {
+    if (data?.command_mode !== 'prompt') return
+    const text = typeof data.prompt === 'string' ? data.prompt : ''
+    if (!text.trim()) return
+    const assistantMsgId = newId()
+    set(s => {
+      const turnId = s.activeTurnId
+      let next = s
+      if (turnId) {
+        next = sealTrailingAssistantText(
+          removeBubble(next, thinkingBubbleId(turnId)),
+          turnId,
+        )
+      }
+      next = stampTurnEnd(next)
+      next = appendBubble(next, {
+        id: newId(),
+        kind: 'user',
+        content: text,
+        queued: true,
+        turnStartTime: Date.now(),
+      })
+      return {
+        ...transcriptPatch(next),
+        activeTurnId: assistantMsgId,
+        queuedMessages: (s.queuedMessages || []).filter(
+          m => m.id !== data.command_uuid,
+        ),
+      }
+    })
+    if (get().isStreaming) get()._setThinking()
   }
 
   const batcher = createStreamBatcher({

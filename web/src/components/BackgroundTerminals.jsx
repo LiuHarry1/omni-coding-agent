@@ -25,6 +25,7 @@ function panelTitle(running) {
 export default function BackgroundTerminals() {
   const sessionId = useChatStore(s => s.currentSessionId)
   const isStreaming = useChatStore(s => s.isStreaming)
+  const noteBackgroundTasks = useChatStore(s => s.noteBackgroundTasks)
   const [tasks, setTasks] = useState([])
   const [expanded, setExpanded] = useState(true)
   const [stopping, setStopping] = useState({})
@@ -47,6 +48,11 @@ export default function BackgroundTerminals() {
     t => t.status === 'running' || t.status === 'pending',
   )
   const show = running.length > 0
+
+  // A finished task reports back in a turn the server starts on its own.
+  useEffect(() => {
+    if (show) noteBackgroundTasks()
+  }, [show, noteBackgroundTasks])
 
   // Poll while streaming OR while any task is visible — otherwise a
   // mid-turn background shell stays invisible until the stream ends.

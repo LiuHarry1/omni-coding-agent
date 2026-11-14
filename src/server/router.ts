@@ -77,6 +77,7 @@ import {
   isWorkspaceResetting,
 } from './routes/workspace-reset.js'
 import { handleSessionLive } from './session-live.js'
+import { handleSessionQueue } from './routes/session-queue.js'
 import { getRunAgent } from '../agent-lazy.js'
 import { abortTool } from '../core/tool-abort-registry.js'
 import {
@@ -393,6 +394,7 @@ export function createRouter({ staticDir }: RouterOptions) {
         return
       }
       if (handleSessionLive(req, res)) return
+      if (await handleSessionQueue(req, res)) return
       if (method === 'GET' && url?.match(/^\/sessions\/[^/]+\/messages$/)) {
         const id = url.split('/sessions/')[1].split('/messages')[0]
         const session = getSession(id)

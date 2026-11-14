@@ -124,6 +124,24 @@ export type AgentMentionAttachment = {
   agentType: string
 }
 
+/**
+ * Something queued while the agent was busy -- a message the user sent
+ * during the turn, or a notification from a background task -- handed to
+ * the model between two tool rounds.
+ */
+export type QueuedCommandAttachment = {
+  type: 'queued_command'
+  prompt: string
+  source_uuid?: string
+  /** Original queue mode — 'prompt' for user messages, 'task-notification' for system events */
+  commandMode?: import('../messageQueueManager.js').QueuedCommandMode
+  /** Provenance carried from QueuedCommand so mid-turn drains preserve it */
+  origin?: import('../messageQueueManager.js').MessageOrigin
+  /** Carried from QueuedCommand.isMeta — distinguishes human-typed from system-injected */
+  isMeta?: boolean
+}
+
+/** Stored by older versions; notifications are queued commands now. */
 export type TaskNotificationAttachment = {
   type: 'task_notification'
   taskId: string
@@ -212,6 +230,7 @@ export type ToolUseSummaryAttachment = {
 
 export type Attachment =
   | ToolUseSummaryAttachment
+  | QueuedCommandAttachment
   | EditedTextFileAttachment
   | TodoReminderAttachment
   | HookBlockingErrorAttachment

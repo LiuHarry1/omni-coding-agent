@@ -84,6 +84,10 @@ flowchart TD
    labels on the collapsed work of a finished turn. Only the main agent's
    batches are labelled, a label that fails is skipped, and
    `"toolUseSummaries": false` in settings turns the feature off.
+9. Also after a step with tool calls, the loop takes what was queued for it
+   meanwhile -- messages the user sent during the turn -- and adds each as a
+   `queued_command` attachment before the next request. Task notifications
+   wait for the turn to end; see [Message queue](../features/message-queue.md).
 
 ## Failure boundaries
 
@@ -121,6 +125,8 @@ flowchart LR
 - Turn ownership and persistence: `src/turn/run-chat-turn.ts`
 - Per-turn preparation: `src/utils/processUserInput/prepare_chat_turn.ts`
 - Loop, continuation, and stopping: `src/core/query.ts`
+- Queued commands: `src/utils/messageQueueManager.ts`,
+  `src/services/queue/queue-processor.ts`
 - Active history and compaction: `src/core/query/pre-turn.ts`
 - One streamed round: `src/core/query/run-step.ts`
 - After-step hooks and discovery: `src/core/query/post-turn.ts`

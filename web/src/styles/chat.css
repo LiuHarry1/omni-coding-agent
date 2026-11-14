@@ -898,6 +898,20 @@
   opacity: 0.85;
 }
 
+/* A turn the server started because background tasks finished. */
+.msg-task-notification {
+  margin: 0.75rem 0 0.35rem;
+  padding-left: 0.6rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.85rem;
+  color: var(--text-secondary, #8b949e);
+}
+
+/* Sent while the agent was working, shown where it was picked up. */
+.msg-user--queued {
+  border-style: dashed;
+}
+
 /* ── Todo List Card ──────────────────────── */
 .todo-card {
   margin: 8px 0;

@@ -80,6 +80,7 @@ function ensureProjectDir(loc: SessionLocation): void {
 // ── In-flight turn mutex ────────────────────────
 
 const activeTurns = new Map<string, string>()
+const turnEndListeners = new Set<(sessionId: string) => void>()
 
 /** Returns false when a turn is already running for this session. */
 export function tryBeginTurn(sessionId: string, agentHome?: string): boolean {
@@ -89,7 +90,28 @@ export function tryBeginTurn(sessionId: string, agentHome?: string): boolean {
 }
 
 export function endTurn(sessionId: string): void {
-  activeTurns.delete(sessionId)
+  if (!activeTurns.delete(sessionId)) return
+  for (const listener of [...turnEndListeners]) {
+    try {
+      listener(sessionId)
+    } catch (err) {
+      console.warn(
+        `[session] turn-end listener failed: ${err instanceof Error ? err.message : err}`,
+      )
+    }
+  }
+}
+
+export function isTurnActive(sessionId: string): boolean {
+  return activeTurns.has(sessionId)
+}
+
+/** Called with the session id each time a running turn releases the session. */
+export function onTurnEnd(listener: (sessionId: string) => void): () => void {
+  turnEndListeners.add(listener)
+  return () => {
+    turnEndListeners.delete(listener)
+  }
 }
 
 export function listActiveTurnSessionIds(): string[] {

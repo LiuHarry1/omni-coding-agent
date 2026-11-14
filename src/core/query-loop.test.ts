@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { query } from './query.js'
+import {
+  enqueue,
+  enqueuePendingNotification,
+  getCommandQueue,
+  resetCommandQueue,
+  setBetweenTurnProcessing,
+} from '../utils/messageQueueManager.js'
 import { createQueryHarness, type StepScript } from './query-test-harness.js'
 import type { HookRunner } from './hooks/hooks.js'
 import type { AggregatedHookResult } from './hooks/types.js'
@@ -802,5 +809,185 @@ describe('query loop: tool use summaries', () => {
 
     expect(result.reason).toBe('aborted')
     expect(summaryEvents(h.events)).toEqual([])
+  })
+})
+
+describe('query loop: queued commands', () => {
+  const SESSION = 'queue-loop-session'
+  const mainThread = {
+    sessionId: SESSION,
+    toolUseContext: {
+      cwd: '/workspace',
+      session: { id: SESSION, todos: [] },
+      readFileState: new Map(),
+      options: { tools: {} },
+    },
+  } as unknown as Parameters<typeof createQueryHarness>[0]
+
+  const queuedAttachments = (messages: unknown[]) =>
+    (messages as AttachmentMessage[])
+      .filter(message => message.attachment?.type === 'queued_command')
+      .map(message => message.attachment)
+
+  const queuedEvents = (events: Array<Record<string, unknown>>) =>
+    events.filter(event => event.subtype === 'queued_command')
+
+  afterEach(() => {
+    resetCommandQueue()
+  })
+
+  it('hands a message sent during the turn to the model after the tool round', async () => {
+    const h = createQueryHarness(mainThread)
+    const seenByStep: number[] = []
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], (index, args) => {
+      seenByStep.push(queuedAttachments(args.messages).length)
+      if (index === 0) {
+        enqueue(SESSION, { value: 'also fix b.ts', mode: 'prompt', uuid: 'q1' })
+      }
+    })
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    // Not there for the first request, there for the second.
+    expect(seenByStep).toEqual([0, 1])
+    expect(queuedAttachments(result.messages)).toEqual([
+      {
+        type: 'queued_command',
+        prompt: 'also fix b.ts',
+        source_uuid: 'q1',
+        commandMode: 'prompt',
+      },
+    ])
+    expect(queuedEvents(h.events)).toMatchObject([
+      { prompt: 'also fix b.ts', command_mode: 'prompt', command_uuid: 'q1' },
+    ])
+    expect(getCommandQueue(SESSION)).toEqual([])
+  })
+
+  it('leaves a message in the queue when the turn ends without another tool round', async () => {
+    const h = createQueryHarness(mainThread)
+    h.scriptSteps([{ text: 'Done.' }], () => {
+      enqueue(SESSION, { value: 'one more thing', mode: 'prompt', uuid: 'q1' })
+    })
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'completed' })
+    expect(queuedAttachments(result.messages)).toEqual([])
+    expect(queuedEvents(h.events)).toEqual([])
+    expect(getCommandQueue(SESSION).map(c => c.uuid)).toEqual(['q1'])
+  })
+
+  it('keeps task notifications for after the turn', async () => {
+    setBetweenTurnProcessing(true)
+    const h = createQueryHarness(mainThread)
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], index => {
+      if (index === 0) {
+        enqueuePendingNotification(SESSION, {
+          value: '<task-notification>done</task-notification>',
+          mode: 'task-notification',
+        })
+        enqueuePendingNotification(SESSION, {
+          value: '<task-notification>stalled</task-notification>',
+          mode: 'task-notification',
+          priority: 'next',
+        })
+      }
+    })
+
+    const result = await query(h.options)
+
+    // Only the one marked for the next round interrupts the turn.
+    expect(queuedAttachments(result.messages)).toMatchObject([
+      {
+        prompt: '<task-notification>stalled</task-notification>',
+        commandMode: 'task-notification',
+      },
+    ])
+    expect(getCommandQueue(SESSION).map(c => c.value)).toEqual([
+      '<task-notification>done</task-notification>',
+    ])
+  })
+
+  it('hands task notifications over mid-turn on a host that has no queue processor', async () => {
+    const h = createQueryHarness(mainThread)
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], index => {
+      if (index === 0) {
+        enqueuePendingNotification(SESSION, {
+          value: '<task-notification>done</task-notification>',
+          mode: 'task-notification',
+        })
+      }
+    })
+
+    const result = await query(h.options)
+
+    expect(queuedAttachments(result.messages)).toMatchObject([
+      { prompt: '<task-notification>done</task-notification>' },
+    ])
+    expect(getCommandQueue(SESSION)).toEqual([])
+  })
+
+  it('leaves slash commands for a turn of their own', async () => {
+    const h = createQueryHarness(mainThread)
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], index => {
+      if (index === 0) enqueue(SESSION, { value: '/compact', mode: 'prompt' })
+    })
+
+    const result = await query(h.options)
+
+    expect(queuedAttachments(result.messages)).toEqual([])
+    expect(getCommandQueue(SESSION)).toHaveLength(1)
+  })
+
+  it('gives a subagent only what is addressed to it, without telling the client', async () => {
+    const h = createQueryHarness({ sessionId: SESSION, agentId: 'agent-1' })
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], index => {
+      if (index === 0) {
+        enqueue(SESSION, { value: 'for the user turn', mode: 'prompt' })
+        enqueue(SESSION, {
+          value: 'narrow the search to src/',
+          mode: 'prompt',
+          agentId: 'agent-1',
+          isMeta: true,
+          origin: { kind: 'coordinator' },
+        })
+        enqueue(SESSION, {
+          value: 'for someone else',
+          mode: 'prompt',
+          agentId: 'agent-2',
+        })
+      }
+    })
+
+    const result = await query(h.options)
+
+    expect(queuedAttachments(result.messages)).toEqual([
+      {
+        type: 'queued_command',
+        prompt: 'narrow the search to src/',
+        commandMode: 'prompt',
+        origin: { kind: 'coordinator' },
+        isMeta: true,
+      },
+    ])
+    expect(queuedEvents(h.events)).toEqual([])
+    expect(getCommandQueue(SESSION).map(c => c.value)).toEqual([
+      'for the user turn',
+      'for someone else',
+    ])
+  })
+
+  it('does not touch the queue from a loop that is neither the main agent nor a subagent', async () => {
+    const h = createQueryHarness({ sessionId: SESSION })
+    h.scriptSteps([toolStep('Read'), { text: 'Done.' }], index => {
+      if (index === 0) enqueue(SESSION, { value: 'hello', mode: 'prompt' })
+    })
+
+    const result = await query(h.options)
+
+    expect(queuedAttachments(result.messages)).toEqual([])
+    expect(getCommandQueue(SESSION)).toHaveLength(1)
   })
 })

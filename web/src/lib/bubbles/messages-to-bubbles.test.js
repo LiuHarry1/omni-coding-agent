@@ -118,3 +118,38 @@ describe('tool batch labels', () => {
     ).toBe('Read config.json')
   })
 })
+
+describe('queued messages and task notifications', () => {
+  it('marks a reloaded message that was sent mid-turn', () => {
+    const { bubbleOrder, bubblesById } = messagesToBubbles([
+      { type: 'user', id: 'u1', content: 'fix a' },
+      { type: 'user', id: 'u2', content: 'also b', queued: true },
+    ])
+
+    expect(bubblesById.u1.queued).toBeUndefined()
+    expect(bubblesById.u2).toMatchObject({
+      kind: 'user',
+      content: 'also b',
+      queued: true,
+    })
+    expect(bubbleOrder).toEqual(['u1', 'u2'])
+  })
+
+  it('turns a task notification turn into a notice bubble', () => {
+    const { bubblesById } = messagesToBubbles([
+      {
+        type: 'task_notification',
+        id: 'n1',
+        summaries: ['Agent "audit" completed'],
+      },
+      { type: 'task_notification', id: 'n2' },
+    ])
+
+    expect(bubblesById.n1).toEqual({
+      id: 'n1',
+      kind: 'task_notification',
+      summaries: ['Agent "audit" completed'],
+    })
+    expect(bubblesById.n2.summaries).toEqual([])
+  })
+})

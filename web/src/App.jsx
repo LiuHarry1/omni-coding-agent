@@ -17,7 +17,7 @@ export default function App() {
   const theme = useChatStore(s => s.theme)
   const syncHljs = useChatStore(s => s.syncHljs)
   const currentSessionId = useChatStore(s => s.currentSessionId)
-  const liveNeeded = useChatStore(s => s.liveNeeded)
+  const liveNeeded = useChatStore(s => s.liveNeeded || s.backgroundLiveNeeded)
   const switchSession = useChatStore(s => s.switchSession)
   const connectSessionLive = useChatStore(s => s.connectSessionLive)
   const workspace = useWorkspaceContextStore(s => s.cwd)

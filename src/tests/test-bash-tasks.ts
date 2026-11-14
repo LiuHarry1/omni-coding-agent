@@ -26,7 +26,7 @@ import { resolveAgentHome } from '../utils/request-scope.js'
 import { spawnShellTask } from '../tasks/LocalShellTask/LocalShellTask.js'
 import { stopTask } from '../tasks/stopTask.js'
 import { getTask, clearSessionTasks } from '../utils/task/framework.js'
-import { drainTaskNotifications } from '../utils/task/pendingNotifications.js'
+import { dequeueAll } from '../utils/messageQueueManager.js'
 
 async function main() {
   _resetTaskOutputDirForTest()
@@ -87,14 +87,12 @@ async function main() {
   let notified = false
   for (let i = 0; i < 50; i++) {
     await new Promise(r => setTimeout(r, 100))
-    const n = drainTaskNotifications('test-session-tasks')
+    const n = dequeueAll('test-session-tasks')
     if (n.length > 0) {
-      assert.equal(n[0]!.taskId, handle.taskId)
-      assert.ok(
-        n[0]!.status === 'completed' || n[0]!.status === 'failed',
-        n[0]!.status,
-      )
-      assert.ok(n[0]!.rawXml.includes('<task-notification>'))
+      assert.equal(n[0]!.mode, 'task-notification')
+      assert.ok(n[0]!.value.includes(`<task-id>${handle.taskId}</task-id>`))
+      assert.match(n[0]!.value, /<status>(completed|failed)<\/status>/)
+      assert.ok(n[0]!.value.includes('<task-notification>'))
       notified = true
       break
     }
