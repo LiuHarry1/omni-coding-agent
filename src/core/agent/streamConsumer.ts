@@ -112,6 +112,9 @@ export async function consumeStream(
     { toolName: string; error?: unknown }
   >()
 
+  /** Calls the SDK rejected that the executor validates and reports itself. */
+  const executorSettled = new Set<string>()
+
   const flushReasoning = (): void => {
     if (reasoningStarted) {
       wire.reasoningEnd()
@@ -221,20 +224,29 @@ export async function consumeStream(
             unparsedInputs.set(event.toolCallId, { toolName: event.toolName })
             break
           }
-          wire.toolCall({
-            tool_use_id: event.toolCallId,
-            name: event.toolName,
-            args: event.input,
-            is_subagent: isSubagentName(event.toolName),
-          })
           {
+            // The SDK flags a call it could not match to a tool schema and
+            // follows it with a `tool-error`. The executor may still resolve
+            // the name (`bash` for `Bash`) and re-checks the arguments, so it
+            // owns the outcome; without one, the `tool-error` settles the call.
+            const rejectedBySdk =
+              (event as { invalid?: boolean }).invalid === true
+            if (rejectedBySdk && !streamingExecutor) break
+            wire.toolCall({
+              tool_use_id: event.toolCallId,
+              name: event.toolName,
+              args: event.input,
+              is_subagent: isSubagentName(event.toolName),
+            })
             const ref: ToolCallRef = {
               toolCallId: event.toolCallId,
               toolName: event.toolName,
               input: event.input as Record<string, unknown>,
+              ...(rejectedBySdk ? { unvalidated: true } : {}),
             }
             toolCalls.push(ref)
             streamingExecutor?.addTool(ref)
+            if (rejectedBySdk) executorSettled.add(event.toolCallId)
           }
           previewStates.delete(event.toolCallId)
           startedInputs.delete(event.toolCallId)
@@ -247,6 +259,7 @@ export async function consumeStream(
             error?: unknown
             input?: unknown
           }
+          if (executorSettled.has(e.toolCallId)) break
           const unparsed = unparsedInputs.get(e.toolCallId)
           if (unparsed) {
             unparsed.error = e.error

@@ -2,6 +2,7 @@
  * Tool execution — single-tool execute + tool message assembly.
  * Batching / concurrency is handled by StreamingToolExecutor.
  */
+import { asSchema, type FlexibleSchema } from 'ai'
 import type {
   AnyTool,
   DualChannelToolResult,
@@ -36,6 +37,34 @@ export interface ToolCallRef {
   toolCallId: string
   toolName: string
   input: Record<string, unknown>
+  /**
+   * The SDK matched this call to no tool, or its arguments failed the schema.
+   * The executor resolves the name and checks the arguments before running.
+   */
+  unvalidated?: boolean
+}
+
+/**
+ * Check arguments against the tool's input schema, as the SDK does for calls
+ * it accepts. Returns the parsed arguments, or the error to show the model.
+ */
+export async function validateToolInput(
+  tool: AnyTool | undefined,
+  toolName: string,
+  input: Record<string, unknown>,
+): Promise<
+  { ok: true; input: Record<string, unknown> } | { ok: false; message: string }
+> {
+  const schema = (tool as { inputSchema?: FlexibleSchema<unknown> } | undefined)
+    ?.inputSchema
+  const validate = schema ? asSchema(schema).validate : undefined
+  if (!validate) return { ok: true, input }
+  const checked = await validate(input)
+  if (checked.success) {
+    return { ok: true, input: checked.value as Record<string, unknown> }
+  }
+  const cause = (checked.error as { cause?: unknown }).cause ?? checked.error
+  return { ok: false, message: `Error: ${formatToolError(toolName, cause)}` }
 }
 
 export interface ExecutedToolResult {

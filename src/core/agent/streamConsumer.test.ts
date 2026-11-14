@@ -308,6 +308,52 @@ describe('consumeStream output-limit truncation', () => {
     expect(result.toolResults[0]!.result).toContain('Invalid input for tool')
   })
 
+  it('hands a call that fails the schema to the executor once, marked unvalidated', async () => {
+    const { wire, events } = recordingWire()
+    const addTool = vi.fn()
+    const result = await consumeStream(
+      sdkStream('{"file_path":"a.txt"}', 'tool-calls'),
+      wire,
+      undefined,
+      undefined,
+      { streamingExecutor: fakeExecutor(addTool) },
+    )
+
+    const call = {
+      toolCallId: 'call-1',
+      toolName: 'Write',
+      input: { file_path: 'a.txt' },
+      unvalidated: true,
+    }
+    expect(addTool).toHaveBeenCalledTimes(1)
+    expect(addTool).toHaveBeenCalledWith(call)
+    // The executor reports the outcome; the SDK's own error is not repeated.
+    expect(result.toolCalls).toEqual([call])
+    expect(result.toolResults).toEqual([])
+    expect(events.filter(event => event.type === 'tool_call')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'tool_result')).toEqual([])
+  })
+
+  it('settles a call that fails the schema itself when nothing can run it', async () => {
+    const { wire, events } = recordingWire()
+    const result = await consumeStream(
+      sdkStream('{"file_path":"a.txt"}', 'tool-calls'),
+      wire,
+    )
+
+    expect(result.toolCalls).toEqual([
+      {
+        toolCallId: 'call-1',
+        toolName: 'Write',
+        input: { file_path: 'a.txt' },
+      },
+    ])
+    expect(result.toolResults).toHaveLength(1)
+    expect(result.toolResults[0]!.result).toContain('content')
+    expect(events.filter(event => event.type === 'tool_call')).toHaveLength(1)
+    expect(events.filter(event => event.type === 'tool_result')).toHaveLength(1)
+  })
+
   it('does not treat a stream error as truncation', async () => {
     const { wire } = recordingWire()
     const result = await consumeStream(

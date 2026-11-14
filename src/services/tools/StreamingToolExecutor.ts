@@ -9,6 +9,7 @@ import type { ToolDefinition } from '../../core/types.js'
 import type { ToolUseContext } from '../../core/agent/tool-use-context.js'
 import {
   executeOneTool,
+  validateToolInput,
   type ExecutedToolResult,
   type ToolCallRef,
 } from '../../services/tools/tool_execution.js'
@@ -76,18 +77,17 @@ export class StreamingToolExecutor {
     const def = this.#ctx.getDefinition?.(normalizedCall.toolName)
     const isConcurrencySafe = this.#isConcurrencySafe(def, normalizedCall)
     if (!def && !this.#ctx.tools[normalizedCall.toolName]) {
-      this.#tools.push({
+      const tracked: TrackedTool = {
         id: call.toolCallId,
         call: normalizedCall,
         status: 'completed',
         isConcurrencySafe: true,
-        result: {
-          toolCallId: call.toolCallId,
-          toolName: call.toolName,
-          result: `Error: No such tool available: ${call.toolName}`,
-          isError: true,
-        },
-      })
+      }
+      this.#rejectTool(
+        tracked,
+        `Error: No such tool available: ${call.toolName}`,
+      )
+      this.#tools.push(tracked)
       void this.#processQueue()
       return
     }
@@ -235,6 +235,18 @@ export class StreamingToolExecutor {
     return { toolCallId, toolName, result, isError: true }
   }
 
+  /** Settle a call that will not run with an error result. */
+  #rejectTool(tool: TrackedTool, result: string): void {
+    const { toolCallId, toolName } = tool.call
+    this.#ctx.wire.toolResult({
+      tool_use_id: toolCallId,
+      result,
+      is_error: true,
+    })
+    tool.result = { toolCallId, toolName, result, isError: true }
+    tool.status = 'completed'
+  }
+
   #executeTool(tool: TrackedTool): void {
     tool.status = 'executing'
     this.#ctx.setInProgressToolUseIDs?.((prev: Set<string>) =>
@@ -251,25 +263,29 @@ export class StreamingToolExecutor {
         return
       }
 
+      // Arguments are checked before the permission prompt, so the user is
+      // never asked to approve a call that could not run anyway.
+      if (tool.call.unvalidated) {
+        const checked = await validateToolInput(
+          this.#ctx.tools[tool.call.toolName],
+          tool.call.toolName,
+          tool.call.input,
+        )
+        if (!checked.ok) {
+          this.#rejectTool(tool, checked.message)
+          this.#updateInterruptibleState()
+          return
+        }
+        tool.call = { ...tool.call, input: checked.input }
+      }
+
       const permission = await this.#canUseTool(
         tool.call.toolName,
         tool.call.input,
         { toolUseId: tool.call.toolCallId },
       )
       if (permission.behavior === 'deny') {
-        const result = permission.message
-        this.#ctx.wire.toolResult({
-          tool_use_id: tool.call.toolCallId,
-          result,
-          is_error: true,
-        })
-        tool.result = {
-          toolCallId: tool.call.toolCallId,
-          toolName: tool.call.toolName,
-          result,
-          isError: true,
-        }
-        tool.status = 'completed'
+        this.#rejectTool(tool, permission.message)
         this.#updateInterruptibleState()
         return
       }
