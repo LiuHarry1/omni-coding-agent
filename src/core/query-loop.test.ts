@@ -154,13 +154,15 @@ describe('query loop: step limit', () => {
     expect(h.deps.runStep).toHaveBeenCalledTimes(2)
     expect(h.deps.forceFinalAnswerOnMaxSteps).toHaveBeenCalledTimes(1)
     expect(subtypes(h.resultEvents())).toEqual(['success'])
-    // Seed update, then the auto-complete on exit.
-    expect(h.todoUpdates).toHaveLength(2)
+    // Only the seed update: running out of steps does not finish the work.
+    expect(h.todoUpdates).toHaveLength(1)
   })
 
   it('reports an error when no summary is produced', async () => {
     const h = createQueryHarness({ maxSteps: 1 })
-    h.scriptSteps([toolStep('Read')])
+    h.scriptSteps([toolStep('Read')], () => {
+      h.eventBus.emit('todo_update', { todos: openTodos })
+    })
 
     const result = await query(h.options)
 
@@ -170,10 +172,13 @@ describe('query loop: step limit', () => {
       turnCount: 2,
       summarized: false,
     })
-    expect(subtypes(h.resultEvents())).toEqual(['error', 'success'])
-    expect(h.resultEvents()[0]).toMatchObject({
-      error: 'Reached max steps (1)',
-    })
+    expect(h.resultEvents()).toEqual([
+      expect.objectContaining({
+        subtype: 'error',
+        error: 'Reached max steps (1)',
+      }),
+    ])
+    expect(h.todoUpdates).toHaveLength(1)
   })
 
   it('does not force a summary when the last allowed step finishes the turn', async () => {
@@ -184,6 +189,46 @@ describe('query loop: step limit', () => {
 
     expect(result.terminal).toEqual({ reason: 'completed' })
     expect(h.deps.forceFinalAnswerOnMaxSteps).not.toHaveBeenCalled()
+  })
+})
+
+describe('query loop: failed request', () => {
+  const failed: StepScript = {
+    completedCleanly: false,
+    completionError: 'Upstream stream failed: 502. Try again.',
+  }
+
+  it('reports one error and leaves todos open', async () => {
+    const h = createQueryHarness()
+    h.scriptSteps([toolStep('TodoWrite'), failed], index => {
+      if (index === 0) h.eventBus.emit('todo_update', { todos: openTodos })
+    })
+
+    const result = await query(h.options)
+
+    expect(result.reason).toBe('error')
+    expect(result.terminal).toEqual({
+      reason: 'model_error',
+      error: 'Upstream stream failed: 502. Try again.',
+    })
+    expect(h.resultEvents()).toEqual([
+      expect.objectContaining({
+        subtype: 'error',
+        error: 'Upstream stream failed: 502. Try again.',
+      }),
+    ])
+    expect(h.todoUpdates).toHaveLength(1)
+  })
+
+  it('counts as an abort when the user stopped the turn meanwhile', async () => {
+    const controller = new AbortController()
+    const h = createQueryHarness({ abortSignal: controller.signal })
+    h.scriptSteps([failed], () => controller.abort())
+
+    const result = await query(h.options)
+
+    expect(result.terminal).toEqual({ reason: 'aborted_streaming' })
+    expect(h.resultEvents()).toHaveLength(0)
   })
 })
 

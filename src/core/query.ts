@@ -183,45 +183,39 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const transitions: Continue[] = []
 
   /**
-   * The only way out of the loop: reports the outcome on the wire, then
-   * returns it. `reported` skips the wire when `runStep` already did it.
+   * The only way out of the loop. Emits the turn's single result event (an
+   * abort has its interrupt marker instead) and returns the outcome. Todos
+   * are closed only on a normal finish; every other exit leaves them as the
+   * model last wrote them.
    */
-  const finish = (
-    terminal: Terminal,
-    text: string,
-    reported = false,
-  ): QueryResult => {
-    if (!reported) {
-      switch (terminal.reason) {
-        case 'completed':
-          autoCompleteTodos(currentTodos, eventBus, wire)
-          wire.done()
-          break
-        case 'max_turns':
-          if (!terminal.summarized) {
-            wire.error(`Reached max steps (${stepLimit})`)
-          }
-          wire.done()
-          break
-        case 'model_error':
-          wire.error(terminal.error)
-          break
-        case 'max_output_tokens': {
-          const hits = state.maxOutputTokensRecoveryCount + 1
-          wire.error(
-            `The response stopped at the output token limit ${hits} times in a row and is incomplete. ` +
-              'Ask for the remaining part, or split the task into smaller pieces.' +
-              (state.maxOutputTokensOverride === undefined
-                ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
-                : ''),
-          )
-          break
-        }
-        case 'aborted_streaming':
-        case 'aborted_tools':
-          // The interrupt marker was written where the abort was noticed.
-          break
+  const finish = (terminal: Terminal, text: string): QueryResult => {
+    switch (terminal.reason) {
+      case 'completed':
+        autoCompleteTodos(currentTodos, eventBus, wire)
+        wire.done()
+        break
+      case 'max_turns':
+        if (terminal.summarized) wire.done()
+        else wire.error(`Reached max steps (${stepLimit})`)
+        break
+      case 'model_error':
+        wire.error(terminal.error)
+        break
+      case 'max_output_tokens': {
+        const hits = state.maxOutputTokensRecoveryCount + 1
+        wire.error(
+          `The response stopped at the output token limit ${hits} times in a row and is incomplete. ` +
+            'Ask for the remaining part, or split the task into smaller pieces.' +
+            (state.maxOutputTokensOverride === undefined
+              ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
+              : ''),
+        )
+        break
       }
+      case 'aborted_streaming':
+      case 'aborted_tools':
+        // The interrupt marker was written where the abort was noticed.
+        break
     }
     const reason = stopReasonOf(terminal)
     emitTurnEnd(
@@ -265,7 +259,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         )
 
       if (turnCount > stepLimit) {
-        autoCompleteTodos(currentTodos, eventBus, wire)
         const text = extractPartialResult(messages) ?? priorText
         console.log(
           `[agent] maxSteps=${stepLimit} reached — forcing final answer (tools disabled)`,
@@ -351,15 +344,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         maxOutputTokensOverride,
       })
 
-      if (stepResult === null) {
-        if (abortSignal?.aborted) return finishInterrupted()
-        return finish(
-          { reason: 'model_error', error: 'Upstream stream failed' },
-          extractPartialResult(messages) ?? priorText,
-          true,
-        )
-      }
-
       if (stepResult.aborted) {
         return finish(
           {
@@ -376,6 +360,8 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       // A truncated step is recoverable even when a tool input was cut off:
       // fall through so the committed prefix gets a continuation nudge below.
       if (!stepResult.completedCleanly && !stepResult.truncated) {
+        // An abort that raced the failure is still an abort.
+        if (abortSignal?.aborted) return finishInterrupted()
         // runStep has already committed every complete assistant/tool pair.
         // Persist that valid prefix, but never turn an interrupted stream into
         // a successful turn or replay tools that may already have side effects.

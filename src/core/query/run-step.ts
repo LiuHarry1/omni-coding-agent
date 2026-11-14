@@ -65,7 +65,6 @@ import type { ConcurrencyPolicyFn } from '../concurrency-policy.js'
 import type { AnyTool } from '../types.js'
 import {
   agentLogTag,
-  autoCompleteTodos,
   getMaxOutputTokens,
   maxTokensOverrideFromError,
   MAX_OVERFLOW_RETRIES,
@@ -129,7 +128,7 @@ export function shouldAttemptReactiveCompaction(
 /**
  * One LLM round-trip, including reactive compaction / transient retry.
  */
-export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
+export async function runStep(args: RunStepArgs): Promise<StreamResult> {
   const {
     messages,
     tools,
@@ -513,12 +512,14 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
       console.error(
         `[${agentLogTag(logLabel)}] step ${step} failed: ${message}${cause}`,
       )
-      wire.error(
-        `Upstream stream failed: ${message}${cause}. Try again or check your proxy logs.`,
-      )
-      autoCompleteTodos(args.currentTodos, eventBus, wire)
-      wire.done()
-      return null
+      // The caller ends the turn and reports this; nothing was committed.
+      return {
+        text: '',
+        toolCalls: [],
+        toolResults: [],
+        completedCleanly: false,
+        completionError: `Upstream stream failed: ${message}${cause}. Try again or check your proxy logs.`,
+      }
     }
   }
 }

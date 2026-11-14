@@ -56,8 +56,10 @@ what you learned and accomplished so far. Respond in plain text / markdown only
       onFullCompaction: input.onFullCompaction,
       compactEnrichment: input.compactEnrichment,
     })
-    const fromStep = stepResult?.text?.trim() ?? ''
+    const fromStep = stepResult.text.trim()
     if (fromStep) return fromStep
+    // A failed request produced no summary; earlier text must not pass for one.
+    if (stepResult.completionError) return ''
     return extractPartialResult(input.messages) ?? ''
   } catch (err) {
     console.warn(`[agent] forceFinalAnswerOnMaxSteps failed: ${err}`)
