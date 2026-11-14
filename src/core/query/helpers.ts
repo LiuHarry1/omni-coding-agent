@@ -1,17 +1,13 @@
 import { ensureMessageUuid } from '../../services/session-memory/index.js'
 import type {
-  AgentOptions,
   AnyTool,
   Message,
   TodoItem,
-  TodoStatus,
   UserContentPart,
   UserFileAttachment,
   UserMessage,
 } from '../types.js'
 import { isRoleMessage } from '../types.js'
-import type { WireEmitter } from '../wire-emitter.js'
-import { emitTodoUpdate } from '../wire-internal.js'
 import {
   EDIT_FILE_TOOL_NAME,
   TOOL_SEARCH_TOOL_NAME,
@@ -156,23 +152,6 @@ export function buildUserMessage(
     )
   }
   return ensureMessageUuid({ role: 'user', content: parts, ...meta })
-}
-
-export function autoCompleteTodos(
-  todos: TodoItem[],
-  eventBus: AgentOptions['eventBus'],
-  wire: WireEmitter,
-): void {
-  const hasIncomplete = todos.some(
-    t => t.status === 'pending' || t.status === 'in_progress',
-  )
-  if (!hasIncomplete) return
-  const updated = todos.map(t =>
-    t.status === 'pending' || t.status === 'in_progress'
-      ? { ...t, status: 'completed' as TodoStatus }
-      : t,
-  )
-  emitTodoUpdate(wire, eventBus, updated)
 }
 
 function formatTodoReminder(todos: TodoItem[]): string {

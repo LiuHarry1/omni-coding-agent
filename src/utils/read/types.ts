@@ -190,6 +190,12 @@ export interface ReadFileStateEntry {
    */
   offset?: number
   limit?: number
+  /**
+   * `content` is not the file's text as it is on disk (a line range, a
+   * truncated prefix, or a serialized non-text read), so it cannot be diffed
+   * against the file to report outside changes.
+   */
+  isPartialView?: boolean
 }
 
 /** Session map: absolute path → last read/write bookkeeping. */

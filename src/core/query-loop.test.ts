@@ -330,7 +330,7 @@ describe('query loop: permission mode change', () => {
 })
 
 describe('query loop: completion', () => {
-  it('marks open todos completed and reports success once', async () => {
+  it('reports success once and leaves open todos as the model wrote them', async () => {
     const h = createQueryHarness()
     h.scriptSteps([toolStep('TodoWrite'), { text: 'All done.' }], index => {
       if (index === 0) h.eventBus.emit('todo_update', { todos: openTodos })
@@ -341,11 +341,7 @@ describe('query loop: completion', () => {
     expect(result.reason).toBe('completed')
     expect(result.finalText).toBe('All done.')
     expect(subtypes(h.resultEvents())).toEqual(['success'])
-    expect(h.todoUpdates).toHaveLength(2)
-    expect(h.todoUpdates[1]!.map(todo => todo.status)).toEqual([
-      'completed',
-      'completed',
-    ])
+    expect(h.todoUpdates).toEqual([openTodos])
   })
 
   it('numbers steps from zero and runs post-turn for each', async () => {

@@ -695,6 +695,11 @@ export interface Session {
   discoveredTools?: Set<string>
   /** Tracks files read for @-mention dedup + Read tool_unchanged (mtime-based). */
   readFileState?: import('../utils/read/types.js').ReadFileState
+  /**
+   * The main agent's open todo list, kept by TodoWrite. Empty once every item
+   * is completed or cancelled. Rebuilt from the transcript on reload.
+   */
+  todos?: TodoItem[]
   /** Session-level Agent / Ask / Plan mode. */
   permissionMode: PermissionModeContext
   /**

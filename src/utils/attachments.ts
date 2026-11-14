@@ -24,6 +24,8 @@ import { getAgentListingDeltaAttachments } from '../tools/AgentTool/agentListing
 import { drainTaskNotifications } from '../utils/task/pendingNotifications.js'
 import { loadConditionalRulesForPaths } from './rules-loader.js'
 import { extractAgentMentions } from './attachments/extract-mentions.js'
+import { getChangedFiles } from './attachments/changed-files.js'
+import { getTodoReminderAttachments } from './attachments/todo-reminder.js'
 import type { AgentDefinition } from '../core/types.js'
 
 function getAgentMentionAttachments(
@@ -160,11 +162,15 @@ export async function getAttachments(
           ),
         ]
       : []),
+    maybe('changed_files', () => getChangedFiles(toolUseContext)),
     maybe('plan_mode', () =>
       Promise.resolve(getPlanModeAttachments(messages, toolUseContext)),
     ),
     maybe('plan_mode_exit', () =>
       Promise.resolve(getPlanModeExitAttachment(toolUseContext)),
+    ),
+    maybe('todo_reminders', () =>
+      Promise.resolve(getTodoReminderAttachments(messages, toolUseContext)),
     ),
   ]
 

@@ -156,7 +156,24 @@ export type ConditionalRulesAttachment = {
   }>
 }
 
+/** A file the model has read was changed on disk by something else. */
+export type EditedTextFileAttachment = {
+  type: 'edited_text_file'
+  filename: string
+  /** Changed regions of the new content, with line numbers. */
+  snippet: string
+}
+
+/** The todo tool has gone unused for a while. */
+export type TodoReminderAttachment = {
+  type: 'todo_reminder'
+  content: Array<{ content: string; status: string }>
+  itemCount: number
+}
+
 export type Attachment =
+  | EditedTextFileAttachment
+  | TodoReminderAttachment
   | FileAttachment
   | UploadedBinaryAttachment
   | PdfReferenceAttachment

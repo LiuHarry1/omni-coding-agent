@@ -17,6 +17,7 @@ import { attachmentToMessages } from './attachments/attachment-to-messages.js'
 import {
   ASK_USER_QUESTION_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
+  TODO_WRITE_TOOL_NAME,
 } from '../constants/tool_names.js'
 import { wrapInSystemReminder } from './system-reminder.js'
 
@@ -234,6 +235,25 @@ You have exited plan mode. You can now make edits, run tools, and take actions.$
           metaUserMessage(`${m.header}\n\n${m.content}`),
         ),
       )
+    }
+
+    case 'edited_text_file':
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(
+          `Note: ${attachment.filename} was modified, either by the user or by a linter. This change was intentional, so make sure to take it into account as you proceed (ie. don't revert it unless the user asks you to). Don't tell the user this, since they are already aware. Here are the relevant changes (shown with line numbers):\n${attachment.snippet}`,
+        ),
+      ])
+
+    case 'todo_reminder': {
+      const todoItems = attachment.content
+        .map((todo, index) => `${index + 1}. [${todo.status}] ${todo.content}`)
+        .join('\n')
+
+      let message = `The ${TODO_WRITE_TOOL_NAME} tool hasn't been used recently. If you're working on tasks that would benefit from tracking progress, consider using the ${TODO_WRITE_TOOL_NAME} tool to track progress. Also consider cleaning up the todo list if has become stale and no longer matches what you are working on. Only use it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable. Make sure that you NEVER mention this reminder to the user\n`
+      if (todoItems.length > 0) {
+        message += `\n\nHere are the existing contents of your todo list:\n\n[${todoItems}]`
+      }
+      return wrapMessagesInSystemReminder([metaUserMessage(message)])
     }
   }
 }

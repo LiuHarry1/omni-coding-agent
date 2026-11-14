@@ -96,6 +96,7 @@ export async function generateFileAttachment(
       readFileState.set(abs, {
         content: truncated.file.content,
         timestamp: Math.floor(fs.statSync(abs).mtimeMs),
+        isPartialView: true,
       })
       return {
         type: 'file',
@@ -111,9 +112,12 @@ export async function generateFileAttachment(
 
   try {
     const { output } = await readFileCore(cwd, filename, { offset, limit })
+    const wholeText =
+      output.type === 'text' && offset === undefined && limit === undefined
     readFileState.set(abs, {
       content: serializeReadOutput(output),
       timestamp: Math.floor(fs.statSync(abs).mtimeMs),
+      ...(wholeText ? {} : { isPartialView: true }),
     })
     return {
       type: 'file',

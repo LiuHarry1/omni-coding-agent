@@ -8,6 +8,7 @@ import type {
 } from '../../core/types.js'
 import { emitTodoUpdate } from '../../core/wire-internal.js'
 import { TODO_WRITE_TOOL_NAME } from '../../constants/tool_names.js'
+import { applyTodoWrite, isTodoListDone } from './todo-state.js'
 
 export type TodoWriteOutput = {
   todos: TodoItem[]
@@ -24,19 +25,6 @@ export const TodoWriteOutputSchema = z.object({
   ),
   message: z.string(),
 })
-
-const STATUS_ORDER: Record<TodoStatus, number> = {
-  in_progress: 0,
-  pending: 1,
-  completed: 2,
-  cancelled: 3,
-}
-
-function sortTodos(items: TodoItem[]): TodoItem[] {
-  return [...items].sort(
-    (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status],
-  )
-}
 
 function summarize(items: TodoItem[]): string {
   const counts: Record<string, number> = {}
@@ -72,7 +60,10 @@ export const definition: ToolDefinition = {
   },
 
   create(_cwd, context) {
-    const todos = new Map<string, TodoItem>()
+    // The main agent's list lives on the session so it carries across turns;
+    // a subagent has no session and keeps its own list for its run.
+    let ownTodos: TodoItem[] = []
+    const session = context.session
 
     return tool({
       description:
@@ -110,20 +101,12 @@ export const definition: ToolDefinition = {
         todos: Array<{ id: string; content: string; status: TodoStatus }>
         merge: boolean
       }) => {
-        if (!merge) {
-          todos.clear()
-        }
-
-        for (const item of incoming) {
-          const existing = todos.get(item.id)
-          todos.set(item.id, {
-            id: item.id,
-            content: item.content ?? existing?.content ?? '',
-            status: item.status ?? existing?.status ?? 'pending',
-          })
-        }
-
-        const sorted = sortTodos([...todos.values()])
+        const existing = session ? (session.todos ?? []) : ownTodos
+        const sorted = applyTodoWrite(existing, incoming, merge)
+        // A finished list is not carried forward: the next plan starts empty.
+        const kept = isTodoListDone(sorted) ? [] : sorted
+        if (session) session.todos = kept
+        else ownTodos = kept
 
         emitTodoUpdate(context.wire, context.eventBus, sorted)
 

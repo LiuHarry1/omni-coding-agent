@@ -13,7 +13,6 @@ import type {
 import {
   MAX_TRUNCATION_RECOVERIES,
   agentLogTag,
-  autoCompleteTodos,
   buildTruncationReminder,
   escalatedMaxOutputTokens,
   getMaxOutputTokens,
@@ -121,7 +120,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const provider = configuredProvider
   const resolvedModel = model ?? provider.defaultModelId()
 
-  let currentTodos: TodoItem[] = []
+  let currentTodos: TodoItem[] = toolUseContext?.session.todos ?? []
   const unsubTodo = eventBus.on('todo_update', data => {
     currentTodos = (data as { todos: TodoItem[] }).todos
   })
@@ -223,13 +222,11 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   /**
    * The only way out of the loop. Emits the turn's single result event (an
    * abort has its interrupt marker instead) and returns the outcome. Todos
-   * are closed only on a normal finish; every other exit leaves them as the
-   * model last wrote them.
+   * are left as the model last wrote them on every exit.
    */
   const finish = (terminal: Terminal, text: string): QueryResult => {
     switch (terminal.reason) {
       case 'completed':
-        autoCompleteTodos(currentTodos, eventBus, wire)
         wire.done()
         break
       case 'max_turns':

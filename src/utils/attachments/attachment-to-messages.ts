@@ -164,6 +164,8 @@ export function attachmentToMessages(attachment: Attachment): Message[] {
     case 'task_notification':
     case 'relevant_memories':
     case 'conditional_rules':
+    case 'edited_text_file':
+    case 'todo_reminder':
       // Handled in messages.normalizeAttachmentForAPI (system-reminder path).
       return []
     default: {
