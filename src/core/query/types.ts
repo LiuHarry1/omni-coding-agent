@@ -1,4 +1,5 @@
 import type { AgentOptions, Message } from '../types.js'
+import type { QueryDeps } from './deps.js'
 
 /** Reason the query loop stopped. */
 export type QueryStopReason = 'completed' | 'aborted' | 'max_steps' | 'error'
@@ -15,4 +16,6 @@ export type QueryResult = {
  */
 export type QueryOptions = AgentOptions & {
   messages: Message[]
+  /** Loop phases; defaults to the real ones. */
+  deps?: QueryDeps
 }

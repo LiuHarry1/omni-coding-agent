@@ -1,83 +1,27 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EventBus } from './event-bus.js'
-import type { QueryOptions } from './query/types.js'
-import { WireEmitter } from './wire-emitter.js'
-
-const mocks = vi.hoisted(() => ({
-  runStep: vi.fn(),
-  postTurn: vi.fn(),
-}))
-
-vi.mock('./query/pre-turn.js', () => ({
-  preTurn: async ({ messages }: { messages: unknown[] }) => messages,
-}))
-
-vi.mock('./query/run-step.js', () => ({
-  createDumpRecorder: () => undefined,
-  runStep: mocks.runStep,
-}))
-
-vi.mock('./query/post-turn.js', () => ({
-  postTurn: mocks.postTurn,
-  emitTurnEnd: () => {},
-}))
-
-vi.mock('./query/force-final-answer.js', () => ({
-  forceFinalAnswerOnMaxSteps: async () => undefined,
-}))
-
+import { describe, expect, it } from 'vitest'
 import { query } from './query.js'
+import { createQueryHarness } from './query-test-harness.js'
 
 describe('query incomplete stream handling', () => {
-  beforeEach(() => {
-    mocks.runStep.mockReset()
-    mocks.postTurn.mockReset()
-  })
-
   it('returns an error terminal instead of success', async () => {
-    mocks.runStep.mockResolvedValue({
-      text: '',
-      toolCalls: [],
-      toolResults: [],
-      completedCleanly: false,
-      completionError: 'Upstream stream ended before tool arguments completed.',
-    })
-
-    const events: Array<Record<string, unknown>> = []
-    const wire = new WireEmitter(
+    const h = createQueryHarness()
+    h.scriptSteps([
       {
-        emit(message) {
-          events.push(message as unknown as Record<string, unknown>)
-        },
+        completedCleanly: false,
+        completionError:
+          'Upstream stream ended before tool arguments completed.',
       },
-      'test-session',
-    )
+    ])
 
-    const result = await query({
-      tools: {},
-      systemPrompt: 'system',
-      eventBus: new EventBus(),
-      wire,
-      messages: [{ role: 'user', uuid: 'user-1', content: 'write a file' }],
-      provider: {
-        defaultModelId: () => 'test-model',
-      },
-      cwd: '/workspace',
-    } as unknown as QueryOptions)
+    const result = await query(h.options)
 
     expect(result.reason).toBe('error')
-    expect(mocks.postTurn).not.toHaveBeenCalled()
-    expect(events).toContainEqual(
+    expect(h.deps.postTurn).not.toHaveBeenCalled()
+    expect(h.resultEvents()).toEqual([
       expect.objectContaining({
-        type: 'result',
         subtype: 'error',
         error: 'Upstream stream ended before tool arguments completed.',
       }),
-    )
-    expect(
-      events.some(
-        event => event.type === 'result' && event.subtype === 'success',
-      ),
-    ).toBe(false)
+    ])
   })
 })

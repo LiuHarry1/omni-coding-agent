@@ -1,39 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import type { QueryOptions } from './query/types.js'
-import { EventBus } from './event-bus.js'
-import { noopWireEmitter } from './wire-emitter.js'
-import { isRoleMessage, type Message } from './types.js'
-
-vi.mock('./query/pre-turn.js', () => ({
-  preTurn: async ({ messages }: { messages: unknown[] }) => messages,
-}))
-
-vi.mock('./query/run-step.js', () => ({
-  createDumpRecorder: () => undefined,
-  runStep: async () => ({
-    aborted: false,
-    text: 'step complete',
-    toolCalls: [],
-    completedCleanly: true,
-  }),
-}))
-
-vi.mock('./query/post-turn.js', () => ({
-  postTurn: async ({ messages }: { messages: unknown[] }) => {
-    messages.push({
-      role: 'assistant',
-      uuid: 'assistant-checkpoint',
-      content: [{ type: 'text', text: 'step complete' }],
-    })
-  },
-  emitTurnEnd: () => {},
-}))
-
-vi.mock('./query/force-final-answer.js', () => ({
-  forceFinalAnswerOnMaxSteps: async () => undefined,
-}))
-
 import { query } from './query.js'
+import { createQueryHarness } from './query-test-harness.js'
+import { isRoleMessage, type Message } from './types.js'
 
 describe('step transcript checkpoint', () => {
   it('awaits a complete post-turn checkpoint before completing the step', async () => {
@@ -43,19 +11,7 @@ describe('step transcript checkpoint', () => {
     const gate = new Promise<void>(resolve => {
       release = resolve
     })
-    const messages = [
-      { role: 'user' as const, uuid: 'user-1', content: 'request' },
-    ]
-    const promise = query({
-      tools: {},
-      systemPrompt: 'system',
-      eventBus: new EventBus(),
-      wire: noopWireEmitter,
-      messages,
-      provider: {
-        defaultModelId: () => 'test-model',
-      },
-      cwd: '/workspace',
+    const h = createQueryHarness({
       onStepCommitted: async (checkpointed: readonly Message[]) => {
         entered = true
         const last = checkpointed.at(-1)
@@ -65,7 +21,23 @@ describe('step transcript checkpoint', () => {
         await gate
         committed = true
       },
-    } as unknown as QueryOptions)
+    })
+    // The step itself commits nothing; post-turn appends the checkpointed tail.
+    h.deps.runStep.mockResolvedValue({
+      text: 'step complete',
+      toolCalls: [],
+      toolResults: [],
+      completedCleanly: true,
+    })
+    h.deps.postTurn.mockImplementation(async ({ messages }) => {
+      messages.push({
+        role: 'assistant',
+        uuid: 'assistant-checkpoint',
+        content: [{ type: 'text', text: 'step complete' }],
+      })
+    })
+
+    const promise = query(h.options)
 
     await vi.waitFor(() => expect(entered).toBe(true))
     let resolved = false

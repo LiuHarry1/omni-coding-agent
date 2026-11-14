@@ -19,10 +19,9 @@ import {
   getMaxOutputTokens,
   syncToolSet,
 } from './query/helpers.js'
-import { preTurn } from './query/pre-turn.js'
-import { postTurn, emitTurnEnd } from './query/post-turn.js'
-import { runStep, createDumpRecorder } from './query/run-step.js'
-import { forceFinalAnswerOnMaxSteps } from './query/force-final-answer.js'
+import { productionDeps } from './query/deps.js'
+import { emitTurnEnd } from './query/post-turn.js'
+import { createDumpRecorder } from './query/run-step.js'
 import {
   BASH_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
@@ -75,6 +74,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     runAgent,
     turnProfiler,
   } = opts
+  const deps = opts.deps ?? productionDeps()
 
   if (!configuredProvider) {
     throw new Error('query requires a request-scoped provider')
@@ -177,7 +177,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       wire.stepStart(step)
       const stepStart = Date.now()
 
-      const activeMessages = await preTurn({
+      const activeMessages = await deps.preTurn({
         messages,
         eventBus,
         wire,
@@ -208,7 +208,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       }
 
       wire.turnState('requesting', 'model.request', 'Waiting for model')
-      const stepResult = await runStep({
+      const stepResult = await deps.runStep({
         messages,
         modelMessages: activeMessages,
         tools: activeTools,
@@ -278,7 +278,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       // has no status gap between the last tool row and the next request.
       if (stepResult.toolCalls.length > 0) wire.thinking()
 
-      await postTurn({
+      await deps.postTurn({
         step,
         stepResult,
         messages,
@@ -384,7 +384,7 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
       console.log(
         `[agent] maxSteps=${maxSteps} reached — forcing final answer (tools disabled)`,
       )
-      const summary = await forceFinalAnswerOnMaxSteps({
+      const summary = await deps.forceFinalAnswerOnMaxSteps({
         messages,
         systemPrompt: activeSystemPrompt,
         provider,
