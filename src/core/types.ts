@@ -292,6 +292,12 @@ export interface UserMessage {
    * Hidden from chat view; UI shows a compact_boundary marker instead.
    */
   isCompactSummary?: boolean
+  /**
+   * Meta nudge asking the model to resume after its previous response hit
+   * the output token limit. The assistant texts on either side of it form
+   * one logical answer.
+   */
+  continuation?: 'max_output_tokens'
 }
 
 export interface AttachmentMessage {

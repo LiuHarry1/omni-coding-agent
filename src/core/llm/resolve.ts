@@ -84,6 +84,10 @@ export function resolveProfile(raw: unknown): LlmProfile {
     model: merged.model as string,
     thinking: parseThinking(merged.thinking),
     vision: typeof merged.vision === 'boolean' ? merged.vision : undefined,
+    maxOutputTokens:
+      typeof merged.maxOutputTokens === 'number' && merged.maxOutputTokens > 0
+        ? merged.maxOutputTokens
+        : undefined,
   }
 }
 
@@ -97,5 +101,6 @@ export function profileToRecord(p: LlmProfile): Record<string, unknown> {
     model: p.model,
     thinking: p.thinking,
     vision: p.vision,
+    maxOutputTokens: p.maxOutputTokens,
   }
 }

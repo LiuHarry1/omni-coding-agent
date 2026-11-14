@@ -72,20 +72,27 @@ export function resolveModelProfiles(input: {
     : { ...DEFAULT_PROFILE }
 
   const medium = isRecord(modelsRaw.medium)
-    ? resolveProfile({
-        ...profileToRecord(large),
-        ...modelsRaw.medium,
-      })
+    ? resolveTierProfile(large, modelsRaw.medium)
     : { ...large }
 
   const small = isRecord(modelsRaw.small)
-    ? resolveProfile({
-        ...profileToRecord(medium),
-        ...modelsRaw.small,
-      })
+    ? resolveTierProfile(medium, modelsRaw.small)
     : { ...medium }
 
   return { large, medium, small }
+}
+
+function resolveTierProfile(
+  parent: LlmProfile,
+  raw: Record<string, unknown>,
+): LlmProfile {
+  const profile = resolveProfile({ ...profileToRecord(parent), ...raw })
+  // An output ceiling describes one model; a tier that swaps the model
+  // must not inherit it (e.g. small: gpt-4o-mini under a 64k large).
+  if (raw.maxOutputTokens === undefined && profile.model !== parent.model) {
+    profile.maxOutputTokens = undefined
+  }
+  return profile
 }
 
 export function createModelRegistry(profiles: ModelProfiles): ModelRegistry {

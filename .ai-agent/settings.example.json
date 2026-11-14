@@ -4,19 +4,22 @@
       "provider": "openai-compatible",
       "baseURL": "http://localhost:4141/v1",
       "apiKey": "sk-xxx",
-      "model": "claude-opus-4.6"
+      "model": "claude-opus-4.6",
+      "maxOutputTokens": 64000
     },
     "medium": {
       "provider": "openai-compatible",
       "baseURL": "http://localhost:4141/v1",
       "apiKey": "sk-xxx",
-      "model": "claude-sonnet-4.6"
+      "model": "claude-sonnet-4.6",
+      "maxOutputTokens": 64000
     },
     "small": {
       "provider": "openai-compatible",
       "baseURL": "http://localhost:4141/v1",
       "apiKey": "sk-xxx",
-      "model": "claude-haiku-4.5"
+      "model": "claude-haiku-4.5",
+      "maxOutputTokens": 64000
     }
   },
   "compaction": {

@@ -32,6 +32,7 @@ export const openaiCompatibleStrategy: ProviderStrategy = {
       // LiteLLM/vLLM Qwen etc. reject application/pdf file parts (probe 400).
       supportsNativePdf: () => false,
       supportsImageInput: () => p.vision !== false,
+      maxOutputTokenCap: () => p.maxOutputTokens,
       describe: () =>
         `openai-compatible model=${p.model} structuredOutputs=true vision=${p.vision !== false}`,
     }

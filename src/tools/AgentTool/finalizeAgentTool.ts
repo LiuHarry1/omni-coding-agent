@@ -35,15 +35,57 @@ export function extractTextFromAssistantContent(
 /**
  * Walk messages newest→oldest; return the most recent assistant text.
  * Used when the loop exits mid-turn on a tool_use-only assistant message.
+ * A reply split by output-limit continuations is returned whole.
  */
 export function extractPartialResult(messages: Message[]): string | undefined {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]!
     if (!isRoleMessage(m) || m.role !== 'assistant') continue
-    const text = extractTextFromAssistantContent(m.content, '\n').trim()
-    if (text) return text
+    const text = extractTextFromAssistantContent(m.content, '\n')
+    if (text.trim()) return withContinuedPrefix(messages, i, text).trim()
   }
   return undefined
+}
+
+/**
+ * Prepend the assistant text each `continuation` reminder picked up from.
+ * Pieces are concatenated as-is: the cut can fall mid-word or mid-line.
+ */
+function withContinuedPrefix(
+  messages: Message[],
+  index: number,
+  text: string,
+): string {
+  let out = text
+  let i = index
+  for (;;) {
+    const r = previousTurnMessage(messages, i)
+    const reminder = r >= 0 ? messages[r]! : undefined
+    if (
+      !reminder ||
+      !isRoleMessage(reminder) ||
+      reminder.role !== 'user' ||
+      reminder.continuation !== 'max_output_tokens'
+    ) {
+      return out
+    }
+    const p = previousTurnMessage(messages, r)
+    const prev = p >= 0 ? messages[p]! : undefined
+    if (!prev || !isRoleMessage(prev) || prev.role !== 'assistant') return out
+    out = extractTextFromAssistantContent(prev.content, '\n') + out
+    i = p
+  }
+}
+
+/** Index of the nearest earlier message that isn't an attachment or other meta injection. */
+function previousTurnMessage(messages: Message[], from: number): number {
+  for (let j = from - 1; j >= 0; j--) {
+    const m = messages[j]!
+    if (!isRoleMessage(m)) continue
+    if (m.role === 'user' && m.isMeta && !m.continuation) continue
+    return j
+  }
+  return -1
 }
 
 /**

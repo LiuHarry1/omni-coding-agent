@@ -12,6 +12,8 @@ const ModelProfileSchema = z.object({
   headers: z.record(z.string(), z.string()).optional(),
   /** Set false for text-only models so image attachments are rejected up front. */
   vision: z.boolean().optional(),
+  /** The model's own output-token ceiling; lets cut-off responses continue with a larger max_tokens. */
+  maxOutputTokens: z.number().int().positive().optional(),
 })
 
 const ModelsSchema = z.object({

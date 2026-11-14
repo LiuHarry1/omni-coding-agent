@@ -13,9 +13,12 @@ import { isRoleMessage } from '../types.js'
 import type { WireEmitter } from '../wire-emitter.js'
 import { emitTodoUpdate } from '../wire-internal.js'
 import {
+  EDIT_FILE_TOOL_NAME,
   TOOL_SEARCH_TOOL_NAME,
   TODO_WRITE_TOOL_NAME,
+  WRITE_FILE_TOOL_NAME,
 } from '../../constants/tool_names.js'
+import { wrapInSystemReminder } from '../../utils/system-reminder.js'
 import type { StreamResult } from '../agent/streamConsumer.js'
 import {
   mediaTypeForExt,
@@ -45,6 +48,40 @@ export const MAX_OVERFLOW_RETRIES = 2
 export const FLOOR_OUTPUT_TOKENS = 3_000
 /** Headroom kept between the input tokens and the output budget */
 export const OUTPUT_SAFETY_BUFFER = 1_000
+/** Consecutive output-limit continuations before the turn errors out */
+export const MAX_TRUNCATION_RECOVERIES = 3
+/** max_tokens for continuation steps, clamped to the model's own ceiling */
+export const ESCALATED_MAX_OUTPUT_TOKENS = 65_536
+
+/**
+ * max_tokens for the step after a truncation, or undefined to keep the
+ * default. Only raises when the model declares a ceiling above the base.
+ */
+export function escalatedMaxOutputTokens(
+  baseMaxOutputTokens: number,
+  modelCap: number | undefined,
+): number | undefined {
+  if (!modelCap || modelCap <= baseMaxOutputTokens) return undefined
+  return Math.min(ESCALATED_MAX_OUTPUT_TOKENS, modelCap)
+}
+
+/** Hidden user nudge appended after a response stopped at the output limit. */
+export function buildTruncationReminder(toolNames?: string[]): UserMessage {
+  const body = toolNames?.length
+    ? `Your previous response reached the output token limit while writing the arguments for ${toolNames.join(', ')}. ` +
+      `That call was dropped and did not run. Issue it again with smaller input: split large content across several calls ` +
+      `(for example ${WRITE_FILE_TOOL_NAME} the first part, then ${EDIT_FILE_TOOL_NAME} to append the rest), and keep each response short enough to finish.`
+    : `Your previous response reached the output token limit and was cut off. Continue exactly where it stopped, ` +
+      `even mid-sentence or mid-code-block. Do not apologize, restate the request, or repeat text you already wrote. ` +
+      `If much remains, split it into smaller pieces.`
+  return ensureMessageUuid({
+    role: 'user',
+    content: wrapInSystemReminder(body),
+    isMeta: true,
+    // Only a text cut resumes the same answer; a dropped call starts over.
+    ...(toolNames?.length ? {} : { continuation: 'max_output_tokens' }),
+  })
+}
 
 /** Default / resolve console tag: `[agent:main]` or `[agent:session_memory]`. */
 export function agentLogTag(logLabel?: string): string {

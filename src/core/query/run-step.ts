@@ -105,6 +105,18 @@ export interface RunStepArgs {
   dumpPrompts?: DumpPromptsRecorder
   runAgent?: RunAgentFn
   turnProfiler?: AgentOptions['turnProfiler']
+  /** Starting max_tokens for this step (raised after an output-limit cut). */
+  maxOutputTokensOverride?: number
+}
+
+/** A response cut off before any visible output must not leave empty text blocks. */
+function withoutEmptyAssistantContent(msgs: RoleMessage[]): RoleMessage[] {
+  return msgs.flatMap((m): RoleMessage[] => {
+    if (m.role !== 'assistant' || !Array.isArray(m.content)) return [m]
+    const content = m.content.filter(p => !(p.type === 'text' && !p.text))
+    if (content.length === 0) return []
+    return content.length === m.content.length ? [m] : [{ ...m, content }]
+  })
 }
 
 export function shouldAttemptReactiveCompaction(
@@ -148,7 +160,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
   let ctxLengthAttempt = 0
   let overflowAttempt = 0
   let lastOverflowTotal: number | undefined
-  let maxTokensOverride: number | undefined
+  let maxTokensOverride: number | undefined = args.maxOutputTokensOverride
   let transientAttempt = 0
   let reactiveCompacted = false
   let requestStart = Date.now()
@@ -278,13 +290,22 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
         for await (const result of streamingExecutor.getRemainingResults()) {
           stepResult.toolResults.push(result)
         }
-        stepResult.toolCalls = streamingExecutor.getAllToolCalls()
+        // Calls the consumer settled itself (unparsed arguments) never reach
+        // the executor; keep them so the step still counts as a tool step.
+        const executed = streamingExecutor.getAllToolCalls()
+        const executedIds = new Set(executed.map(tc => tc.toolCallId))
+        stepResult.toolCalls = [
+          ...executed,
+          ...stepResult.toolCalls.filter(tc => !executedIds.has(tc.toolCallId)),
+        ]
       }
 
       const response = await stream.response
-      const sdkMessages = (
-        response.messages as unknown as RoleMessage[]
-      ).filter(m => m.role !== 'tool')
+      const sdkMessages = withoutEmptyAssistantContent(
+        (response.messages as unknown as RoleMessage[]).filter(
+          m => m.role !== 'tool',
+        ),
+      )
       sanitizeReasoningParts(sdkMessages)
       const roundId = response.id
       const receivedAt = Date.now()
@@ -445,7 +466,7 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult | null> {
           args.onFullCompaction,
           sessionId,
         )
-        maxTokensOverride = undefined
+        maxTokensOverride = args.maxOutputTokensOverride
         overflowAttempt = 0
         lastOverflowTotal = undefined
         ctxLengthAttempt++

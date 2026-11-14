@@ -80,6 +80,7 @@ export const anthropicStrategy: ProviderStrategy = {
       supportsToolResultContentBlocks: () => true,
       supportsNativePdf: () => true,
       supportsImageInput: () => p.vision !== false,
+      maxOutputTokenCap: () => p.maxOutputTokens,
       describe: () => {
         const adaptive = p.thinking.mode === 'auto' || needsAdaptive(p.model)
         if (p.thinking.mode === 'off')

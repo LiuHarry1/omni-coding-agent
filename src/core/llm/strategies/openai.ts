@@ -53,6 +53,7 @@ export const openaiStrategy: ProviderStrategy = {
       // Do not assume Responses accepts PDF file parts until verified per gateway.
       supportsNativePdf: () => false,
       supportsImageInput: () => p.vision !== false,
+      maxOutputTokenCap: () => p.maxOutputTokens,
       describe: () =>
         `openai(responses) thinking=${p.thinking.mode}${
           p.thinking.mode === 'budget' ? `(${p.thinking.tokens})` : ''

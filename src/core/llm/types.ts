@@ -38,6 +38,11 @@ export interface LlmProfile {
    * text layer, instead of the gateway 400-ing mid-turn. Default true.
    */
   vision?: boolean
+  /**
+   * The model's own output-token ceiling. When set above the default
+   * max_tokens, steps that continue after an output-limit cut ask for more.
+   */
+  maxOutputTokens?: number
 }
 
 export type AgentStreamTextExtras = {
@@ -84,6 +89,8 @@ export interface IProvider {
    * rasterized PDF pages are sent at all. Omitted → true.
    */
   supportsImageInput?(): boolean
+  /** The profile's `maxOutputTokens`. Omitted/undefined → unknown, never raised. */
+  maxOutputTokenCap?(): number | undefined
 }
 
 export interface ProviderStrategy {

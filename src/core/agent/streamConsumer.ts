@@ -27,7 +27,14 @@ export interface StreamResult {
   completionError?: string
   /** True when the upstream stream was aborted mid-turn (salvage path). */
   aborted?: boolean
+  /** Provider stopped at the output token limit (`finishReason: 'length'`). */
+  truncated?: boolean
+  /** Tools whose arguments were cut off by the limit; they never ran. */
+  truncatedToolNames?: string[]
 }
+
+export const TRUNCATED_TOOL_INPUT_RESULT =
+  'Output token limit reached before the tool arguments were complete. This call did not run.'
 
 const CONTENT_EVENT_TYPES = new Set([
   'reasoning-start',
@@ -95,6 +102,13 @@ export async function consumeStream(
 
   const previewStates = new Map<string, PreviewState>()
   const startedInputs = new Map<string, string | undefined>()
+  // Calls whose arguments never parsed (cut off or malformed JSON). Providers
+  // close them as a string-input `tool-call` followed by a `tool-error`; they
+  // are settled after the stream, once the finish reason names the cause.
+  const unparsedInputs = new Map<
+    string,
+    { toolName: string; error?: unknown }
+  >()
 
   const flushReasoning = (): void => {
     if (reasoningStarted) {
@@ -199,6 +213,12 @@ export async function consumeStream(
 
         case 'tool-call':
           flushReasoning()
+          if (typeof event.input === 'string') {
+            // Never run a tool on raw, unparsed arguments.
+            startedInputs.set(event.toolCallId, event.toolName)
+            unparsedInputs.set(event.toolCallId, { toolName: event.toolName })
+            break
+          }
           wire.toolCall({
             tool_use_id: event.toolCallId,
             name: event.toolName,
@@ -224,6 +244,11 @@ export async function consumeStream(
             toolName: string
             error?: unknown
             input?: unknown
+          }
+          const unparsed = unparsedInputs.get(e.toolCallId)
+          if (unparsed) {
+            unparsed.error = e.error
+            break
           }
           synthesizePair(
             e.toolCallId,
@@ -312,6 +337,20 @@ export async function consumeStream(
 
   drainStreamingResults(streamingExecutor, toolResults)
 
+  const truncated = sawFinish && !hasStreamError && finishReason === 'length'
+  const cutToolNames = new Set<string>()
+  for (const [id, { toolName, error }] of unparsedInputs) {
+    if (truncated) cutToolNames.add(toolName)
+    synthesizePair(
+      id,
+      toolName,
+      {},
+      truncated
+        ? TRUNCATED_TOOL_INPUT_RESULT
+        : `Error: ${formatToolError(toolName, error ?? 'Tool arguments were not valid JSON.')}`,
+    )
+  }
+
   const incompleteToolNames = [
     ...new Set(
       [...startedInputs.values()].map(toolName => toolName ?? 'unknown'),
@@ -348,8 +387,17 @@ export async function consumeStream(
 
   // Partial tool inputs are preview-only. Never turn them into model history:
   // there is no complete tool call to pair with a synthetic result.
-  for (const id of startedInputs.keys()) {
+  for (const [id, toolName] of startedInputs) {
     previewStates.delete(id)
+    // Wire-only: settle the card the UI opened on tool-input-start.
+    if (truncated) {
+      cutToolNames.add(toolName ?? 'unknown')
+      wire.toolResult({
+        tool_use_id: id,
+        result: TRUNCATED_TOOL_INPUT_RESULT,
+        is_error: true,
+      })
+    }
   }
   startedInputs.clear()
 
@@ -359,5 +407,7 @@ export async function consumeStream(
     toolResults,
     completedCleanly,
     ...(completionError ? { completionError } : {}),
+    ...(truncated ? { truncated: true } : {}),
+    ...(cutToolNames.size > 0 ? { truncatedToolNames: [...cutToolNames] } : {}),
   }
 }

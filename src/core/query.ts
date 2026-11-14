@@ -10,7 +10,15 @@ import type {
   QueryResult,
   QueryStopReason,
 } from './query/types.js'
-import { agentLogTag, autoCompleteTodos, syncToolSet } from './query/helpers.js'
+import {
+  MAX_TRUNCATION_RECOVERIES,
+  agentLogTag,
+  autoCompleteTodos,
+  buildTruncationReminder,
+  escalatedMaxOutputTokens,
+  getMaxOutputTokens,
+  syncToolSet,
+} from './query/helpers.js'
 import { preTurn } from './query/pre-turn.js'
 import { postTurn, emitTurnEnd } from './query/post-turn.js'
 import { runStep, createDumpRecorder } from './query/run-step.js'
@@ -88,6 +96,9 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const toolPolicy: ConcurrencyPolicyFn = concurrencyPolicy ?? (() => false)
   let activeSystemPrompt = systemPrompt
   let planBuildPending = false
+  /** Consecutive steps that stopped at the output token limit. */
+  let truncationRecoveries = 0
+  let outputTokensOverride: number | undefined
 
   const compactEnrichment: CompactEnrichment | undefined = toolUseContext
     ? {
@@ -225,6 +236,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         dumpPrompts,
         runAgent,
         turnProfiler,
+        maxOutputTokensOverride: outputTokensOverride,
       })
 
       if (stepResult === null) {
@@ -246,7 +258,9 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         return finalizeQuery('aborted', text)
       }
 
-      if (!stepResult.completedCleanly) {
+      // A truncated step is recoverable even when a tool input was cut off:
+      // fall through so the committed prefix gets a continuation nudge below.
+      if (!stepResult.completedCleanly && !stepResult.truncated) {
         // runStep has already committed every complete assistant/tool pair.
         // Persist that valid prefix, but never turn an interrupted stream into
         // a successful turn or replay tools that may already have side effects.
@@ -295,6 +309,49 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           '[agent] plan approved -- implementation tool called, skipping build kickoff',
         )
       }
+
+      // A cut that only followed complete tool calls needs no nudge: their
+      // results carry the turn forward like any other tool step.
+      const cutOff =
+        stepResult.truncated &&
+        (toolCalls.length === 0 || !!stepResult.truncatedToolNames?.length)
+      if (cutOff) {
+        if (truncationRecoveries >= MAX_TRUNCATION_RECOVERIES) {
+          console.warn(
+            `[${agentLogTag(logLabel)}] output token limit hit ${truncationRecoveries + 1} times in a row -- giving up`,
+          )
+          wire.error(
+            `The response stopped at the output token limit ${truncationRecoveries + 1} times in a row and is incomplete. ` +
+              'Ask for the remaining part, or split the task into smaller pieces.' +
+              (outputTokensOverride === undefined
+                ? ' To allow longer responses, set maxOutputTokens on the model in settings.json.'
+                : ''),
+          )
+          return finalizeQuery(
+            'error',
+            extractPartialResult(messages) ?? finalText,
+          )
+        }
+        truncationRecoveries++
+        outputTokensOverride ??= escalatedMaxOutputTokens(
+          compaction?.maxOutputTokens ?? getMaxOutputTokens(),
+          provider.maxOutputTokenCap?.(),
+        )
+        messages.push(buildTruncationReminder(stepResult.truncatedToolNames))
+        console.log(
+          `[${agentLogTag(logLabel)}] output token limit hit -- continuation ${truncationRecoveries}/${MAX_TRUNCATION_RECOVERIES}` +
+            (stepResult.truncatedToolNames?.length
+              ? ` (dropped tool input: ${stepResult.truncatedToolNames.join(', ')})`
+              : '') +
+            (outputTokensOverride
+              ? `, maxOutputTokens=${outputTokensOverride}`
+              : ''),
+        )
+        wire.thinking()
+        continue
+      }
+      truncationRecoveries = 0
+      outputTokensOverride = undefined
 
       if (toolCalls.length === 0) {
         if (planBuildPending) {
