@@ -78,8 +78,9 @@ async function testPartialOutputKeepsResult(): Promise<void> {
   )
 
   assert.equal(result.text, 'partial')
-  assert.equal(errors.length, 1)
-  assert.match(errors[0]!, /late upstream failure/)
+  assert.equal(result.completedCleanly, false)
+  assert.match(result.completionError ?? '', /late upstream failure/)
+  assert.deepEqual(errors, [], 'the query loop owns the user-facing error')
 }
 
 async function testIncompleteToolInputRethrowsOriginalError(): Promise<void> {
