@@ -46,7 +46,10 @@ import {
   usageFromBusEvent,
   type QueryEvent,
 } from './query/events.js'
-import { takeQueuedCommands } from '../utils/attachments/queued-commands.js'
+import {
+  isUserQueuedMessage,
+  takeQueuedCommands,
+} from '../utils/attachments/queued-commands.js'
 
 /** Plan approved — any of these in the same turn counts as implementation started. */
 const PLAN_IMPLEMENTATION_TOOLS = new Set([
@@ -803,7 +806,19 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         if (queuedCommands.length > 0) {
           messages.push(...queuedMessages)
           if (!opts.agentId) {
-            for (const command of queuedCommands) wire.queuedCommand(command)
+            // A message the user typed is one they can rewind to: say which
+            // transcript message it became.
+            const savedAs = new Map(
+              queuedMessages
+                .filter(isUserQueuedMessage)
+                .map(message => [message.attachment.source_uuid, message.uuid]),
+            )
+            for (const command of queuedCommands) {
+              wire.queuedCommand(
+                command,
+                command.uuid ? savedAs.get(command.uuid) : undefined,
+              )
+            }
           }
           await onStepCommitted?.(messages)
           console.log(

@@ -75,6 +75,15 @@ export function fileHistoryMakeSnapshot(
     Math.max(0, state.snapshots.length - MAX_SNAPSHOTS),
   )
   writeState(dir, state)
+  removeBackupsOf(dir, state, dropped)
+}
+
+/** Delete the backups of `dropped` that no snapshot left in `state` uses. */
+function removeBackupsOf(
+  dir: string,
+  state: HistoryState,
+  dropped: Snapshot[],
+): void {
   const live = new Set(
     state.snapshots.flatMap(s => Object.values(s.backups)).filter(Boolean),
   )
@@ -150,6 +159,22 @@ export function fileHistoryChangedFiles(
 }
 
 /**
+ * Of those, the files that did not exist when `messageUuid` was sent and do
+ * now: a rewind deletes them.
+ */
+export function fileHistoryCreatedFiles(
+  sessionId: string,
+  messageUuid: string,
+): string[] {
+  const dir = historyDir(sessionId)
+  if (!dir) return []
+  const changes = changesSince(dir, readState(dir), messageUuid)
+  return [...(changes ?? [])]
+    .filter(([abs, name]) => name === null && fs.existsSync(abs))
+    .map(([abs]) => abs)
+}
+
+/**
  * Put every file changed since `messageUuid` back, and drop the snapshots
  * from that message on: the rewound turns no longer exist.
  */
@@ -176,8 +201,9 @@ export function fileHistoryRewind(
     result.restored.push(abs)
   }
   const start = state.snapshots.findIndex(s => s.messageUuid === messageUuid)
-  state.snapshots.splice(start)
+  const dropped = state.snapshots.splice(start)
   writeState(dir, state)
+  removeBackupsOf(dir, state, dropped)
   return result
 }
 

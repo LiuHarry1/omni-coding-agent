@@ -11,6 +11,8 @@ const STATUS_TONES = {
   conditional: 'neutral',
   stopped: 'neutral',
   disconnected: 'neutral',
+  'needs-auth': 'warning',
+  reconnecting: 'warning',
   readonly: 'neutral',
   error: 'danger',
   failed: 'danger',

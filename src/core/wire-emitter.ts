@@ -281,17 +281,21 @@ export class WireEmitter {
     })
   }
 
-  queuedCommand(command: {
-    value: string
-    mode: 'prompt' | 'task-notification'
-    uuid?: string
-  }): void {
+  queuedCommand(
+    command: {
+      value: string
+      mode: 'prompt' | 'task-notification'
+      uuid?: string
+    },
+    messageUuid?: string,
+  ): void {
     this.emit({
       type: 'system',
       subtype: 'queued_command',
       prompt: command.value,
       command_mode: command.mode,
       ...(command.uuid ? { command_uuid: command.uuid } : {}),
+      ...(messageUuid ? { message_uuid: messageUuid } : {}),
       ...this.#env,
     })
   }

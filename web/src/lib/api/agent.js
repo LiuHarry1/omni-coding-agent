@@ -229,6 +229,35 @@ export const agentApi = {
     return fetchJSON(`/mcp${qs}`)
   },
 
+  /** Drop an MCP server's connection and connect again. Answers like getMcp. */
+  reconnectMcp: (name, workspace) => {
+    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
+    return fetchJSON(`/mcp/reconnect${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    })
+  },
+
+  /**
+   * Begin an OAuth sign-in to an MCP server. Answers `{ authorization_url }`
+   * to open in a browser, or `{ authorized: true, servers, configs }` when
+   * the stored sign-in still works.
+   */
+  startMcpSignIn: (name, workspace) => {
+    const qs = workspace ? `?workspace=${encodeURIComponent(workspace)}` : ''
+    return fetchJSON(`/mcp/oauth/start${qs}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name,
+        // The provider sends the browser back to the API as this page sees it.
+        redirect_base: new URL(apiUrl('') || '/', globalThis.location.href)
+          .href,
+      }),
+    })
+  },
+
   /** Persist an HTTP/SSE MCP server and return its live connection status. */
   addMcp: (name, config, scope = 'user') =>
     fetchJSON('/settings/mcp', {

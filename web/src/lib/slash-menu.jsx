@@ -24,6 +24,9 @@ export function groupEntries(matches) {
   const builtins = matches
     .filter(e => e.kind === 'built-in' && e.name !== 'commands')
     .sort((a, b) => a.name.localeCompare(b.name))
+  const mcpPrompts = matches
+    .filter(e => e.kind === 'mcp-prompt')
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   const groups = []
   if (skills.length > 0)
@@ -32,6 +35,8 @@ export function groupEntries(matches) {
     groups.push({ label: 'Commands', icon: 'command', items: commands })
   if (builtins.length > 0)
     groups.push({ label: 'Built-in', icon: 'command', items: builtins })
+  if (mcpPrompts.length > 0)
+    groups.push({ label: 'MCP prompts', icon: 'command', items: mcpPrompts })
   return groups
 }
 

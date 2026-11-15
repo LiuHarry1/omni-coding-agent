@@ -112,6 +112,20 @@ export async function getMCPManagerForServers(
   }
 }
 
+/**
+ * A sign-in just stored credentials in `file`. Connect, in every workspace,
+ * the servers that were waiting for them.
+ */
+export async function reconnectMCPServersWithCredentials(
+  file: string,
+): Promise<void> {
+  await Promise.allSettled(
+    [...managers.values()].map(entry =>
+      entry.manager.reconnectWithCredentials(file),
+    ),
+  )
+}
+
 export function initMcpLifecycle(): void {
   process.on('exit', () => {
     for (const entry of managers.values()) {

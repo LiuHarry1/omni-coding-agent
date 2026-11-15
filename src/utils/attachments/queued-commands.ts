@@ -4,7 +4,8 @@
  * `utils/messages.ts` wrapCommandText).
  */
 import { randomUUID } from 'crypto'
-import type { AttachmentMessage } from '../../core/types.js'
+import type { AttachmentMessage, Message } from '../../core/types.js'
+import { isAttachmentMessage } from '../../core/types.js'
 import {
   getQueuedCommandsForLoop,
   hasBetweenTurnProcessing,
@@ -87,6 +88,17 @@ export function isQueuedCommandFromUser(
 ): boolean {
   const origin = queuedCommandOrigin(attachment)
   return (origin === undefined || origin.kind === 'human') && !attachment.isMeta
+}
+
+/** A message the user typed while a turn ran, as it is in the transcript. */
+export function isUserQueuedMessage(
+  message: Message,
+): message is AttachmentMessage & { attachment: QueuedCommandAttachment } {
+  return (
+    isAttachmentMessage(message) &&
+    message.attachment.type === 'queued_command' &&
+    isQueuedCommandFromUser(message.attachment)
+  )
 }
 
 export function wrapCommandText(

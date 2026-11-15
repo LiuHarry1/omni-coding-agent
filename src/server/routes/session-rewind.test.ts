@@ -2,9 +2,16 @@ import { Readable } from 'node:stream'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const sessions = new Map<string, { id: string; ownerEmail?: string }>()
+const sessions = new Map<
+  string,
+  { id: string; ownerEmail?: string; permissionMode: { mode: string } }
+>()
 const rewind = vi.hoisted(() => ({
-  previewRewind: vi.fn(() => ({ canRestoreFiles: false, changedFiles: [] })),
+  previewRewind: vi.fn(() => ({
+    canRestoreFiles: false,
+    changedFiles: [],
+    createdFiles: [],
+  })),
   rewindSession: vi.fn(() => ({ prompt: 'again', files: null })),
   forkSession: vi.fn(() => ({ session: { id: 'fork-1' }, prompt: 'again' })),
 }))
@@ -59,7 +66,11 @@ const previousAuth = process.env.AUTH_ENABLED
 
 beforeEach(() => {
   process.env.AUTH_ENABLED = 'true'
-  sessions.set(S, { id: S, ownerEmail: alice.email })
+  sessions.set(S, {
+    id: S,
+    ownerEmail: alice.email,
+    permissionMode: { mode: 'plan' },
+  })
 })
 
 afterEach(() => {
@@ -74,7 +85,11 @@ describe('rewind and fork routes', () => {
     const rewound = await call('POST', `/sessions/${S}/rewind`, alice, {
       message_id: 'u2',
     })
-    expect(rewound.status).toBe(200)
+    // With the mode the session is in afterwards, for the client to show.
+    expect(rewound).toMatchObject({
+      status: 200,
+      json: { prompt: 'again', mode: 'plan', agent_type: null },
+    })
     expect(rewind.rewindSession).toHaveBeenCalledOnce()
 
     const forked = await call('POST', `/sessions/${S}/fork`, alice, {

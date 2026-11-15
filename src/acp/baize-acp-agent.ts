@@ -14,7 +14,11 @@ import type {
   SetSessionModeRequest,
   SetSessionModeResponse,
 } from '@agentclientprotocol/sdk'
-import { methods, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import {
+  methods,
+  PROTOCOL_VERSION,
+  RequestError,
+} from '@agentclientprotocol/sdk'
 import type { RunAgentFn } from '../core/types.js'
 import {
   handlePlanModeTransition,
@@ -74,7 +78,7 @@ export class BaizeAcpAgent {
   ): Promise<LoadSessionResponse> {
     const cwd = params.cwd || this.#defaultCwd
     const record = this.#sessions.load(params.sessionId, cwd)
-    if (!record) throw new Error(`Session not found: ${params.sessionId}`)
+    if (!record) throw RequestError.resourceNotFound(params.sessionId)
     for (const notification of historyNotifications(
       params.sessionId,
       record.session.messages,
@@ -87,12 +91,13 @@ export class BaizeAcpAgent {
 
   setSessionMode(params: SetSessionModeRequest): SetSessionModeResponse {
     const record = this.#sessions.get(params.sessionId)
-    if (!record) {
-      throw new Error(`Session not found: ${params.sessionId}`)
-    }
+    if (!record) throw RequestError.resourceNotFound(params.sessionId)
     const external = acpModeToExternal(params.modeId)
     if (!external) {
-      throw new Error(`Unknown mode: ${params.modeId}`)
+      throw RequestError.invalidParams(
+        undefined,
+        `Unknown mode: ${params.modeId}`,
+      )
     }
     const from = record.session.permissionMode.mode
     if (from !== external) {
@@ -113,9 +118,7 @@ export class BaizeAcpAgent {
     signal: AbortSignal,
   ): Promise<PromptResponse> {
     const record = this.#sessions.get(params.sessionId)
-    if (!record) {
-      throw new Error(`Session not found: ${params.sessionId}`)
-    }
+    if (!record) throw RequestError.resourceNotFound(params.sessionId)
 
     const { text, images } = promptBlocksToUserTurn(params.prompt)
     if (!text && !images?.length) {

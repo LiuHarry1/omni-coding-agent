@@ -102,6 +102,12 @@ export type AsyncAgentRun = {
   run: (
     onStepCommitted: (messages: readonly Message[]) => void,
   ) => Promise<string>
+  /**
+   * Tidy the agent's git worktree once it has stopped. Answers with the
+   * worktree when it was kept, for the notification to say where the
+   * changes are.
+   */
+  finishWorktree?: () => Promise<{ path: string; branch: string } | undefined>
   /** Release what the agent held. Runs after the notification is queued. */
   cleanup?: () => void | Promise<void>
 }
@@ -140,6 +146,19 @@ export async function runAsyncAgentLifecycle(
     updateAsyncAgentProgress(sessionId, taskId, { ...progress })
   }
 
+  // After the task's status has changed, so a TaskOutput call waiting on it
+  // is not held up by git.
+  const keptWorktree = async () => {
+    try {
+      return await input.finishWorktree?.()
+    } catch (err) {
+      console.warn(
+        `[agent:background] worktree of ${taskId} not tidied: ${err instanceof Error ? err.message : err}`,
+      )
+      return undefined
+    }
+  }
+
   appendToOutputFile(
     task.outputFile,
     `Agent (${task.agentType}): ${description}\n\n`,
@@ -173,6 +192,7 @@ export async function runAsyncAgentLifecycle(
         durationMs: Date.now() - startTime,
       },
       toolUseId,
+      worktree: await keptWorktree(),
     })
   } catch (error) {
     record(messages)
@@ -190,6 +210,7 @@ export async function runAsyncAgentLifecycle(
         status: 'killed',
         finalMessage: partialResult,
         toolUseId,
+        worktree: await keptWorktree(),
       })
       return
     }
@@ -203,6 +224,7 @@ export async function runAsyncAgentLifecycle(
       status: 'failed',
       error: message,
       toolUseId,
+      worktree: await keptWorktree(),
     })
   } finally {
     unsubUsage()

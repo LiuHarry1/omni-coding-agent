@@ -73,6 +73,8 @@ export function normalizeMcpResponse(response, remembered = {}) {
         status: status.status || 'disconnected',
         tools: status.tools || [],
         error: status.error,
+        resources: Boolean(status.resources),
+        prompts: Boolean(status.prompts),
         transport:
           config.transport ||
           status.transport ||
@@ -90,6 +92,24 @@ export function normalizeMcpResponse(response, remembered = {}) {
       }
     })
     .sort((a, b) => a.name.localeCompare(b.name))
+}
+
+const MCP_STATUS_LABELS = {
+  'needs-auth': 'sign-in needed',
+  reconnecting: 'reconnecting…',
+}
+
+/** The connection status in words a person would use. */
+export function mcpStatusLabel(status) {
+  return MCP_STATUS_LABELS[status] || status
+}
+
+/** A sign-in only helps a remote server that is waiting for one. */
+export function canSignInToMcp(server) {
+  return (
+    server?.status === 'needs-auth' &&
+    (server.transport === 'http' || server.transport === 'sse')
+  )
 }
 
 export function isRemoteMcpConfig(config) {

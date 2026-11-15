@@ -3,7 +3,8 @@
  *
  *   GET  /sessions/:id/rewind/:messageId  -- what rewinding there would restore
  *   POST /sessions/:id/rewind  { message_id, restore_files? }
- *        -- drop that user message and everything after it
+ *        -- drop that user message and everything after it, and return to
+ *           the mode it was sent in
  *   POST /sessions/:id/fork    { message_id }
  *        -- a new session with the conversation before that message
  *
@@ -57,6 +58,7 @@ export async function handleSessionRewind(
       sendJSON(res, 200, {
         can_restore_files: result.canRestoreFiles,
         changed_files: result.changedFiles,
+        created_files: result.createdFiles,
       })
       return true
     }
@@ -92,6 +94,8 @@ export async function handleSessionRewind(
     sendJSON(res, 200, {
       prompt: result.prompt,
       files: result.files,
+      mode: session.permissionMode.mode,
+      agent_type: session.agentType ?? null,
       messages: sessionJsonlToUIMessages(sessionId),
     })
   } catch (err) {

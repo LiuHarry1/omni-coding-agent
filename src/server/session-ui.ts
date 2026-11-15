@@ -251,6 +251,7 @@ export function sessionToUIMessages(messages: Message[]): unknown[] {
         uiMessages.push({
           type: 'user',
           id: randomUUID(),
+          ...(msg.uuid ? { messageId: msg.uuid } : {}),
           content: msg.attachment.prompt,
           queued: true,
         })

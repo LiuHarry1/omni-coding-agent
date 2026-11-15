@@ -230,6 +230,58 @@ describe('runAsyncAgentLifecycle', () => {
     expect(cleanup).toHaveBeenCalledTimes(1)
   })
 
+  it('says where a kept worktree is, however the agent ended', async () => {
+    const kept = { path: '/worktrees/repo-a1', branch: 'agent/a1' }
+    const section =
+      '<worktree><worktreePath>/worktrees/repo-a1</worktreePath><worktreeBranch>agent/a1</worktreeBranch></worktree>'
+    const runs: Array<() => Promise<string>> = [
+      async () => 'done',
+      async () => {
+        throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+      },
+      async () => {
+        throw new Error('model overloaded')
+      },
+    ]
+    for (const run of runs) {
+      const task = launch()
+      await runAsyncAgentLifecycle({
+        task,
+        eventBus: new EventBus(),
+        messages: [],
+        run,
+        finishWorktree: async () => kept,
+      })
+      const queued = dequeueAll(sessionId)
+      expect(queued).toHaveLength(1)
+      expect(queued[0]!.value).toContain(section)
+    }
+  })
+
+  it('leaves the worktree out when it was removed or could not be tidied', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const outcomes: Array<() => Promise<undefined>> = [
+      async () => undefined,
+      async () => {
+        throw new Error('git not found')
+      },
+    ]
+    for (const finishWorktree of outcomes) {
+      const task = launch()
+      await runAsyncAgentLifecycle({
+        task,
+        eventBus: new EventBus(),
+        messages: [],
+        run: async () => 'done',
+        finishWorktree,
+      })
+      const queued = dequeueAll(sessionId)
+      expect(queued[0]!.value).toContain('<status>completed</status>')
+      expect(queued[0]!.value).not.toContain('<worktree>')
+    }
+    warn.mockRestore()
+  })
+
   it('treats a run that returns after being stopped as stopped, not completed', async () => {
     const task = launch()
 

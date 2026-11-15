@@ -49,7 +49,15 @@ import {
   AuthError,
   type AuthedRequest,
 } from './auth/identity.js'
-import { runWithRequestScope } from '../utils/workspace/request-scope.js'
+import {
+  resolveAgentHome,
+  runWithRequestScope,
+} from '../utils/workspace/request-scope.js'
+import {
+  clearMcpCredentials,
+  mcpCredentialsPath,
+} from '../services/mcp/oauth.js'
+import { isHttpServerConfig } from '../services/mcp/transport.js'
 import { serveStaticFile } from './static.js'
 import { stripMountPath } from './public-base.js'
 import {
@@ -78,6 +86,11 @@ import {
 import { handleSessionLive } from './session-live.js'
 import { handleSessionQueue } from './routes/session-queue.js'
 import { handleSessionRewind } from './routes/session-rewind.js'
+import {
+  handleMcpActions,
+  handleMcpOAuthCallback,
+  listMcpPromptEntries,
+} from './routes/mcp.js'
 import { runAgent } from '../core/agent.js'
 import { abortTool } from '../core/tool-abort-registry.js'
 import {
@@ -178,6 +191,9 @@ export function createRouter({ staticDir }: RouterOptions) {
       return
     }
 
+    // The OAuth provider sends the user's browser here without our token.
+    if (await handleMcpOAuthCallback(req, res)) return
+
     // ── Auth gate (only when AUTH_ENABLED=true) ──────────────────────────
     // Verifies the bearer token and pins `req.userWorkspace`. Everything
     // below this line is protected; `/health` and OPTIONS above are not.
@@ -225,8 +241,14 @@ export function createRouter({ staticDir }: RouterOptions) {
             ? path.resolve(workspace)
             : getDefaultWorkspace())
         try {
-          const entries = await listSlashCommands(cwd)
-          sendJSON(res, 200, { workspace: cwd, entries })
+          const [entries, mcpPrompts] = await Promise.all([
+            listSlashCommands(cwd),
+            listMcpPromptEntries(cwd),
+          ])
+          sendJSON(res, 200, {
+            workspace: cwd,
+            entries: [...entries, ...mcpPrompts],
+          })
         } catch (e) {
           sendJSON(res, 500, { error: (e as Error).message })
         }
@@ -736,6 +758,13 @@ export function createRouter({ staticDir }: RouterOptions) {
               return
             }
             setMCPServer(cwd, scope, name, null)
+            // A removed server's sign-in goes with it.
+            const removed = resolved.effectiveMcpServers[name]
+            if (removed && isHttpServerConfig(removed)) {
+              clearMcpCredentials(
+                mcpCredentialsPath(resolveAgentHome(), name, removed.url),
+              )
+            }
           } else {
             sendJSON(res, 400, { error: "action must be 'add' or 'remove'" })
             return
@@ -761,6 +790,8 @@ export function createRouter({ staticDir }: RouterOptions) {
         }
         return
       }
+
+      if (await handleMcpActions(req, res)) return
 
       if (method === 'GET' && url?.startsWith('/mcp')) {
         const cwd = resolveSettingsRequestCwd(authed, url)

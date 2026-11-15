@@ -133,12 +133,15 @@ describe('_onQueuedCommand', () => {
       command_mode: 'prompt',
       prompt: 'also b',
       command_uuid: 'q1',
+      message_uuid: 'saved-1',
     })
 
     expect(kinds()).toEqual(['user:fix a', 'tool', 'user:also b'])
     expect(get().queuedMessages).toEqual([])
     const added = get().bubblesById[get().bubbleOrder.at(-1)]
     expect(added.queued).toBe(true)
+    // The id rewind and fork take.
+    expect(added.messageId).toBe('saved-1')
     expect(typeof added.turnStartTime).toBe('number')
   })
 

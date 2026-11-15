@@ -6,8 +6,10 @@ import ModalShell from './ModalShell.jsx'
 import StatusBadge from './StatusBadge.jsx'
 import {
   MASKED_SECRET,
+  canSignInToMcp,
   isAllowedMcpConfig,
   maskMcpUrl,
+  mcpStatusLabel,
   normalizeMcpName,
   normalizeMcpResponse,
   normalizeMcpTransports,
@@ -20,6 +22,8 @@ const TRANSPORT_LABELS = {
   sse: 'Server-sent events (SSE)',
 }
 const DEFAULT_MCP_TRANSPORTS = ['http', 'sse']
+const SIGN_IN_POLL_MS = 2000
+const SIGN_IN_WAIT_MS = 5 * 60 * 1000
 
 function rowsToObject(rows) {
   return Object.fromEntries(
@@ -386,6 +390,12 @@ export default function McpSection({
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState(null)
+  /** `{ name, action }` of the reconnect or sign-in request in flight. */
+  const [acting, setActing] = useState(null)
+  /** The server whose sign-in page is open in another tab. */
+  const [awaitingSignIn, setAwaitingSignIn] = useState(null)
+  /** `{ name, url }` when the browser would not open the sign-in page. */
+  const [signInLink, setSignInLink] = useState(null)
   const availableTransports = useMemo(
     () => normalizeMcpTransports(transports),
     [transports],
@@ -422,6 +432,71 @@ export default function McpSection({
   useEffect(() => {
     void load()
   }, [load, refreshToken])
+
+  // Once the sign-in page is open, watch for the server to come up.
+  useEffect(() => {
+    if (!awaitingSignIn) return undefined
+    let cancelled = false
+    const startedAt = Date.now()
+    const timer = setInterval(async () => {
+      if (Date.now() - startedAt > SIGN_IN_WAIT_MS) {
+        setAwaitingSignIn(null)
+        return
+      }
+      try {
+        const next = applyResponse(await agentApi.getMcp(workspace))
+        if (cancelled) return
+        const server = next.find(item => item.name === awaitingSignIn)
+        if (!server || server.status !== 'needs-auth') setAwaitingSignIn(null)
+      } catch {
+        // The next tick tries again.
+      }
+    }, SIGN_IN_POLL_MS)
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+    }
+  }, [applyResponse, awaitingSignIn, workspace])
+
+  const reconnect = async server => {
+    setActing({ name: server.name, action: 'reconnect' })
+    setError(null)
+    try {
+      applyResponse(await agentApi.reconnectMcp(server.name, workspace))
+    } catch (err) {
+      setError(err?.message || `Could not reconnect ${server.name}`)
+    } finally {
+      setActing(null)
+    }
+  }
+
+  const signIn = async server => {
+    setActing({ name: server.name, action: 'sign-in' })
+    setError(null)
+    setSignInLink(null)
+    // Opened inside the click; a tab opened after the request is a pop-up.
+    const tab = window.open('', '_blank')
+    try {
+      const response = await agentApi.startMcpSignIn(server.name, workspace)
+      if (response.authorized) {
+        tab?.close()
+        applyResponse(response)
+        return
+      }
+      if (tab) {
+        tab.opener = null
+        tab.location.href = response.authorization_url
+      } else {
+        setSignInLink({ name: server.name, url: response.authorization_url })
+      }
+      setAwaitingSignIn(server.name)
+    } catch (err) {
+      tab?.close()
+      setError(err?.message || `Could not start the sign-in to ${server.name}`)
+    } finally {
+      setActing(null)
+    }
+  }
 
   const remove = async () => {
     if (!removeTarget) return
@@ -519,7 +594,7 @@ export default function McpSection({
                   )}
                 </div>
                 <StatusBadge status={server.status} title={server.error}>
-                  {server.status}
+                  {mcpStatusLabel(server.status)}
                 </StatusBadge>
               </div>
               <div className='extensions-status-card__meta'>
@@ -529,6 +604,8 @@ export default function McpSection({
                   {server.tools.length}{' '}
                   {server.tools.length === 1 ? 'tool' : 'tools'}
                 </span>
+                {server.resources && <span>Resources</span>}
+                {server.prompts && <span>Prompts</span>}
               </div>
               {server.headerNames.length > 0 && (
                 <div
@@ -549,12 +626,54 @@ export default function McpSection({
                   ))}
                 </div>
               )}
-              {server.error && (
+              {server.error && server.status !== 'needs-auth' && (
                 <div className='extensions-alert extensions-alert--error'>
                   {server.error}
                 </div>
               )}
+              {awaitingSignIn === server.name && (
+                <div className='extensions-alert' role='status'>
+                  {signInLink?.name === server.name ? (
+                    <>
+                      Your browser blocked the sign-in page.{' '}
+                      <a
+                        href={signInLink.url}
+                        target='_blank'
+                        rel='noopener noreferrer'
+                      >
+                        Open it
+                      </a>{' '}
+                      to continue.
+                    </>
+                  ) : (
+                    'Finish signing in in the tab that just opened. This page updates when you are done.'
+                  )}
+                </div>
+              )}
               <div className='extensions-status-card__actions'>
+                {canSignInToMcp(server) && (
+                  <button
+                    type='button'
+                    className='extensions-button extensions-button--primary'
+                    disabled={Boolean(acting)}
+                    onClick={() => void signIn(server)}
+                  >
+                    {acting?.name === server.name && acting.action === 'sign-in'
+                      ? 'Opening…'
+                      : 'Sign in'}
+                  </button>
+                )}
+                <button
+                  type='button'
+                  className='extensions-button'
+                  disabled={Boolean(acting) || server.status === 'reconnecting'}
+                  title='Drop the connection and connect again'
+                  onClick={() => void reconnect(server)}
+                >
+                  {acting?.name === server.name && acting.action === 'reconnect'
+                    ? 'Reconnecting…'
+                    : 'Reconnect'}
+                </button>
                 <button
                   type='button'
                   className='extensions-button extensions-button--danger-ghost'

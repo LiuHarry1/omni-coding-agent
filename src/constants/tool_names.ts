@@ -27,6 +27,9 @@ export const CRON_CREATE_TOOL_NAME = 'CronCreate'
 export const CRON_LIST_TOOL_NAME = 'CronList'
 export const CRON_DELETE_TOOL_NAME = 'CronDelete'
 
+export const LIST_MCP_RESOURCES_TOOL_NAME = 'ListMcpResources'
+export const READ_MCP_RESOURCE_TOOL_NAME = 'ReadMcpResource'
+
 export const CRON_TOOL_NAMES: readonly string[] = [
   CRON_CREATE_TOOL_NAME,
   CRON_LIST_TOOL_NAME,

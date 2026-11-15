@@ -17,6 +17,10 @@ import { WireEmitter } from '../../core/wire-emitter.js'
 import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { readSidechain } from '../../session/sidechain.js'
 import { MCPManager } from '../../services/mcp/manager.js'
+import {
+  getCommandQueue,
+  resetCommandQueue,
+} from '../../utils/messageQueueManager.js'
 import { createTaskTool } from './AgentTool.js'
 import { connectAgentMcp } from './agentRuntime.js'
 
@@ -132,6 +136,64 @@ describe('agent definitions at run time', () => {
     const result = await run()
     expect(fs.existsSync(agentCwd)).toBe(false)
     expect(result.data.text).not.toContain('worktree')
+  })
+
+  it('isolation: worktree says where the changes are when the agent fails', async () => {
+    let agentCwd = ''
+    const run = setup({ isolation: 'worktree' }, async (_prompt, options) => {
+      agentCwd = options.cwd!
+      fs.writeFileSync(path.join(agentCwd, 'a.txt'), 'half done\n')
+      throw new Error('model overloaded')
+    })
+    const result = await run()
+    expect(result.data.text).toMatch(/^Error: model overloaded/)
+    expect(result.data.text).toContain(`its changes are in ${agentCwd}`)
+    expect(fs.existsSync(agentCwd)).toBe(true)
+  })
+
+  it('isolation: worktree says where the changes are when the agent is stopped', async () => {
+    let agentCwd = ''
+    const run = setup({ isolation: 'worktree' }, async (_prompt, options) => {
+      agentCwd = options.cwd!
+      fs.writeFileSync(path.join(agentCwd, 'a.txt'), 'half done\n')
+      throw Object.assign(new Error('aborted'), { name: 'AbortError' })
+    })
+    const result = await run()
+    expect(result.data.text).toMatch(/^Error: Subagent stopped by user\./)
+    expect(result.data.text).toContain(`its changes are in ${agentCwd}`)
+  })
+
+  it('isolation: worktree reports the worktree of a background agent when it is done', async () => {
+    let agentCwd = ''
+    const run = setup(
+      { isolation: 'worktree', background: true },
+      async (_prompt, options) => {
+        agentCwd = options.cwd!
+        fs.writeFileSync(path.join(agentCwd, 'a.txt'), 'changed\n')
+        return 'Done.'
+      },
+    )
+    await run()
+    await vi.waitFor(() => expect(getCommandQueue(sessionId)).toHaveLength(1))
+    expect(getCommandQueue(sessionId)[0]!.value).toContain(
+      `<worktree><worktreePath>${agentCwd}</worktreePath>`,
+    )
+    resetCommandQueue()
+  })
+
+  it('isolation: worktree gives a continued agent its worktree back', async () => {
+    const cwds: string[] = []
+    const run = setup({ isolation: 'worktree' }, async (_prompt, options) => {
+      cwds.push(options.cwd!)
+      return 'Nothing to change.'
+    })
+    const first = await run()
+    const agentId = /agentId: (\S+)/.exec(first.data.text)![1]!
+    expect(fs.existsSync(cwds[0]!)).toBe(false)
+
+    await run({ resume: agentId })
+    // Not the shared workspace: the same checkout as before.
+    expect(cwds[1]).toBe(cwds[0])
   })
 
   it('permissionMode: ask keeps the agent to read-only tools', async () => {

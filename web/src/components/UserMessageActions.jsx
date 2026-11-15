@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 
 const fileCount = n => `${n} file${n === 1 ? '' : 's'}`
+const shortPath = file => file.split('/').slice(-2).join('/')
 
-/** Rewind to before a user message, or fork a new session from it. */
+/**
+ * Rewind to before a user message, or fork a new session from it. Putting
+ * the files back overwrites what is on disk, so that one asks first.
+ */
 export default function UserMessageActions({ messageId }) {
   const isStreaming = useChatStore(s => s.isStreaming)
   const readOnly = useChatStore(s => s.sessionReadOnly)
@@ -12,6 +16,7 @@ export default function UserMessageActions({ messageId }) {
   const forkFrom = useChatStore(s => s.forkFrom)
   const [open, setOpen] = useState(false)
   const [preview, setPreview] = useState(null)
+  const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(null)
   const ref = useRef(null)
@@ -20,6 +25,7 @@ export default function UserMessageActions({ messageId }) {
     if (!open) return
     let cancelled = false
     setPreview(null)
+    setConfirming(false)
     setError(null)
     previewRewind(messageId)
       .then(data => !cancelled && setPreview(data))
@@ -50,6 +56,7 @@ export default function UserMessageActions({ messageId }) {
   }
 
   const changed = preview?.changed_files ?? []
+  const created = new Set(preview?.created_files ?? [])
   const canRestore = !!preview?.can_restore_files && changed.length > 0
 
   return (
@@ -64,7 +71,44 @@ export default function UserMessageActions({ messageId }) {
       >
         ↶
       </button>
-      {open && (
+      {open && confirming && (
+        <div className='msg-user-actions-menu' role='dialog'>
+          <div className='msg-user-actions-confirm'>
+            Put {fileCount(changed.length)} back the way{' '}
+            {changed.length === 1 ? 'it was' : 'they were'} before this message?
+          </div>
+          <ul className='msg-user-actions-files'>
+            {changed.map(file => (
+              <li key={file} title={file}>
+                {shortPath(file)}
+                {created.has(file) && <em> (will be deleted)</em>}
+              </li>
+            ))}
+          </ul>
+          <div className='msg-user-actions-note'>
+            Whatever is in these files now is overwritten, your own edits
+            included. Files changed by shell commands are not put back.
+          </div>
+          <button
+            type='button'
+            disabled={busy}
+            onClick={() =>
+              run(() => rewindTo(messageId, { restoreFiles: true }))
+            }
+          >
+            Restore files and rewind
+          </button>
+          <button
+            type='button'
+            disabled={busy}
+            onClick={() => setConfirming(false)}
+          >
+            Cancel
+          </button>
+          {error && <div className='msg-user-actions-error'>{error}</div>}
+        </div>
+      )}
+      {open && !confirming && (
         <div className='msg-user-actions-menu' role='menu'>
           <button
             type='button'
@@ -80,11 +124,9 @@ export default function UserMessageActions({ messageId }) {
               role='menuitem'
               disabled={busy}
               title={changed.join('\n')}
-              onClick={() =>
-                run(() => rewindTo(messageId, { restoreFiles: true }))
-              }
+              onClick={() => setConfirming(true)}
             >
-              Rewind and restore {fileCount(changed.length)}
+              Rewind and restore {fileCount(changed.length)}…
             </button>
           )}
           <button

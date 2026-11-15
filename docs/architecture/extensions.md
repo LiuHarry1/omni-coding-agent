@@ -104,7 +104,7 @@ Remote execution is a deliberate split boundary: declarative plugins, skills, MC
 - **Naming:** project-scope declarative plugins shadow user plugins with the same name. Duplicate agent types fail explicitly; MCP name collisions are reported and the later contribution wins.
 - **Dispatch:** an unknown `subagent_type` fails. Plan mode permits only explore and plan subagents. Missing context in a subagent prompt cannot be recovered from the parent transcript.
 - **Deferred loading:** a deferred tool cannot be called until discovery has activated it on a later step. Ask mode withholds mutating and MCP deferred tools.
-- **External lifecycle:** an unavailable MCP server can leave its tools absent. Configuration changes replace the pooled manager rather than mutating a live connection.
+- **External lifecycle:** an MCP server that cannot be reached leaves its tools absent. A connection that drops is re-established with backoff, and running turns keep their tools across it; see [MCP servers](../features/mcp.md). Configuration changes replace the pooled manager rather than mutating a live connection.
 - **Boot lifecycle:** one code plugin can enter an error state without preventing later plugins from initializing. Code-plugin changes require a process restart.
 - **Remote scope:** extensions on the control workspace may differ from files visible in the remote project.
 

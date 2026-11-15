@@ -2,12 +2,13 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { registerSessionLocation } from '../session/paths.js'
+import { getSessionDataDir, registerSessionLocation } from '../session/paths.js'
 import {
   MAX_SNAPSHOTS,
   fileHistoryCanRestore,
   fileHistoryChangedFiles,
   fileHistoryCopy,
+  fileHistoryCreatedFiles,
   fileHistoryMakeSnapshot,
   fileHistoryRewind,
   fileHistoryTrackEdit,
@@ -69,6 +70,39 @@ describe('file history', () => {
     write(a, 'a2')
     fileHistoryRewind(sessionId, 'm1')
     expect(fs.readFileSync(a, 'utf8')).toBe('a0')
+  })
+
+  it('says which files a rewind would delete', () => {
+    const a = path.join(cwd, 'a.txt')
+    const b = path.join(cwd, 'b.txt')
+    const c = path.join(cwd, 'c.txt')
+    fs.writeFileSync(a, 'a0')
+    fileHistoryMakeSnapshot(sessionId, 'm1')
+    write(a, 'a1')
+    write(b, 'b1')
+    write(c, 'c1')
+    // Gone again already: nothing left to delete.
+    fs.rmSync(c)
+    expect(fileHistoryCreatedFiles(sessionId, 'm1')).toEqual([b])
+  })
+
+  it('deletes the backups of the snapshots a rewind drops', () => {
+    const a = path.join(cwd, 'a.txt')
+    fs.writeFileSync(a, 'a0')
+    fileHistoryMakeSnapshot(sessionId, 'm1')
+    write(a, 'a1')
+    fileHistoryMakeSnapshot(sessionId, 'm2')
+    write(a, 'a2')
+    const dir = path.join(getSessionDataDir(sessionId), 'file-history')
+    const backups = () => fs.readdirSync(dir).filter(f => f !== 'index.json')
+    expect(backups()).toHaveLength(2)
+
+    fileHistoryRewind(sessionId, 'm2')
+    expect(backups()).toHaveLength(1)
+    // What m1 needs is still there.
+    fileHistoryRewind(sessionId, 'm1')
+    expect(fs.readFileSync(a, 'utf8')).toBe('a0')
+    expect(backups()).toHaveLength(0)
   })
 
   it('tracks nothing before the first snapshot', () => {

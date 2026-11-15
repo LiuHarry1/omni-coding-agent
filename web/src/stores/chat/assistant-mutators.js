@@ -774,6 +774,8 @@ export function createAssistantMutators(set, get) {
         kind: 'user',
         content: text,
         queued: true,
+        // What the server saved it as: the id to rewind or fork with.
+        ...(data.message_uuid ? { messageId: data.message_uuid } : {}),
         turnStartTime: Date.now(),
       })
       return {

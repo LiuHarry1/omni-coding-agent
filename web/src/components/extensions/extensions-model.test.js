@@ -10,9 +10,11 @@ import {
 } from './extensions-model.js'
 import {
   MASKED_SECRET,
+  canSignInToMcp,
   isAllowedMcpConfig,
   maskMcpHeaders,
   maskMcpUrl,
+  mcpStatusLabel,
   normalizeMcpTransports,
   normalizeMcpResponse,
 } from './mcp-model.js'
@@ -211,6 +213,37 @@ describe('MCP presentation model', () => {
       writable: false,
       writableScope: null,
     })
+  })
+
+  it('offers a sign-in only to a remote server waiting for one', () => {
+    const servers = normalizeMcpResponse({
+      servers: [
+        { name: 'docs', status: 'needs-auth', tools: [] },
+        { name: 'local', status: 'needs-auth', tools: [] },
+        {
+          name: 'wiki',
+          status: 'connected',
+          tools: ['search'],
+          resources: true,
+        },
+        { name: 'flaky', status: 'reconnecting', tools: ['ping'] },
+      ],
+      configs: {
+        docs: { transport: 'http', url: 'https://docs.example/mcp' },
+        local: { transport: 'stdio' },
+        wiki: { transport: 'sse', url: 'https://wiki.example/sse' },
+        flaky: { transport: 'http', url: 'https://flaky.example/mcp' },
+      },
+    })
+    const byName = Object.fromEntries(servers.map(s => [s.name, s]))
+
+    expect(canSignInToMcp(byName.docs)).toBe(true)
+    expect(canSignInToMcp(byName.local)).toBe(false)
+    expect(canSignInToMcp(byName.wiki)).toBe(false)
+    expect(byName.wiki).toMatchObject({ resources: true, prompts: false })
+    expect(mcpStatusLabel(byName.docs.status)).toBe('sign-in needed')
+    expect(mcpStatusLabel(byName.flaky.status)).toBe('reconnecting…')
+    expect(mcpStatusLabel(byName.wiki.status)).toBe('connected')
   })
 
   it('validates only manifest-permitted transport forms', () => {

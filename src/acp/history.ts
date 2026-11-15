@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import type { SessionNotification } from '@agentclientprotocol/sdk'
 import type { Message, ToolResultOutput } from '../core/types.js'
 import { isRoleMessage } from '../core/types.js'
+import { isInterruptMessage } from '../utils/interrupt.js'
 import { isSystemReminderContent } from '../utils/system-reminder.js'
 import { toolInfoFromCall } from './tool-kind.js'
 
@@ -39,7 +40,14 @@ export function historyNotifications(
     if (!isRoleMessage(message)) continue
     const messageId = message.uuid ?? randomUUID()
     if (message.role === 'user') {
-      if (message.isMeta) continue
+      // Written for the model, not typed by the user.
+      if (
+        message.isMeta ||
+        message.isCompactSummary ||
+        isInterruptMessage(message)
+      ) {
+        continue
+      }
       const text =
         message.displayContent ??
         (typeof message.content === 'string'

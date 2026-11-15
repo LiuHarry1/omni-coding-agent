@@ -189,6 +189,8 @@ export function enqueueAgentNotification(input: {
   finalMessage?: string
   usage?: { totalTokens: number; toolUses: number; durationMs: number }
   toolUseId?: string
+  /** The git worktree the agent left its changes in. */
+  worktree?: { path: string; branch: string }
 }): void {
   const { sessionId, taskId, description, status, error } = input
   let shouldEnqueue = false
@@ -216,12 +218,15 @@ export function enqueueAgentNotification(input: {
   const usageSection = input.usage
     ? `\n<usage><total_tokens>${input.usage.totalTokens}</total_tokens><tool_uses>${input.usage.toolUses}</tool_uses><duration_ms>${input.usage.durationMs}</duration_ms></usage>`
     : ''
+  const worktreeSection = input.worktree
+    ? `\n<worktree><worktreePath>${input.worktree.path}</worktreePath><worktreeBranch>${input.worktree.branch}</worktreeBranch></worktree>`
+    : ''
 
   const message = `<task-notification>
 <task-id>${taskId}</task-id>${toolUseIdLine}
 <output-file>${outputPath}</output-file>
 <status>${status}</status>
-<summary>${escapeXml(summary)}</summary>${resultSection}${usageSection}
+<summary>${escapeXml(summary)}</summary>${resultSection}${usageSection}${worktreeSection}
 </task-notification>`
 
   enqueuePendingNotification(sessionId, {

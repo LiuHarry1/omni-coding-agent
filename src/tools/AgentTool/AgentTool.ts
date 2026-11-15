@@ -8,6 +8,7 @@ import {
   finishAgentWorktree,
   worktreeOutcomeText,
   type AgentWorktree,
+  type WorktreeOutcome,
 } from '../../utils/worktree.js'
 import { connectAgentMcp, preloadSkillMessages } from './agentRuntime.js'
 import { tool } from 'ai'
@@ -301,11 +302,16 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             !isWorkerExecutionBackend(context.execution)
           let worktree: AgentWorktree | undefined
           let isolationNote = ''
-          if (prior?.meta.worktree) {
-            if (fs.existsSync(prior.meta.worktree.path)) {
-              worktree = prior.meta.worktree
-            }
-          } else if (def.isolation === 'worktree' && !prior) {
+          const priorWorktree = prior?.meta.worktree
+          if (priorWorktree && fs.existsSync(priorWorktree.path)) {
+            worktree = priorWorktree
+          } else if (
+            priorWorktree ||
+            (def.isolation === 'worktree' && !prior)
+          ) {
+            // A new agent, or one whose worktree was removed after its last
+            // run for holding no changes. That one gets it back at the same
+            // path, where the files it remembers were.
             if (!local) {
               isolationNote =
                 'isolation: worktree needs a local git workspace; the agent worked in the shared one.'
@@ -318,24 +324,39 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             }
           }
           const agentCwd = worktree?.cwd ?? cwd
-          if (sessionId && !prior) {
+          if (
+            sessionId &&
+            (!prior || (worktree && worktree !== priorWorktree))
+          ) {
             writeSidechainMeta(sessionId, {
-              agentId,
-              agentType: subagent_type,
-              description: shortDesc,
-              createdAt: Date.now(),
+              ...(prior?.meta ?? {
+                agentId,
+                agentType: subagent_type,
+                description: shortDesc,
+                createdAt: Date.now(),
+              }),
               ...(worktree ? { worktree } : {}),
             })
           }
           let agentMcp: Awaited<ReturnType<typeof connectAgentMcp>> | undefined
-          let finished: Promise<string> | undefined
-          const finishRun = (): Promise<string> =>
+          /**
+           * What the run leaves behind, settled once: a note for whoever
+           * reads the result, and the worktree when it was kept.
+           */
+          let finished:
+            Promise<{ note: string; kept?: WorktreeOutcome }> | undefined
+          const finishRun = () =>
             (finished ??= (async () => {
               await agentMcp?.close().catch(() => {})
               const outcome = worktree
-                ? worktreeOutcomeText(await finishAgentWorktree(worktree))
-                : ''
-              return [isolationNote, outcome].filter(Boolean).join('\n')
+                ? await finishAgentWorktree(worktree)
+                : undefined
+              return {
+                note: [isolationNote, outcome && worktreeOutcomeText(outcome)]
+                  .filter(Boolean)
+                  .join('\n'),
+                ...(outcome?.kept ? { kept: outcome } : {}),
+              }
             })())
           const subExecution = background
             ? background.execution
@@ -590,10 +611,13 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                     abortSignal: background.abortController.signal,
                     onStepCommitted,
                   }),
+                finishWorktree: async () => {
+                  killAgentShells()
+                  return (await finishRun()).kept
+                },
                 cleanup: async () => {
                   killAgentShells()
-                  const note = await finishRun()
-                  if (note) console.log(`[Agent] ${agentId}: ${note}`)
+                  await finishRun()
                   background.execution?.dispose?.()
                   await settleUsage?.()
                 },
@@ -612,7 +636,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                     }) +
                     (worktree
                       ? `\nIt works in a git worktree: ${worktree.path} (branch ${worktree.branch}); kept afterwards if it changed anything.`
-                      : ''),
+                      : isolationNote && `\n${isolationNote}`),
                 },
               }
             }
@@ -626,12 +650,20 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               const ui = buildAgentUiProjection(subMessages)
               return { data: { text, ...(ui ? { ui } : {}) } }
             }
+            // However the run ended, the parent hears where its changes
+            // are. Its shells go first: the worktree is judged by what is
+            // in it once nothing writes to it any more.
+            const withOutcome = async (text: string) => {
+              killAgentShells()
+              const { note } = await finishRun()
+              return note ? `${text}\n\n${note}` : text
+            }
 
             try {
               const result = await runSubagent({ abortSignal })
 
               if (abortSignal?.aborted) {
-                return output(SUBAGENT_STOPPED)
+                return output(await withOutcome(SUBAGENT_STOPPED))
               }
 
               // Never hand the parent an empty tool_result —
@@ -640,10 +672,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               const resumable = sessionId
                 ? `\n\nagentId: ${agentId} (use ${SEND_MESSAGE_TOOL_NAME} with this id to continue this agent with its full context)`
                 : ''
-              const note = await finishRun()
               return output(
-                (text || SUBAGENT_NO_OUTPUT_MARKER) +
-                  (note ? `\n\n${note}` : '') +
+                (await withOutcome(text || SUBAGENT_NO_OUTPUT_MARKER)) +
                   resumable,
               )
             } catch (err) {
@@ -651,10 +681,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 abortSignal?.aborted ||
                 (err instanceof Error && err.name === 'AbortError')
               ) {
-                return output(SUBAGENT_STOPPED)
+                return output(await withOutcome(SUBAGENT_STOPPED))
               }
               const message = err instanceof Error ? err.message : String(err)
-              return output(`Error: ${message}`)
+              return output(await withOutcome(`Error: ${message}`))
             } finally {
               killAgentShells()
               if (sessionId && !options?.abortSignal) {

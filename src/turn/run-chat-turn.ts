@@ -104,6 +104,7 @@ import {
 } from '../services/runs/run-manager.js'
 import { runSessionTurn } from '../core/agent.js'
 import { fileHistoryMakeSnapshot } from '../utils/fileHistory.js'
+import { isUserQueuedMessage } from '../utils/attachments/queued-commands.js'
 
 export interface RunChatTurnInput {
   message: string
@@ -857,6 +858,11 @@ export async function runChatTurn(
           },
           onPersisted: message => {
             persisted.add(message)
+            // A message the user sent during the turn can be rewound to as
+            // well: what the agent changes from here on is backed up under it.
+            if (isUserQueuedMessage(message) && message.uuid) {
+              fileHistoryMakeSnapshot(session.id, message.uuid)
+            }
             updateRunCheckpoint()
           },
         },

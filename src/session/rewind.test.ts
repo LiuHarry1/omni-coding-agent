@@ -16,6 +16,7 @@ import {
 } from './rewind.js'
 import {
   appendMessage,
+  appendModeChange,
   createSession,
   forgetSession,
   getSession,
@@ -143,18 +144,66 @@ describe('rewind', () => {
     fileHistoryTrackEdit(session.id, file)
     fs.writeFileSync(file, 'after')
 
+    const added = path.join(home, 'new.txt')
+    fileHistoryTrackEdit(session.id, added)
+    fs.writeFileSync(added, 'new')
+
     expect(previewRewind(session, 'u2')).toEqual({
       canRestoreFiles: true,
-      changedFiles: [file],
+      changedFiles: [file, added],
+      createdFiles: [added],
     })
     expect(() => rewindSession(session, 'u1', { restoreFiles: true })).toThrow(
       /No file snapshot/,
     )
     expect(rewindSession(session, 'u2', { restoreFiles: true }).files).toEqual({
       restored: [file],
-      deleted: [],
+      deleted: [added],
     })
     expect(fs.readFileSync(file, 'utf8')).toBe('before')
+    expect(fs.existsSync(added)).toBe(false)
+  })
+
+  it('goes back to the mode the message was sent in', () => {
+    // u2 was sent in agent mode; the session moved to plan mode afterwards.
+    session.permissionMode = { mode: 'plan', preMode: 'agent' }
+    appendModeChange(session.id, session)
+    say(session, 'u3', 'user')
+
+    rewindSession(session, 'u3')
+    expect(session.permissionMode.mode).toBe('plan')
+
+    rewindSession(session, 'u2')
+    expect(session.permissionMode).toEqual({ mode: 'agent' })
+    expect(reload(session.id).permissionMode).toEqual({ mode: 'agent' })
+  })
+
+  it('rewinds to a message the user sent while a turn ran', () => {
+    const queued = (prompt: string, uuid: string, extra = {}) => {
+      const message = {
+        type: 'attachment',
+        uuid,
+        isMeta: true,
+        attachment: {
+          type: 'queued_command',
+          prompt,
+          commandMode: 'prompt',
+          ...extra,
+        },
+      } as Message
+      session.messages.push(message)
+      appendMessage(session.id, message)
+    }
+    queued('also the tests', 'q1')
+    say(session, 'a3', 'assistant')
+    queued('<task-notification/>', 'n1', {
+      commandMode: 'task-notification',
+    })
+
+    // Only what the user typed is somewhere to go back to.
+    expect(() => rewindSession(session, 'n1')).toThrow(RewindError)
+    expect(rewindSession(session, 'q1').prompt).toBe('also the tests')
+    expect(uuids(reload(session.id).messages)).toEqual(['u1', 'a1', 'u2', 'a2'])
   })
 })
 
@@ -167,6 +216,15 @@ describe('fork', () => {
     expect(fork.title).toMatch(/\(fork\)$/)
     expect(uuids(reload(fork.id).messages)).toEqual(['u1', 'a1'])
     expect(uuids(reload(session.id).messages)).toEqual(['u1', 'a1', 'u2', 'a2'])
+  })
+
+  it('starts in the mode the message was sent in', () => {
+    session.permissionMode = { mode: 'ask' }
+    appendModeChange(session.id, session)
+    const { session: fork } = forkSession(session, 'u2')
+    opened.push(fork.id)
+    expect(fork.permissionMode.mode).toBe('agent')
+    expect(reload(fork.id).permissionMode.mode).toBe('agent')
   })
 })
 

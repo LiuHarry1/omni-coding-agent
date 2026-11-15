@@ -624,6 +624,39 @@
   color: var(--error, #f85149);
 }
 
+.msg-user-actions-confirm,
+.msg-user-actions-note {
+  max-width: 300px;
+  padding: 6px 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.msg-user-actions-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.msg-user-actions-files {
+  max-height: 140px;
+  margin: 0;
+  padding: 0 10px 0 26px;
+  overflow-y: auto;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.msg-user-actions-files li {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.msg-user-actions-files em {
+  color: var(--error, #f85149);
+}
+
 .msg-user-images {
   display: flex;
   gap: 6px;

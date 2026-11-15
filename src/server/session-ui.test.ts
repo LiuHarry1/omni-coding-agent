@@ -313,6 +313,17 @@ describe('sessionToUIMessages and queued commands', () => {
     ])
   })
 
+  it('gives that message the id rewind and fork take', () => {
+    const shown = sessionToUIMessages([
+      { role: 'user', content: 'fix a.ts' },
+      ...toolRound('call-1'),
+      queued({ prompt: 'also fix b.ts', commandMode: 'prompt' }),
+    ]) as Array<{ queued?: boolean; messageId?: string }>
+    expect(shown.find(message => message.queued)?.messageId).toBe(
+      'queued-also fix b.ts',
+    )
+  })
+
   it('keeps system-generated queued commands out of the transcript', () => {
     expect(
       outline([

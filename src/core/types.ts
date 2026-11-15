@@ -971,15 +971,27 @@ export interface MCPServerHTTP {
   url: string
   transport?: 'http' | 'sse'
   headers?: Record<string, string>
+  /**
+   * An OAuth client registered by hand, for servers that do not let clients
+   * register themselves. Without it the client registers on first sign-in.
+   */
+  oauth?: { clientId: string; clientSecret?: string }
 }
 
 export type MCPServerConfig = MCPServerStdio | MCPServerHTTP
 
 export interface MCPServerStatus {
   name: string
-  status: 'connected' | 'error' | 'disconnected'
+  /**
+   * `needs-auth`: the server wants the user to sign in. `reconnecting`: the
+   * connection dropped and is being re-established.
+   */
+  status: 'connected' | 'error' | 'disconnected' | 'needs-auth' | 'reconnecting'
   tools: string[]
   error?: string
+  /** What the server offers besides tools. Set once it has connected. */
+  resources?: boolean
+  prompts?: boolean
 }
 
 // ── Todo ────────────────────────────────────────

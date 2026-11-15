@@ -73,8 +73,9 @@ A queued message has one of two fates:
 
 1. The running turn reaches another tool round. The message is handed to
    the model and the stream carries
-   `{ type: "system", subtype: "queued_command", command_mode: "prompt", prompt, command_uuid }`
-   where `command_uuid` is the id it was queued under.
+   `{ type: "system", subtype: "queued_command", command_mode: "prompt", prompt, command_uuid, message_uuid }`
+   where `command_uuid` is the id it was queued under and `message_uuid`
+   the id it has in the conversation, which rewind and fork take.
 2. The turn ends first. The server drops the message. The client has seen no
    `queued_command` event for it by the time the turn's `result` arrives,
    and sends it as a new turn.

@@ -58,6 +58,12 @@ const McpServerHttpSchema = z.object({
   url: z.string().url(),
   transport: z.enum(['http', 'sse']).optional(),
   headers: z.record(z.string(), z.string()).optional(),
+  oauth: z
+    .object({
+      clientId: z.string().min(1),
+      clientSecret: z.string().optional(),
+    })
+    .optional(),
 })
 
 const McpServerSchema = z.union([McpServerStdioSchema, McpServerHttpSchema])

@@ -6,11 +6,13 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { Message, Session } from '../core/types.js'
 import { isRoleMessage } from '../core/types.js'
+import { isUserQueuedMessage } from '../utils/attachments/queued-commands.js'
 import { getCachedSessionLocation } from './paths.js'
 import {
   fileHistoryCanRestore,
   fileHistoryChangedFiles,
   fileHistoryCopy,
+  fileHistoryCreatedFiles,
   fileHistoryRewind,
   type RewindResult,
 } from '../utils/fileHistory.js'
@@ -21,6 +23,7 @@ import {
   createSession,
   getSessionDataDirFor,
   resyncDerivedSessionState,
+  sessionModeAsOf,
   setSessionTitle,
   setSessionWorkspace,
 } from './store.js'
@@ -34,21 +37,28 @@ export class RewindError extends Error {
   }
 }
 
+/**
+ * What the user typed: the message that opened a turn, or one sent while a
+ * turn ran and handed to the model between two tool rounds.
+ */
+function isUserTyped(message: Message): boolean {
+  return (
+    isUserQueuedMessage(message) ||
+    (isRoleMessage(message) && message.role === 'user' && !message.isMeta)
+  )
+}
+
 function userMessageIndex(session: Session, messageUuid: string): number {
   const index = session.messages.findIndex(m => m.uuid === messageUuid)
   const message = session.messages[index]
-  if (
-    !message ||
-    !isRoleMessage(message) ||
-    message.role !== 'user' ||
-    message.isMeta
-  ) {
+  if (!message || !isUserTyped(message)) {
     throw new RewindError('No such user message in this conversation', 404)
   }
   return index
 }
 
 export function messageText(message: Message): string {
+  if (isUserQueuedMessage(message)) return message.attachment.prompt
   if (!isRoleMessage(message)) return ''
   if (typeof message.content === 'string') return message.content
   return (message.content as Array<{ type: string; text?: string }>)
@@ -60,6 +70,8 @@ export function messageText(message: Message): string {
 export interface RewindPreview {
   canRestoreFiles: boolean
   changedFiles: string[]
+  /** Those of `changedFiles` a restore deletes: they did not exist then. */
+  createdFiles: string[]
 }
 
 export function previewRewind(
@@ -70,12 +82,14 @@ export function previewRewind(
   return {
     canRestoreFiles: fileHistoryCanRestore(session.id, messageUuid),
     changedFiles: fileHistoryChangedFiles(session.id, messageUuid),
+    createdFiles: fileHistoryCreatedFiles(session.id, messageUuid),
   }
 }
 
 /**
- * Drop `messageUuid` and everything after it. Returns the message's text, for
- * the caller to offer back for editing.
+ * Drop `messageUuid` and everything after it, and go back to the mode the
+ * message was sent in. Returns the message's text, for the caller to offer
+ * back for editing.
  */
 export function rewindSession(
   session: Session,
@@ -91,16 +105,22 @@ export function rewindSession(
     }
     files = fileHistoryRewind(session.id, messageUuid)
   }
+  const mode = sessionModeAsOf(session.id, messageUuid)
   const leafUuid = session.messages[index - 1]?.uuid ?? null
   session.messages.splice(index)
   appendRewind(session.id, leafUuid)
   resyncDerivedSessionState(session)
+  if (mode) {
+    Object.assign(session, mode)
+    appendModeChange(session.id, session)
+  }
   return { prompt, files }
 }
 
 /**
  * A new session holding the conversation before `messageUuid`, in the same
- * workspace. The files on disk are shared and left as they are.
+ * workspace and the mode that message was sent in. The files on disk are
+ * shared and left as they are.
  *
  * The fork has the source's owner, home and workspace, so only the owner may
  * fork; the route refuses everyone else.
@@ -133,8 +153,13 @@ export function forkSession(
     fork.messages.push(copy)
     appendMessage(fork.id, copy)
   }
-  fork.permissionMode = structuredClone(source.permissionMode)
-  fork.agentType = source.agentType ?? null
+  Object.assign(
+    fork,
+    sessionModeAsOf(source.id, messageUuid) ?? {
+      permissionMode: structuredClone(source.permissionMode),
+      agentType: source.agentType ?? null,
+    },
+  )
   appendModeChange(fork.id, fork)
   setSessionTitle(fork.id, `${source.title?.trim() || 'Session'} (fork)`)
   return { session: fork, prompt: messageText(source.messages[index]!) }

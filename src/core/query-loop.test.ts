@@ -855,8 +855,18 @@ describe('query loop: queued commands', () => {
         commandMode: 'prompt',
       },
     ])
+    // With the id the message has in the conversation, to rewind to.
+    const saved = (result.messages as AttachmentMessage[]).find(
+      message => message.attachment?.type === 'queued_command',
+    )!
+    expect(saved.uuid).toBeTruthy()
     expect(queuedEvents(h.events)).toMatchObject([
-      { prompt: 'also fix b.ts', command_mode: 'prompt', command_uuid: 'q1' },
+      {
+        prompt: 'also fix b.ts',
+        command_mode: 'prompt',
+        command_uuid: 'q1',
+        message_uuid: saved.uuid,
+      },
     ])
     expect(getCommandQueue(SESSION)).toEqual([])
   })

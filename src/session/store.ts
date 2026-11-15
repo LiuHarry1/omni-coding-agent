@@ -698,6 +698,72 @@ export function appendAgentChange(sessionId: string, session: Session): void {
   })
 }
 
+export type SessionModeState = Pick<
+  Session,
+  | 'permissionMode'
+  | 'agentType'
+  | 'hasExitedPlanMode'
+  | 'needsPlanModeExitAttachment'
+>
+
+const MODE_ROW_TYPES = ['session_created', 'mode_changed', 'agent_changed']
+
+/** What a session_created, mode_changed or agent_changed row says. */
+function applyModeRow(
+  state: SessionModeState,
+  line: Record<string, unknown>,
+): void {
+  if (line.permissionMode) {
+    state.permissionMode = line.permissionMode as Session['permissionMode']
+  }
+  if (line.agentType === null || typeof line.agentType === 'string') {
+    state.agentType = line.agentType
+  }
+  if (line.type !== 'mode_changed') return
+  if (typeof line.hasExitedPlanMode === 'boolean') {
+    state.hasExitedPlanMode = line.hasExitedPlanMode
+  }
+  if (typeof line.needsPlanModeExitAttachment === 'boolean') {
+    state.needsPlanModeExitAttachment = line.needsPlanModeExitAttachment
+  }
+}
+
+/**
+ * The mode and main-thread agent the session was in when `messageUuid` was
+ * written, or null when the transcript has no such row.
+ */
+export function sessionModeAsOf(
+  sessionId: string,
+  messageUuid: string,
+): SessionModeState | null {
+  let raw: string
+  try {
+    raw = fs.readFileSync(sessionPath(sessionId), 'utf-8')
+  } catch {
+    return null
+  }
+  const state: SessionModeState = {
+    permissionMode: createDefaultPermissionMode(),
+    agentType: null,
+    hasExitedPlanMode: false,
+    needsPlanModeExitAttachment: false,
+  }
+  for (const row of raw.split('\n')) {
+    // Most rows are messages, some of them large: parse only what matters.
+    const names = row.includes(messageUuid)
+    if (!names && !MODE_ROW_TYPES.some(type => row.includes(type))) continue
+    let line: Record<string, unknown>
+    try {
+      line = parseSessionJsonLine(row)
+    } catch {
+      continue
+    }
+    if (names && line.uuid === messageUuid) return state
+    if (MODE_ROW_TYPES.includes(line.type as string)) applyModeRow(state, line)
+  }
+  return null
+}
+
 function appendLine(sessionId: string, data: Record<string, unknown>): void {
   const loc = locationFor(sessionId)
   ensureProjectDir(loc)
@@ -777,35 +843,9 @@ function restoreFromDisk(id: string): Session {
       if (typeof line.ownerEmail === 'string') {
         session.ownerEmail = line.ownerEmail
       }
-      if (line.permissionMode) {
-        session.permissionMode =
-          line.permissionMode as Session['permissionMode']
-      }
-      if (line.agentType === null || typeof line.agentType === 'string') {
-        session.agentType = line.agentType
-      }
-    } else if (line.type === 'mode_changed') {
-      if (line.permissionMode) {
-        session.permissionMode =
-          line.permissionMode as Session['permissionMode']
-      }
-      if (line.agentType === null || typeof line.agentType === 'string') {
-        session.agentType = line.agentType
-      }
-      if (typeof line.hasExitedPlanMode === 'boolean') {
-        session.hasExitedPlanMode = line.hasExitedPlanMode
-      }
-      if (typeof line.needsPlanModeExitAttachment === 'boolean') {
-        session.needsPlanModeExitAttachment = line.needsPlanModeExitAttachment
-      }
-    } else if (line.type === 'agent_changed') {
-      if (line.agentType === null || typeof line.agentType === 'string') {
-        session.agentType = line.agentType
-      }
-      if (line.permissionMode) {
-        session.permissionMode =
-          line.permissionMode as Session['permissionMode']
-      }
+      applyModeRow(session, line)
+    } else if (line.type === 'mode_changed' || line.type === 'agent_changed') {
+      applyModeRow(session, line)
     } else if (line.type === 'session_title') {
       if (typeof line.title === 'string' && line.title.trim()) {
         session.title = line.title.trim()

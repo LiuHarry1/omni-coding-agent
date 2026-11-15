@@ -33,7 +33,12 @@ export function createRewindActions(set, get) {
       })
       if (get().currentSessionId !== id) return
       const next = messagesToBubbles(sanitizeMessagesForUi(data.messages ?? []))
+      // The session is back in the mode the message was sent in.
+      const selection = ['agent', 'ask', 'plan'].includes(data.mode)
+        ? { agentMode: data.mode, agentType: data.agent_type ?? null }
+        : {}
       set({
+        ...selection,
         bubbleOrder: next.bubbleOrder,
         bubblesById: next.bubblesById,
         notice: null,

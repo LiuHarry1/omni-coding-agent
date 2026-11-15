@@ -55,6 +55,7 @@ export default withMermaid(defineConfig({
             { text: 'Primary Agents', link: '/features/primary-agents' },
             { text: 'Slash Commands', link: '/features/slash-commands' },
             { text: 'Background tasks', link: '/features/background-tasks' },
+            { text: 'MCP servers', link: '/features/mcp' },
             { text: 'LSP', link: '/features/lsp' },
             { text: 'Large tool outputs', link: '/features/tool-storage' },
           ],

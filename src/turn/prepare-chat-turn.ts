@@ -48,6 +48,11 @@ import { noopWireEmitter, type WireEmitter } from '../core/wire-emitter.js'
 import type { TurnProfiler } from '../utils/startupProfiler.js'
 import { getMCPManagerForServers } from '../services/mcp/lifecycle.js'
 import {
+  isMcpPromptSlash,
+  resolveMcpPromptSlash,
+} from '../services/mcp/prompts.js'
+import { createMcpResourceToolDefinitions } from '../tools/McpResourceTools/McpResourceTools.js'
+import {
   createFilesystemPermissionContext,
   settingsPermissionOpts,
 } from '../utils/permissions/filesystem.js'
@@ -289,11 +294,21 @@ export async function prepareChatTurn(
     cloudSession && message.trimStart().startsWith('/')
       ? await loadSlashRegistry(extensionCwd)
       : undefined
-  const slash = await resolveSlashCommand(message, cwd, session, {
-    preloaded: preloadedSlash,
-    extensionCwd,
-    directiveRuntime,
-  })
+  // `/mcp__server__prompt` comes from a live server, so it waits for MCP.
+  const mcpPromptLine = isMcpPromptSlash(message)
+  const slash: SlashResolution = mcpPromptLine
+    ? {
+        effectiveMessage: message,
+        immediateReply: null,
+        forkSkill: null,
+        manualCompact: null,
+        forceSummary: false,
+      }
+    : await resolveSlashCommand(message, cwd, session, {
+        preloaded: preloadedSlash,
+        extensionCwd,
+        directiveRuntime,
+      })
 
   // Plugins/skills/MCP load from a local tree. Remote sessions still use the
   // Control Plane machine's default workspace for that — tools use remote cwd.
@@ -352,6 +367,23 @@ export async function prepareChatTurn(
     configured: Object.keys(mcpServers).length,
     connected: mcpManager.connectedCount,
   })
+  if (mcpPromptLine) {
+    const prompt = await resolveMcpPromptSlash(message, mcpManager)
+    if (prompt && 'text' in prompt) {
+      slash.effectiveMessage = prompt.text
+      console.log(
+        `[server] expanded ${message.split(/\s/, 1)[0]} (mcp prompt) -> ${prompt.text.length} char prompt`,
+      )
+    } else if (prompt) {
+      slash.immediateReply = prompt.error
+    }
+  }
+  // Resource tools exist only while some server has resources to offer.
+  if (mcpManager.hasResources()) {
+    for (const def of createMcpResourceToolDefinitions(mcpManager)) {
+      registry.register(def)
+    }
+  }
 
   const projectRulesRaw = cloudSession
     ? loadUserAgentRules()

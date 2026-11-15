@@ -3,6 +3,28 @@ import type { Message } from '../core/types.js'
 import { historyNotifications } from './history.js'
 
 describe('ACP session history', () => {
+  it('replays only what the user typed as user messages', () => {
+    const messages: Message[] = [
+      { role: 'user', content: 'first question', uuid: 'u1' },
+      {
+        role: 'user',
+        content: 'Summary of the conversation so far: ...',
+        uuid: 'summary',
+        isCompactSummary: true,
+      },
+      { role: 'user', content: '[Request interrupted by user]', uuid: 'stop' },
+      { role: 'user', content: 'second question', uuid: 'u2' },
+    ]
+    const updates = historyNotifications('s1', messages, '/w').map(
+      n => n.update,
+    )
+    expect(updates).toMatchObject([
+      { sessionUpdate: 'user_message_chunk', messageId: 'u1' },
+      { sessionUpdate: 'user_message_chunk', messageId: 'u2' },
+    ])
+    expect(updates).toHaveLength(2)
+  })
+
   it('replays user text, agent text and thinking, and tool calls with results', () => {
     const messages: Message[] = [
       { role: 'user', content: 'list files', uuid: 'u1' },

@@ -324,6 +324,8 @@ export const QueuedCommandMessageSchema = z.object({
   command_mode: z.enum(['prompt', 'task-notification']),
   /** The id the client queued the message under. */
   command_uuid: z.string().optional(),
+  /** What a message the user typed was saved under (rewind/fork address it by that). */
+  message_uuid: z.string().optional(),
   ...envelopeFields,
 })
 
