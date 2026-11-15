@@ -32,7 +32,7 @@ function writeAgent(
   )
 }
 
-/** Mirrors prepare_chat_turn.ts: plugins + registerSubagents each turn. */
+/** Mirrors turn/prepare-chat-turn.ts: plugins + registerSubagents each turn. */
 async function simulateChatTurn(cwd: string) {
   const plugins = await loadPlugins(cwd)
   const result = await registerSubagents(

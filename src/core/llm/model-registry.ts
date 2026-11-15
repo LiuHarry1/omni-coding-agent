@@ -93,10 +93,13 @@ function resolveTierProfile(
   raw: Record<string, unknown>,
 ): LlmProfile {
   const profile = resolveProfile({ ...profileToRecord(parent), ...raw })
-  // An output ceiling describes one model; a tier that swaps the model
-  // must not inherit it (e.g. small: gpt-4o-mini under a 64k large).
+  // Output and context limits describe one model; a tier that swaps the
+  // model must not inherit them (e.g. small: gpt-4o-mini under a 64k large).
   if (raw.maxOutputTokens === undefined && profile.model !== parent.model) {
     profile.maxOutputTokens = undefined
+  }
+  if (raw.contextWindow === undefined && profile.model !== parent.model) {
+    profile.contextWindow = undefined
   }
   return profile
 }

@@ -14,6 +14,8 @@ const ModelProfileSchema = z.object({
   vision: z.boolean().optional(),
   /** The model's own output-token ceiling; lets cut-off responses continue with a larger max_tokens. */
   maxOutputTokens: z.number().int().positive().optional(),
+  /** Tokens the endpoint accepts per request; sets where auto-compaction starts for this model. */
+  contextWindow: z.number().int().positive().optional(),
 })
 
 const ModelsSchema = z.object({

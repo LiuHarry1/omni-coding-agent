@@ -21,6 +21,11 @@ export type QueryResult = {
  */
 export type QueryOptions = AgentOptions & {
   messages: Message[]
+  /**
+   * Index of the first message not yet handed to the consumer as a
+   * `message` event. Defaults to everything seeded before the call.
+   */
+  newMessagesFrom?: number
   /** Loop phases; defaults to the real ones. */
   deps?: QueryDeps
 }

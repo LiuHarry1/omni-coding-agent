@@ -247,6 +247,53 @@ export const ToolUseSummaryMessageSchema = z.object({
   ...envelopeFields,
 })
 
+/** Something the user should know that is not part of the conversation. */
+export const SystemNoticeSchema = z.discriminatedUnion('kind', [
+  /** A model request failed and is retried after `delay_ms`. */
+  z.object({
+    kind: z.literal('retry'),
+    attempt: z.number(),
+    max_attempts: z.number(),
+    delay_ms: z.number(),
+    error: z.string(),
+  }),
+  /** The main model stayed overloaded; requests go to `to` from now on. */
+  z.object({
+    kind: z.literal('model_fallback'),
+    from: z.string(),
+    to: z.string(),
+  }),
+  /** The conversation is close to the point where it gets summarized. */
+  z.object({
+    kind: z.literal('context_warning'),
+    percent_left: z.number(),
+    current_tokens: z.number(),
+  }),
+  /** The conversation no longer fits and nothing could be compacted. */
+  z.object({
+    kind: z.literal('context_blocked'),
+    current_tokens: z.number(),
+    blocking_limit: z.number(),
+  }),
+  z.object({ kind: z.literal('compaction_error'), error: z.string() }),
+])
+export type SystemNotice = z.infer<typeof SystemNoticeSchema>
+
+export const NoticeMessageSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('notice'),
+  notice: SystemNoticeSchema,
+  ...envelopeFields,
+})
+
+/** The user message opening this turn is saved under `message_uuid` (rewind/fork address it by that). */
+export const UserMessageSavedSchema = z.object({
+  type: z.literal('system'),
+  subtype: z.literal('user_message_saved'),
+  message_uuid: z.string(),
+  ...envelopeFields,
+})
+
 /** User stopped the turn (CC Esc) — transcript also has the interrupt user msg. */
 export const InterruptedMessageSchema = z.object({
   type: z.literal('system'),
@@ -337,6 +384,8 @@ export const ServerMessageSchema = z.union([
   CompactionDoneMessageSchema,
   ToolTimingMessageSchema,
   ToolUseSummaryMessageSchema,
+  NoticeMessageSchema,
+  UserMessageSavedSchema,
   InterruptedMessageSchema,
   ScheduledTurnMessageSchema,
   QueuedCommandMessageSchema,

@@ -11,11 +11,7 @@ import {
   canAccessSession,
   setSessionWorkspace,
 } from '../session.js'
-import {
-  isAuthEnabled,
-  isSuperUser,
-  type AuthedRequest,
-} from '../auth/identity.js'
+import { isSuperUser, type AuthedRequest } from '../auth/identity.js'
 import { parseCloudEnvironmentId } from '../../execution/providers/cloud/cloud-provider.js'
 import { getCloudWorkspaceManager } from '../../services/cloud-workspaces/index.js'
 import {
@@ -23,6 +19,7 @@ import {
   resolveCloudSessionBinding,
 } from './cloud-workspaces.js'
 import { handleEnvironmentFs } from './environment-fs.js'
+import { isAuthEnabled } from '../../utils/env.js'
 
 /**
  * Under AUTH, an environment is reachable only when it is one of the

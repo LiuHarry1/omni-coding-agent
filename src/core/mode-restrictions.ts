@@ -1,86 +1,62 @@
 /**
- * Filter active tools by session permission mode.
+ * What each permission mode lets the main thread run. The tool list sent to
+ * the model is the same in every mode, so switching modes keeps the prompt
+ * cache; the mode is enforced per call instead.
  */
-import type { AnyTool } from './types.js'
+import type { CanUseToolFn } from './can-use-tool.js'
 import type { ExternalMode } from './permission-mode.js'
 import {
   PLAN_MODE_DENIED_TOOLS,
   ENTER_PLAN_MODE_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
-  ASK_USER_QUESTION_TOOL_NAME,
+  TOOL_SEARCH_TOOL_NAME,
 } from '../constants/tool_names.js'
 
-function omitTools(
-  tools: Record<string, AnyTool>,
-  denied: Set<string>,
-): Record<string, AnyTool> {
-  const result: Record<string, AnyTool> = {}
-  for (const [name, tool] of Object.entries(tools)) {
-    if (!denied.has(name)) result[name] = tool
-  }
-  return result
-}
+const PLAN_MODE_DENIED = new Set(PLAN_MODE_DENIED_TOOLS)
 
-function pickTools(
-  tools: Record<string, AnyTool>,
-  keep: (name: string) => boolean,
-): Record<string, AnyTool> {
-  const result: Record<string, AnyTool> = {}
-  for (const [name, tool] of Object.entries(tools)) {
-    if (keep(name)) result[name] = tool
-  }
-  return result
-}
-
-export type ModeRestrictionOptions = {
-  /** Mode-switch tools, added or withheld depending on the mode. */
-  extra?: Record<string, AnyTool>
-  /**
-   * Whether every call the named tool can make is read-only, as its
-   * definition declares. Tools without a definition (MCP) are not.
-   */
-  isReadOnly: (toolName: string) => boolean
-}
-
-export function applyModeRestrictions(
+/**
+ * Why `toolName` may not run in `mode`, or undefined when it may.
+ * `isReadOnly` says whether every call the tool can make is read-only, as
+ * its definition declares; tools without a definition (MCP) are not.
+ */
+export function modeDenial(
   mode: ExternalMode,
-  tools: Record<string, AnyTool>,
-  options: ModeRestrictionOptions,
-): Record<string, AnyTool> {
-  const { extra, isReadOnly } = options
-  const merged = { ...tools, ...extra }
-
+  toolName: string,
+  isReadOnly: (toolName: string) => boolean,
+): string | undefined {
   switch (mode) {
-    case 'ask': {
-      // Read-only only. ToolSearch does not declare itself read-only, so it
-      // stays out: discovering deferred write/shell/MCP tools would bypass
-      // this filter mid-turn (activateDeferredTools mutates activeTools).
-      return pickTools(merged, isReadOnly)
-    }
-    case 'plan': {
-      const denied = new Set([
-        ...PLAN_MODE_DENIED_TOOLS,
-        ENTER_PLAN_MODE_TOOL_NAME,
-      ])
-      const filtered = omitTools(merged, denied)
-      // Ensure ExitPlanMode and AskUserQuestion are present
-      if (extra?.[EXIT_PLAN_MODE_TOOL_NAME]) {
-        filtered[EXIT_PLAN_MODE_TOOL_NAME] = extra[EXIT_PLAN_MODE_TOOL_NAME]
+    case 'ask':
+      // ToolSearch only loads schemas; what it finds is checked here when called.
+      if (toolName === TOOL_SEARCH_TOOL_NAME || isReadOnly(toolName)) {
+        return undefined
       }
-      if (merged[ASK_USER_QUESTION_TOOL_NAME]) {
-        filtered[ASK_USER_QUESTION_TOOL_NAME] =
-          merged[ASK_USER_QUESTION_TOOL_NAME]
+      return `${toolName} is not available in Ask mode, which only allows read-only tools. Answer from what you can read, or tell the user to switch to Agent mode to make changes.`
+    case 'plan':
+      if (toolName === ENTER_PLAN_MODE_TOOL_NAME) {
+        return 'Plan mode is already active.'
       }
-      return filtered
-    }
+      if (PLAN_MODE_DENIED.has(toolName)) {
+        return `${toolName} is not available in Plan mode. Explore with read-only tools, write the plan file, and call ${EXIT_PLAN_MODE_TOOL_NAME} for approval.`
+      }
+      return undefined
     case 'agent':
-    default: {
-      const filtered = { ...merged }
-      delete filtered[EXIT_PLAN_MODE_TOOL_NAME]
-      if (extra?.[ENTER_PLAN_MODE_TOOL_NAME]) {
-        filtered[ENTER_PLAN_MODE_TOOL_NAME] = extra[ENTER_PLAN_MODE_TOOL_NAME]
+    default:
+      if (toolName === EXIT_PLAN_MODE_TOOL_NAME) {
+        return `${EXIT_PLAN_MODE_TOOL_NAME} is only available in Plan mode.`
       }
-      return filtered
-    }
+      return undefined
+  }
+}
+
+/** `canUseTool` that first refuses what the current mode does not allow. */
+export function withModeGate(
+  canUseTool: CanUseToolFn,
+  getMode: () => ExternalMode,
+  isReadOnly: (toolName: string) => boolean,
+): CanUseToolFn {
+  return async (toolName, input, meta) => {
+    const denial = modeDenial(getMode(), toolName, isReadOnly)
+    if (denial) return { behavior: 'deny', message: denial }
+    return canUseTool(toolName, input, meta)
   }
 }

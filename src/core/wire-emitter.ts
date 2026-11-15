@@ -1,4 +1,5 @@
 import type { TodoItem } from '../../protocol/src/common.js'
+import type { SystemNotice } from '../../protocol/src/server.js'
 import type { OutgoingMessage } from '../../protocol/src/wire.js'
 import type { ProtocolSink } from './protocol-sink.js'
 import {
@@ -255,6 +256,19 @@ export class WireEmitter {
       ...(toolUseId ? { tool_use_id: toolUseId } : {}),
       ...this.#env,
     })
+  }
+
+  userMessageSaved(uuid: string): void {
+    this.emit({
+      type: 'system',
+      subtype: 'user_message_saved',
+      message_uuid: uuid,
+      ...this.#env,
+    })
+  }
+
+  notice(notice: SystemNotice): void {
+    this.emit({ type: 'system', subtype: 'notice', notice, ...this.#env })
   }
 
   toolUseSummary(summary: string, precedingToolUseIds: string[]): void {

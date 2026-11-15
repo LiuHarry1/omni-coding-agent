@@ -33,6 +33,7 @@ import {
   validateSettingsFile,
   type ValidationError,
 } from './settings-validation.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 function defaultModels(): ModelProfiles {
   const large = { ...DEFAULT_PROFILE }
@@ -466,14 +467,6 @@ function stripUntrustedMarketplaces(
   return next
 }
 
-function isAuthDeployment(): boolean {
-  return (
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  )
-}
-
 function fileMtimeMs(filePath: string): number {
   try {
     return fs.statSync(filePath).mtimeMs
@@ -581,6 +574,13 @@ function mergeHooksConfig(
     }
   }
   return out
+}
+
+/** A `hooks` block from anywhere else (agent frontmatter), checked the same way. */
+export function parseHooksConfig(value: unknown): HooksConfig | undefined {
+  if (!isRecord(value)) return undefined
+  const hooks = mergeHooksConfig(undefined, value)
+  return Object.keys(hooks).length > 0 ? hooks : undefined
 }
 
 const warnedUnsupportedHooks = new Set<string>()
@@ -859,7 +859,7 @@ function applySettingsSource(
   if (source.scope === 'project' || source.scope === 'local') {
     toApply = stripUntrustedAutoMemoryDirectory(settings, source.path)
   }
-  if (source.scope !== 'managed' && isAuthDeployment()) {
+  if (source.scope !== 'managed' && isAuthEnabled()) {
     toApply = stripUntrustedMarketplaces(toApply, source.path)
   }
   if (toApply.mcpServers && typeof toApply.mcpServers === 'object') {

@@ -33,6 +33,7 @@ import * as path from 'path'
 import type { IncomingMessage } from 'http'
 import { getDefaultWorkspace } from '../../core/workspace.js'
 import { seedUserWorkspaceIfNeeded } from './workspace-seed.js'
+import { isAuthEnabled } from '../../utils/env.js'
 
 export interface AuthIdentity {
   email: string
@@ -54,14 +55,6 @@ export class AuthError extends Error {
 export interface AuthedRequest extends IncomingMessage {
   user?: AuthIdentity
   userWorkspace?: string
-}
-
-export function isAuthEnabled(): boolean {
-  return (
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  )
 }
 
 /** Same-origin cookie the SPA mirrors from localStorage so GET navigation can auth. */

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { thinkingBubbleId } from '../lib/bubbles/messages-to-bubbles.js'
+import { useRetryLabel } from './useRetryLabel.js'
 
 /**
  * States with no transcript row yet. Later states (reasoning, tool input/run,
@@ -21,6 +22,7 @@ export default function TurnStatus() {
   const planningShown = useChatStore(
     s => !!s.activeTurnId && !!s.bubblesById[thinkingBubbleId(s.activeTurnId)],
   )
+  const retryLabel = useRetryLabel()
   const [labelReady, setLabelReady] = useState(false)
 
   useEffect(() => {
@@ -33,7 +35,8 @@ export default function TurnStatus() {
 
   if (!PRE_ROW_STATES.has(state) || awaiting || planningShown) return null
 
-  const text = state === 'preparing' && labelReady ? label : DEFAULT_LABEL
+  const text =
+    retryLabel ?? (state === 'preparing' && labelReady ? label : DEFAULT_LABEL)
   return (
     <div
       className='planning-status'

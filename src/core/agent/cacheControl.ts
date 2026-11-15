@@ -1,8 +1,7 @@
 /**
- * Prompt-caching helper. Attaches a single `cache_control` breakpoint to
- * the LAST message of each request when the provider supports it
- * (Anthropic). For everything else this is a no-op and messages pass
- * through unchanged.
+ * Prompt-caching helpers. Attach `cache_control` breakpoints to the end of
+ * the system prompt and to the LAST message of each request when the
+ * provider supports it (Anthropic). For everything else they are no-ops.
  *
  * # Why only the last message?
  *
@@ -22,19 +21,38 @@
  * across multi-tenant workflows. For a single-session agent loop, one
  * trailing breakpoint captures ~all the value.
  *
- * # Why not also tools / system?
+ * # Why also the system prompt?
  *
- * Vercel AI SDK v6's surface for attaching `providerOptions` to tool
- * objects and the `system` field is inconsistent across versions. The
- * message-level path is rock-solid and gives the same effective caching
- * because the prefix [system + tools + messages[0..N-1]] is what gets
- * cached regardless of which block carries the marker.
+ * A request only reads a cache entry written at one of its own breakpoint
+ * positions. After compaction rewrites the history, the old message-level
+ * entries no longer line up, so without a breakpoint after the system prompt
+ * even the unchanged [tools + system] prefix would be sent uncached.
  *
  * @see https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
  */
 
+import type { SystemModelMessage } from 'ai'
 import type { IProvider } from '../llm/types.js'
 import type { Message } from '../types.js'
+
+/**
+ * The `system` argument for a request: the prompt as one block ending in a
+ * cache breakpoint when the provider supports one, else the plain string.
+ */
+export function systemWithCacheBreakpoint(
+  system: string,
+  provider: IProvider,
+): string | SystemModelMessage[] {
+  const opts = provider.cacheControlOptions?.()
+  if (!opts || !system) return system
+  return [
+    {
+      role: 'system',
+      content: system,
+      providerOptions: opts as SystemModelMessage['providerOptions'],
+    },
+  ]
+}
 
 /**
  * Returns a NEW messages array with the cache-control marker attached to

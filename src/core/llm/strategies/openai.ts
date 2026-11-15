@@ -1,3 +1,4 @@
+import { resolveContextWindow } from '../model-capabilities.js'
 import { createOpenAI } from '@ai-sdk/openai'
 import type {
   ProviderStrategy,
@@ -54,6 +55,7 @@ export const openaiStrategy: ProviderStrategy = {
       supportsNativePdf: () => false,
       supportsImageInput: () => p.vision !== false,
       maxOutputTokenCap: () => p.maxOutputTokens,
+      contextWindow: () => resolveContextWindow(p),
       describe: () =>
         `openai(responses) thinking=${p.thinking.mode}${
           p.thinking.mode === 'budget' ? `(${p.thinking.tokens})` : ''

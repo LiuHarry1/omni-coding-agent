@@ -7,6 +7,7 @@ import { definition as exploreDef } from './built-in/exploreAgent.js'
 import { definition as planDef } from './built-in/planAgent.js'
 import { definition as generalPurposeDef } from './built-in/generalPurposeAgent.js'
 import { createTaskTool } from './AgentTool.js'
+import { createSendMessageTool } from './SendMessageTool.js'
 import { AGENT_TOOL_NAME } from '../../constants/tool_names.js'
 import type { MarkdownFile } from '../../utils/markdownConfigLoader.js'
 import { loadAgentDefinitions } from './loadAgents.js'
@@ -19,6 +20,7 @@ export const BUILTIN_AGENTS: readonly AgentDefinition[] = [
 
 export function registerBuiltinSubagents(registry: IToolRegistry): void {
   registry.register(createTaskTool(BUILTIN_AGENTS))
+  registry.register(createSendMessageTool())
 }
 
 export async function registerSubagents(
@@ -28,6 +30,7 @@ export async function registerSubagents(
 ): Promise<AgentDefinitionsResult> {
   const result = await loadAgentDefinitions(cwd, pluginAgentFiles)
   registry.register(createTaskTool(result.activeAgents))
+  registry.register(createSendMessageTool())
   return result
 }
 

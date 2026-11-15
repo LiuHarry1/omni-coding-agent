@@ -3,7 +3,12 @@ import {
   applyMicroCompactProjection,
   attachTokenUsage,
   compactIfNeeded,
+  toAttachedUsage,
 } from '../../services/compact/index.js'
+import {
+  checkResponseForCacheBreak,
+  recordPromptState,
+} from '../../services/api/prompt-cache-break-detection.js'
 import type {
   AttachedTokenUsage,
   CompactEnrichment,
@@ -17,7 +22,6 @@ import {
   failedAttemptCount,
   isInvalidRequestError,
   isOverloadedError,
-  isTransientStreamError,
   parseMaxTokensContextOverflowError,
 } from '../stream-errors.js'
 import type {
@@ -37,7 +41,10 @@ import {
   regroupToolResults,
   sanitizeReasoningParts,
 } from '../agent/messageSanitize.js'
-import { applyCacheControlBreakpoint } from '../agent/cacheControl.js'
+import {
+  applyCacheControlBreakpoint,
+  systemWithCacheBreakpoint,
+} from '../agent/cacheControl.js'
 import {
   expandAttachmentMessagesForAPI,
   mergeAdjacentUserMessages,
@@ -74,8 +81,13 @@ import {
   maxTokensOverrideFromError,
   MAX_OVERFLOW_RETRIES,
   MAX_OVERLOADED_RETRIES,
-  MAX_TRANSIENT_RETRIES,
 } from './helpers.js'
+import {
+  MAX_REQUEST_RETRIES,
+  isRetryableRequestError,
+  retryDelayMs,
+  sleep,
+} from '../llm/with-retry.js'
 import { applyCompactOutcome } from './pre-turn.js'
 import { getMessagesAfterCompactBoundary } from '../messages/compact-boundary.js'
 
@@ -116,6 +128,8 @@ export interface RunStepArgs {
   fallback?: { provider: IProvider; model: string }
   /** User-configured hooks for this step's tool calls. */
   hooks?: HookRunner
+  /** Set for subagents; keeps their prompt-cache tracking apart. */
+  agentId?: string
 }
 
 /** A response cut off before any visible output must not leave empty text blocks. */
@@ -178,6 +192,11 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
   let fellBack = false
 
   const dumpPrompts = args.dumpPrompts ?? createNoopDumpPromptsRecorder()
+  // Short-lived forks have nothing earlier to compare against.
+  const cacheTrackingKey =
+    sessionId && (args.agentId || !logLabel)
+      ? `${sessionId}:${args.agentId ?? 'main'}`
+      : undefined
   const apiTools = stripToolExecute(tools)
   const executors = tools
 
@@ -270,9 +289,19 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         logLabel: logLabel ?? 'main',
       })
 
+      if (cacheTrackingKey) {
+        recordPromptState({
+          key: cacheTrackingKey,
+          system: systemPrompt,
+          tools: apiTools,
+          model: resolvedModel,
+          messages: activeModelMessages,
+        })
+      }
+
       const stream = streamText({
         model: provider.chatModel(resolvedModel),
-        system: systemPrompt,
+        system: systemWithCacheBreakpoint(systemPrompt, provider),
         messages: apiMessages,
         tools: apiTools,
         ...(toolChoice !== undefined ? { toolChoice } : {}),
@@ -282,7 +311,9 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
           maxTokensOverride ??
           compaction?.maxOutputTokens ??
           getMaxOutputTokens(),
-        maxRetries: 3,
+        // Retries happen below, where backoff, retry-after and the fallback
+        // model are handled together.
+        maxRetries: 0,
         ...(abortSignal ? { abortSignal } : {}),
         ...provider.streamTextExtras(),
       })
@@ -389,9 +420,23 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
 
       let usage: AttachedTokenUsage = {}
       try {
-        usage = (await stream.usage) ?? {}
+        usage = toAttachedUsage(await stream.usage)
       } catch {
         // telemetry optional
+      }
+      if (cacheTrackingKey && usage.cachedInputTokens !== undefined) {
+        const cacheBreak = checkResponseForCacheBreak(
+          cacheTrackingKey,
+          usage.cachedInputTokens,
+          usage.cacheWriteTokens ?? 0,
+        )
+        if (cacheBreak) {
+          console.warn(
+            `[${agentLogTag(logLabel)}] prompt cache break: ${cacheBreak.reason} ` +
+              `(cache read ${cacheBreak.previousCacheReadTokens} → ${cacheBreak.cacheReadTokens}, ` +
+              `write ${cacheBreak.cacheWriteTokens})`,
+          )
+        }
       }
       if (usage.inputTokens != null || usage.totalTokens != null) {
         for (let i = sdkMessages.length - 1; i >= 0; i--) {
@@ -561,22 +606,27 @@ export async function runStep(args: RunStepArgs): Promise<StreamResult> {
         continue
       }
       if (
-        transientAttempt < MAX_TRANSIENT_RETRIES &&
-        isTransientStreamError(err)
+        transientAttempt < MAX_REQUEST_RETRIES &&
+        isRetryableRequestError(err)
       ) {
         transientAttempt++
-        const backoffMs = 500 * Math.pow(3, transientAttempt - 1)
+        const backoffMs = Math.round(retryDelayMs(transientAttempt, err))
         const errMsg = err instanceof Error ? err.message : String(err)
         console.warn(
-          `[${agentLogTag(logLabel)}] step ${step} transient stream error (attempt ${transientAttempt}/${MAX_TRANSIENT_RETRIES}), retrying in ${backoffMs}ms: ${errMsg}`,
+          `[${agentLogTag(logLabel)}] step ${step} request failed (attempt ${transientAttempt}/${MAX_REQUEST_RETRIES}), retrying in ${backoffMs}ms: ${errMsg}`,
         )
         eventBus.emit('transient_retry', {
           attempt: transientAttempt,
-          max: MAX_TRANSIENT_RETRIES,
+          max: MAX_REQUEST_RETRIES,
           backoffMs,
           error: errMsg,
         })
-        await new Promise(r => setTimeout(r, backoffMs))
+        wire.turnState(
+          'requesting',
+          'model.retry',
+          `Request failed, retrying in ${Math.ceil(backoffMs / 1000)}s (attempt ${transientAttempt}/${MAX_REQUEST_RETRIES})`,
+        )
+        await sleep(backoffMs, abortSignal)
         requestStart = Date.now()
         streamingExecutor?.discard()
         streamingExecutor = createStreamingExecutor()
@@ -664,6 +714,12 @@ function logStepCompletion(a: LogArgs): void {
   ) {
     usageParts.push(`cached=${fmt(a.usage.cachedInputTokens)}`)
   }
+  if (
+    typeof a.usage.cacheWriteTokens === 'number' &&
+    a.usage.cacheWriteTokens > 0
+  ) {
+    usageParts.push(`cache_write=${fmt(a.usage.cacheWriteTokens)}`)
+  }
   const tag = agentLogTag(a.logLabel)
   console.log(
     `[${tag}] step ${a.step} done -- total=${totalMs}ms ` +
@@ -682,6 +738,7 @@ function logStepCompletion(a: LogArgs): void {
     inputTokens: a.usage.inputTokens ?? 0,
     outputTokens: a.usage.outputTokens ?? 0,
     cachedInputTokens: a.usage.cachedInputTokens ?? 0,
+    cacheWriteTokens: a.usage.cacheWriteTokens ?? 0,
     reasoningTokens: a.usage.reasoningTokens ?? 0,
     totalTokens:
       a.usage.totalTokens ??

@@ -75,6 +75,59 @@ export function withoutStopHooks(runner: HookRunner): HookRunner {
   }
 }
 
+function mergeResults(
+  a: AggregatedHookResult,
+  b: AggregatedHookResult,
+): AggregatedHookResult {
+  const permission =
+    a.permissionBehavior &&
+    (!b.permissionBehavior ||
+      PERMISSION_RANK[a.permissionBehavior] >=
+        PERMISSION_RANK[b.permissionBehavior])
+      ? { behavior: a.permissionBehavior, reason: a.permissionReason }
+      : { behavior: b.permissionBehavior, reason: b.permissionReason }
+  return {
+    hookName: a.hookName,
+    blockingErrors: [...a.blockingErrors, ...b.blockingErrors],
+    additionalContexts: [...a.additionalContexts, ...b.additionalContexts],
+    outputs: [...a.outputs, ...b.outputs],
+    preventContinuation: a.preventContinuation || b.preventContinuation,
+    stopReason: a.stopReason ?? b.stopReason,
+    systemMessages: [...a.systemMessages, ...b.systemMessages],
+    ...(permission.behavior
+      ? {
+          permissionBehavior: permission.behavior,
+          permissionReason: permission.reason,
+        }
+      : {}),
+    ...(b.updatedInput || a.updatedInput
+      ? { updatedInput: b.updatedInput ?? a.updatedInput }
+      : {}),
+  }
+}
+
+/** Both runners' hooks for every event, their answers taken together. */
+export function combineHookRunners(
+  a: HookRunner | undefined,
+  b: HookRunner | undefined,
+): HookRunner | undefined {
+  if (!a || !b) return a ?? b
+  const both = async (
+    run: (runner: HookRunner) => Promise<AggregatedHookResult>,
+  ) => {
+    const [x, y] = await Promise.all([run(a), run(b)])
+    return mergeResults(x, y)
+  }
+  return {
+    has: event => a.has(event) || b.has(event),
+    preToolUse: (args, signal) => both(r => r.preToolUse(args, signal)),
+    postToolUse: (args, signal) => both(r => r.postToolUse(args, signal)),
+    userPromptSubmit: (prompt, signal) =>
+      both(r => r.userPromptSubmit(prompt, signal)),
+    stop: (active, signal) => both(r => r.stop(active, signal)),
+  }
+}
+
 /**
  * Whether a matcher selects the value (a tool name). Claude Code's
  * `matchesPattern`: empty or `*` is everything, plain names and `A|B` match

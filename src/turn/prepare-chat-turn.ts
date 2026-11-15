@@ -3,32 +3,32 @@
  * Slash resolution, per-request registry reload, tools, mode restrictions.
  * Attachments collected in agent loop via getAttachmentMessages.
  */
-import { dispatchSlashCommand } from '../../commands/dispatcher.js'
-import { resolvePlanSlash } from '../../commands/plan.js'
+import { dispatchSlashCommand } from '../commands/dispatcher.js'
+import { resolvePlanSlash } from '../commands/plan.js'
 import {
   registerSubagents,
   getSubagentNames,
-} from '../../tools/AgentTool/index.js'
+} from '../tools/AgentTool/index.js'
 import {
   registerSkills,
   formatSkillListing,
   addInvokedSkill,
-} from '../../skills/index.js'
+} from '../skills/index.js'
 import {
   loadPlugins,
   pluginErrorMessage,
   pluginErrorSource,
-} from '../../core/plugins/index.js'
-import { loadAllAgentRules, loadUserAgentRules } from '../rules-loader.js'
-import { buildConcurrencyPolicy } from '../../core/concurrency-policy.js'
-import { TOOL_SEARCH_TOOL_NAME } from '../../constants/tool_names.js'
-import { getPlanFilePath } from '../plans.js'
-import type { ReadFileState } from '../read/types.js'
+} from '../core/plugins/index.js'
+import { loadAllAgentRules, loadUserAgentRules } from '../utils/rules-loader.js'
+import { buildConcurrencyPolicy } from '../core/concurrency-policy.js'
+import { TOOL_SEARCH_TOOL_NAME } from '../constants/tool_names.js'
+import { getPlanFilePath } from '../utils/plans.js'
+import type { ReadFileState } from '../utils/read/types.js'
 import {
   getExecutionPlane,
   resolveExecutionBackend,
-} from '../../execution/index.js'
-import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
+} from '../execution/index.js'
+import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import type {
   AgentDefinition,
   AnyTool,
@@ -39,38 +39,39 @@ import type {
   ToolDefinition,
   ToolUseContext,
   AppConfig,
-} from '../../core/types.js'
-import type { ToolRegistry } from '../../core/tool-registry.js'
-import type { SlashEntry } from '../../commands/slashRegistry.js'
-import { extractFilePathCandidates } from './path_candidates.js'
-import { mergeMCPServers } from '../../core/settings-manager.js'
-import { noopWireEmitter, type WireEmitter } from '../../core/wire-emitter.js'
-import type { TurnProfiler } from '../startupProfiler.js'
-import { getMCPManagerForServers } from '../../core/mcp-lifecycle.js'
+} from '../core/types.js'
+import type { ToolRegistry } from '../core/tool-registry.js'
+import type { SlashEntry } from '../commands/slashRegistry.js'
+import { extractFilePathCandidates } from './path-candidates.js'
+import { mergeMCPServers } from '../core/settings-manager.js'
+import { noopWireEmitter, type WireEmitter } from '../core/wire-emitter.js'
+import type { TurnProfiler } from '../utils/startupProfiler.js'
+import { getMCPManagerForServers } from '../core/mcp-lifecycle.js'
 import {
   createFilesystemPermissionContext,
   settingsPermissionOpts,
-} from '../permissions/filesystem.js'
-import { resolveAutoMemoryConfig } from '../../core/settings-manager.js'
+} from '../utils/permissions/filesystem.js'
+import { resolveAutoMemoryConfig } from '../core/settings-manager.js'
 import {
   buildMemorySystemAppend,
   describeMemoryBinding,
   resolveMemoryBinding,
   type MemoryBinding,
-} from '../../services/auto-memory/index.js'
-import { findPrimaryAgent } from '../../tools/AgentTool/mergeAgents.js'
-import { assembleToolPool } from '../../tools/assembleToolPool.js'
-import { isBrowserEnabledForMainThread } from '../../browser/enablement.js'
-import { warmExtensionRelay } from '../../browser/manager.js'
-import { profileSpan } from '../startupProfiler.js'
-import { loadSlashRegistry } from '../../commands/slashRegistry.js'
-import type { DirectiveRuntime } from '../../commands/promptExpansion.js'
+} from '../services/auto-memory/index.js'
+import { findPrimaryAgent } from '../tools/AgentTool/mergeAgents.js'
+import { assembleToolPool } from '../tools/assembleToolPool.js'
+import { isBrowserEnabledForMainThread } from '../browser/enablement.js'
+import { warmExtensionRelay } from '../browser/manager.js'
+import { profileSpan } from '../utils/startupProfiler.js'
+import { loadSlashRegistry } from '../commands/slashRegistry.js'
+import type { DirectiveRuntime } from '../commands/promptExpansion.js'
 import {
   cloudSandboxSeesSessionFiles,
   filterCloudMCPServers,
   type WorkspaceContext,
-} from '../../services/cloud-workspaces/turn-scope.js'
-import { setToolResultsHostOnly } from '../../services/tool-storage/index.js'
+} from '../services/cloud-workspaces/turn-scope.js'
+import { setToolResultsHostOnly } from '../services/tool-storage/index.js'
+import { cachedPromptSection } from '../prompts/section-cache.js'
 
 export type ForkSkillSlashResult = {
   kind: 'run'
@@ -177,9 +178,6 @@ export interface PreparedChatTurn {
   manualCompact: SlashResolution['manualCompact']
   forceSummary: boolean
   tools: Record<string, AnyTool>
-  /** Tools before mode filtering -- used to refresh when mode changes mid-turn. */
-  baseTools: Record<string, AnyTool>
-  modeTools: Record<string, AnyTool>
   deferredToolPool?: Record<string, AnyTool>
   /** Per-turn dynamic defs first, then the registry. */
   getToolDefinition: (name: string) => ToolDefinition | undefined
@@ -194,7 +192,6 @@ export interface PreparedChatTurn {
   permissionMode: Session['permissionMode']['mode']
   /** Resolved primary profile for this turn, if any. */
   mainThreadProfile: AgentDefinition | null
-  denyGlobs?: string[]
   planFilePath: string
   modeChanged?: boolean
   toolContext: ToolContext
@@ -371,7 +368,13 @@ export async function prepareChatTurn(
     queryText: slash.effectiveMessage,
     remote: remote && !cloudSession,
   })
-  const memoryGuide = buildMemorySystemAppend(memoryBinding)
+  // The memory index changes with every memory write; it is refreshed when
+  // the conversation is summarized instead of every turn.
+  const memoryGuide = cachedPromptSection(
+    session.id,
+    `memory:${JSON.stringify(memoryBinding.prompt)}`,
+    () => buildMemorySystemAppend(memoryBinding),
+  )
   const projectRules =
     memoryBinding.prompt.placement === 'project-rules'
       ? [projectRulesRaw, memoryGuide].filter(s => s.trim()).join('\n\n')
@@ -516,8 +519,6 @@ export async function prepareChatTurn(
     manualCompact: slash.manualCompact,
     forceSummary: slash.forceSummary,
     tools: pool.tools,
-    baseTools: pool.baseTools,
-    modeTools: pool.modeTools,
     deferredToolPool: pool.deferredToolPool,
     getToolDefinition: (name: string) =>
       pool.dynamicDefs[name] ?? registry.get(name),
@@ -529,7 +530,6 @@ export async function prepareChatTurn(
     concurrencyPolicy: buildConcurrencyPolicy(registry),
     permissionMode: session.permissionMode.mode,
     mainThreadProfile: pool.mainThreadProfile,
-    denyGlobs: pool.denyGlobs,
     planFilePath,
     modeChanged: slash.modeChanged,
     toolContext,

@@ -3,6 +3,8 @@
  * Transport stays in stream-chat.js; this is the transcript reduce switch.
  */
 
+import { tagLatestUserBubble } from '../../lib/bubbles/messages-to-bubbles.js'
+
 /**
  * @param {object} data
  * @param {{ set: Function, get: Function, mutators: Record<string, Function> }} ctx
@@ -157,6 +159,9 @@ export function applySseEvent(data, { set, get, mutators: m }) {
         case 'compaction_done': {
           const status = data.status ?? 'ok'
           m._resolveCompactionPart(status)
+          if (status === 'ok' && store.notice?.kind === 'context_warning') {
+            set({ notice: null })
+          }
           // noop/error left the transcript untouched — nothing to refetch.
           if (status === 'ok') void m._refetchTranscriptAfterCompaction()
           break
@@ -166,6 +171,14 @@ export function applySseEvent(data, { set, get, mutators: m }) {
           break
         case 'tool_use_summary':
           m._setToolUseSummary(data)
+          break
+        case 'user_message_saved':
+          if (data.message_uuid) {
+            set(s => tagLatestUserBubble(s, data.message_uuid))
+          }
+          break
+        case 'notice':
+          if (data.notice) set({ notice: { ...data.notice, at: Date.now() } })
           break
         case 'interrupted':
           m._onInterrupted(data)

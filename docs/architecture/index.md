@@ -107,7 +107,7 @@ sequenceDiagram
 
 - Entrypoint selection: `src/entrypoints/cli.ts`
 - Shared turn host and persistence: `src/turn/run-chat-turn.ts`
-- Per-turn composition: `src/utils/processUserInput/prepare_chat_turn.ts`
+- Per-turn composition: `src/turn/prepare-chat-turn.ts`
 - Loop and stopping: `src/core/query.ts`
 - Tool pool construction: `src/tools/assembleToolPool.ts`
 - Execution-plane services: `src/execution/bootstrap.ts`

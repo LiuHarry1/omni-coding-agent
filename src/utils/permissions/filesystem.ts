@@ -22,6 +22,7 @@ import { normalizeWorkspacePath } from '../../core/workspace-path.js'
 import { resolvePath } from '../../tools/utils.js'
 import { matchingPermissionRule } from './permission-rules.js'
 import { isAgentMemoryPath } from '../../tools/AgentTool/agentMemory.js'
+import { isAuthEnabled } from '../env.js'
 
 /** Settings values that actually change filesystem behavior. */
 export const PERMISSION_DEFAULT_MODES = [
@@ -76,14 +77,6 @@ export interface FilesystemPermissionContext {
   ask: string[]
 }
 
-function isAuthEnabledEnv(): boolean {
-  return (
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  )
-}
-
 /**
  * Extra roots readable outside the workspace.
  * Prefers `PERMISSION_EXTRA_READ_ROOTS`; falls back to deprecated
@@ -103,13 +96,13 @@ function parseExtraReadRoots(): string[] {
 }
 
 export function resolveFilesystemPermissionMode(): FilesystemPermissionMode {
-  return isAuthEnabledEnv() ? 'dontAsk' : 'default'
+  return isAuthEnabled() ? 'dontAsk' : 'default'
 }
 
 export function filesystemModeFromDefaultMode(
   defaultMode?: PermissionDefaultMode | string,
 ): FilesystemPermissionMode {
-  if (isAuthEnabledEnv()) return 'dontAsk'
+  if (isAuthEnabled()) return 'dontAsk'
   if (defaultMode === 'dontAsk') return 'dontAsk'
   if (defaultMode === 'bypassPermissions') return 'bypassPermissions'
   // Legacy acceptEdits / plan (and anything else) → default
@@ -147,7 +140,7 @@ export function settingsPermissionOpts(
   CreateFilesystemPermissionContextOptions,
   'additionalWorkingDirectories' | 'allow' | 'deny' | 'ask' | 'mode'
 > {
-  const auth = isAuthEnabledEnv()
+  const auth = isAuthEnabled()
   const mode = filesystemModeFromDefaultMode(permissions?.defaultMode)
   return {
     mode,

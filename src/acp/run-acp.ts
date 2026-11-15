@@ -33,6 +33,9 @@ export function runAcp(
     .onRequest(methods.agent.session.new, ctx =>
       baizeAgent.newSession(ctx.params),
     )
+    .onRequest(methods.agent.session.load, ctx =>
+      baizeAgent.loadSession(ctx.params, ctx.client),
+    )
     .onRequest(methods.agent.session.setMode, ctx =>
       baizeAgent.setSessionMode(ctx.params),
     )

@@ -4,7 +4,8 @@ import type { IncomingMessage } from 'http'
 import { getDefaultWorkspace } from '../core/workspace.js'
 import { normalizeWorkspacePath } from '../core/workspace-path.js'
 import type { WorkspaceHandle } from '../execution/types.js'
-import { isAuthEnabled, type AuthedRequest } from './auth/identity.js'
+import { type AuthedRequest } from './auth/identity.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 /**
  * Resolve the workspace directory for an HTTP request.

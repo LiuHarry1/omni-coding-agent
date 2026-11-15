@@ -9,6 +9,7 @@ import { getAppDirName, getUserAppDir } from '../../utils/app-dir.js'
 import { findCanonicalGitRoot } from '../../utils/git-root.js'
 import { sanitizePath } from '../../utils/sanitize-path.js'
 import { isPathInWorkspace } from '../../core/workspace.js'
+import { isAuthEnabled } from '../../utils/env.js'
 
 export const AUTO_MEM_ENTRYPOINT = 'MEMORY.md'
 export const AUTO_MEM_DIRNAME = 'memory'
@@ -49,11 +50,7 @@ function resolveTrustedDirectory(raw: string): string | undefined {
   // trusted. Never let one tenant turn another tenant's directory into an
   // extra read/write root. Local Web, Electron, and admin deployments keep
   // the regular trusted-user override behavior.
-  const authEnabled =
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  if (authEnabled && !isPathInWorkspace(normalized, getAgentHome())) {
+  if (isAuthEnabled() && !isPathInWorkspace(normalized, getAgentHome())) {
     return undefined
   }
 

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'http'
+import { isAuthEnabled, isEnvTruthy } from '../utils/env.js'
 
 export const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
@@ -50,10 +51,6 @@ export function sendJSON(
   res.end(JSON.stringify(data))
 }
 
-function envEnabled(name: string): boolean {
-  return /^(?:1|true|yes|on)$/i.test(process.env[name]?.trim() ?? '')
-}
-
 function configuredOrigins(): string[] {
   return (process.env.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -76,7 +73,7 @@ function isLoopbackOrigin(origin: string): boolean {
 
 function corsOrigin(req?: IncomingMessage): string | null {
   const origin = req?.headers.origin
-  if (envEnabled('BAIZE_ALLOW_ANY_ORIGIN')) return '*'
+  if (isEnvTruthy(process.env.BAIZE_ALLOW_ANY_ORIGIN)) return '*'
   if (!origin) return null
 
   const configured = configuredOrigins()
@@ -89,8 +86,7 @@ function corsOrigin(req?: IncomingMessage): string | null {
     return null
   }
 
-  const authEnabled = envEnabled('AUTH_ENABLED')
-  return !authEnabled && configured.length === 0 && isLoopbackOrigin(origin)
+  return !isAuthEnabled() && configured.length === 0 && isLoopbackOrigin(origin)
     ? origin
     : null
 }

@@ -9,7 +9,8 @@
  *   ANALYTICS_URL              analytics base URL
  *   ANALYTICS_INGEST_API_KEY   shared secret (X-API-Key)
  */
-import { isAuthEnabled, isSuperRole } from './auth/identity.js'
+import { isSuperRole } from './auth/identity.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 export interface QuotaStatus {
   user_email: string

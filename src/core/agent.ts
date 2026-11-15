@@ -5,10 +5,19 @@ import {
 import { getAttachmentMessages } from '../utils/attachments.js'
 import { takeQueuedCommands } from '../utils/attachments/queued-commands.js'
 import { hasBetweenTurnProcessing } from '../utils/messageQueueManager.js'
-import type { AgentOptions } from './types.js'
+import { appendMessage } from '../session/index.js'
+import type { AgentOptions, Message } from './types.js'
 import { buildUserMessage } from './query/helpers.js'
-import { query } from './query.js'
+import { queryEvents } from './query.js'
+import type { QueryEvent } from './query/events.js'
+import type { QueryResult } from './query/types.js'
 
+/**
+ * Ways into the query loop. `runAgentEvents` seeds the user turn and runs
+ * the loop; `runAgent` is the same for callers that only want the final text
+ * (subagents, forks); `runSessionTurn` also writes every message to the
+ * session's transcript, and is what the main conversation uses.
+ */
 export { query } from './query.js'
 export type {
   QueryOptions,
@@ -18,15 +27,45 @@ export type {
 
 /**
  * High-level entry: append user message + attachments, then run the unified
- * `query()` loop. Returns final assistant text for backward-compatible callers.
+ * query loop. Returns final assistant text for backward-compatible callers.
  */
 export async function runAgent(
   userMessage: string,
   opts: AgentOptions,
 ): Promise<string> {
+  const turn = runAgentEvents(userMessage, opts)
+  let next = await turn.next()
+  while (!next.done) {
+    if (next.value.type === 'message') opts.onMessage?.(next.value.message)
+    next = await turn.next()
+  }
+  const result = next.value
+  if (opts.throwOnError && result.reason === 'error') {
+    const detail = result.finalText.trim()
+    throw new Error(
+      detail
+        ? `Agent query failed: ${detail}`
+        : 'Agent query failed before producing a final response.',
+    )
+  }
+  return result.finalText
+}
+
+/**
+ * Seeds the user turn and runs the query loop. The seeded messages are the
+ * first `message` events.
+ */
+export async function* runAgentEvents(
+  userMessage: string,
+  opts: AgentOptions,
+): AsyncGenerator<QueryEvent, QueryResult> {
   const messages = opts.messages ?? []
+  const newMessagesFrom = messages.length
   const { toolUseContext } = opts
 
+  for (const leading of opts.leadingMessages ?? []) {
+    messages.push(ensureMessageUuid(leading))
+  }
   if (toolUseContext) {
     for await (const att of getAttachmentMessages(
       userMessage,
@@ -57,17 +96,60 @@ export async function runAgent(
     messages.push(extra)
   }
   ensureMessageUuids(messages)
-  await opts.onMessagesSeeded?.(messages)
 
-  const result = await query({ ...opts, runAgent, messages })
-  await opts.onQueryResult?.(result)
-  if (opts.throwOnError && result.reason === 'error') {
-    const detail = result.finalText.trim()
-    throw new Error(
-      detail
-        ? `Agent query failed: ${detail}`
-        : 'Agent query failed before producing a final response.',
-    )
+  return yield* queryEvents({ ...opts, runAgent, messages, newMessagesFrom })
+}
+
+export interface SessionTurnObserver {
+  /**
+   * The opening user message and its attachments are in history and about
+   * to be written: the place to stamp them.
+   */
+  onSeeded?: () => void
+  /** A message reached the transcript file. */
+  onPersisted?: (message: Message) => void
+  /** Every loop event, after any message in it was written. */
+  onEvent?: (event: QueryEvent) => void
+}
+
+/**
+ * Runs one turn of a stored session. Each message is appended to the
+ * transcript the moment the loop hands it over, so the file never lags the
+ * conversation by more than the message in flight.
+ */
+export async function runSessionTurn(
+  sessionId: string,
+  userMessage: string,
+  opts: AgentOptions,
+  observer: SessionTurnObserver = {},
+): Promise<QueryResult> {
+  const history = opts.messages ?? []
+  const turnStart = history.length
+  const persisted = new Set<Message>()
+  let seeded = false
+  const persist = (message: Message) => {
+    if (!seeded) {
+      seeded = true
+      observer.onSeeded?.()
+    }
+    appendMessage(sessionId, message)
+    persisted.add(message)
+    observer.onPersisted?.(message)
   }
-  return result.finalText
+
+  const turn = runAgentEvents(userMessage, { ...opts, messages: history })
+  try {
+    while (true) {
+      const next = await turn.next()
+      if (next.done) return next.value
+      if (next.value.type === 'message') persist(next.value.message)
+      observer.onEvent?.(next.value)
+    }
+  } catch (err) {
+    // Seeding can fail before the loop ever runs; keep what it appended.
+    for (const message of history.slice(turnStart)) {
+      if (!persisted.has(message)) persist(message)
+    }
+    throw err
+  }
 }

@@ -33,7 +33,7 @@ import {
   stopCronScheduler,
 } from '../services/cron/scheduler.js'
 import { startQueueProcessor } from '../services/queue/queue-processor.js'
-import { getRunAgent } from '../agent-lazy.js'
+import { runAgent } from '../core/agent.js'
 import { recoverDurableRuns } from '../services/runs/recovery.js'
 
 export function startServer(_opts: ServerOptions = {}): void {
@@ -158,10 +158,7 @@ export function startServer(_opts: ServerOptions = {}): void {
       )
     }
     try {
-      const recovered = await recoverDurableRuns(async (...args) => {
-        const runAgent = await getRunAgent()
-        return runAgent(...args)
-      })
+      const recovered = await recoverDurableRuns(runAgent)
       if (recovered > 0) {
         console.log(`[server] resumed ${recovered} interrupted durable run(s)`)
       }

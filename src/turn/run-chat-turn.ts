@@ -37,18 +37,13 @@ import {
   appendModeChange,
   getSessionTranscriptPath,
 } from '../session/index.js'
-import {
-  prepareChatTurn,
-  type PreparedChatTurn,
-} from '../utils/processUserInput/prepare_chat_turn.js'
+import { prepareChatTurn, type PreparedChatTurn } from './prepare-chat-turn.js'
 import { createCanUseTool } from '../core/can-use-tool.js'
 import { createTurnProfiler, profileSpan } from '../utils/startupProfiler.js'
-import { getSystemPromptForMode } from '../prompts/mode.js'
+import { systemPrompt as defaultSystemPrompt } from '../prompts/system.js'
 import { getSystemPromptForAgentProfile } from '../prompts/agent-profile.js'
-import { applyModeRestrictions } from '../core/mode-restrictions.js'
+import { withModeGate } from '../core/mode-restrictions.js'
 import { isToolReadOnly } from '../core/tool-definition.js'
-import { filterToolsRecordByDisallowedGlobs } from '../tools/AgentTool/toolGlob.js'
-import { planExists } from '../utils/plans.js'
 import { createMemoryLifecycleHooks } from './memory-lifecycle.js'
 import { stampTurnTiming } from './turn-timing.js'
 import { getInvokedSkillsForAgent } from '../skills/invoked-skills.js'
@@ -65,7 +60,6 @@ import {
   tokenCountWithEstimation,
 } from '../services/compact/index.js'
 import {
-  ensureMessageUuid,
   extractSessionMemory,
   getSessionMemoryPath,
 } from '../services/session-memory/index.js'
@@ -105,10 +99,8 @@ import {
   checkpointDurableRun,
   prepareDurableRunOpening,
 } from '../services/runs/run-manager.js'
-import {
-  persistFullCompactionFromCursor,
-  persistMessagesFromCursor,
-} from './transcript-checkpoint.js'
+import { runSessionTurn } from '../core/agent.js'
+import { fileHistoryMakeSnapshot } from '../utils/fileHistory.js'
 
 export interface RunChatTurnInput {
   message: string
@@ -157,13 +149,13 @@ const noopTransport: SSETransport = {
 
 /**
  * Primary profile REPLACE when in agent mode (overrides default system prompt).
+ * Ask and plan mode use the default prompt; their rules come as reminders.
  */
 async function resolveTurnSystemPrompt(
   session: Session,
   cwd: string,
   projectRules: string | undefined,
   profile: AgentDefinition | null,
-  planOpts: { planFilePath: string; planExists: boolean },
   memoryAppend?: string,
 ): Promise<string> {
   if (session.permissionMode.mode === 'agent' && profile) {
@@ -176,12 +168,7 @@ async function resolveTurnSystemPrompt(
       memoryAppend,
     )
   }
-  return getSystemPromptForMode(
-    session.permissionMode.mode,
-    cwd,
-    projectRules,
-    planOpts,
-  )
+  return defaultSystemPrompt(cwd, projectRules)
 }
 
 /** Private-primary memory guide; dropped with the profile when mode leaves agent. */
@@ -458,10 +445,6 @@ export async function runChatTurn(
         cwd,
         prepared.projectRules || undefined,
         prepared.mainThreadProfile,
-        {
-          planFilePath: prepared.planFilePath,
-          planExists: planExists(session, cwd),
-        },
         turnMemoryAppend(session, prepared),
       )
       const cacheSafeParams = createCacheSafeParams({
@@ -547,10 +530,6 @@ export async function runChatTurn(
         cwd,
         prepared.projectRules || undefined,
         prepared.mainThreadProfile,
-        {
-          planFilePath: prepared.planFilePath,
-          planExists: planExists(session, cwd),
-        },
         turnMemoryAppend(session, prepared),
       )
       const mainModelId = models.profile('large').model
@@ -624,7 +603,7 @@ export async function runChatTurn(
   })
 
   const messagesBefore = session.messages.length
-  let persistFrom = messagesBefore
+  const persisted = new Set<Message>()
   let finalText = ''
   let runError: Error | null = null
   let queryReason: QueryStopReason | undefined
@@ -648,12 +627,13 @@ export async function runChatTurn(
       lastMessageUuid,
     })
   }
-  const persistPendingMessages = () => {
-    persistFrom = persistMessagesFromCursor(
-      session.id,
-      session.messages,
-      persistFrom,
-    )
+  /** Writes what the engine did not, e.g. when the turn failed early. */
+  const persistRemainingMessages = () => {
+    for (const message of turnMessages()) {
+      if (persisted.has(message)) continue
+      appendMessage(session.id, message)
+      persisted.add(message)
+    }
     updateRunCheckpoint()
   }
 
@@ -663,25 +643,9 @@ export async function runChatTurn(
     cwd,
     prepared.projectRules || undefined,
     prepared.mainThreadProfile,
-    {
-      planFilePath: prepared.planFilePath,
-      planExists: planExists(session, cwd),
-    },
     turnMemoryAppend(session, prepared),
   )
   turnProfile.checkpoint('prompt_ready')
-
-  const refreshTools = () => {
-    const next = applyModeRestrictions(
-      session.permissionMode.mode,
-      prepared.baseTools,
-      {
-        extra: prepared.modeTools,
-        isReadOnly: name => isToolReadOnly(prepared.getToolDefinition(name)),
-      },
-    )
-    return filterToolsRecordByDisallowedGlobs(next, prepared.denyGlobs)
-  }
 
   const refreshSystemPrompt = () =>
     resolveTurnSystemPrompt(
@@ -692,10 +656,6 @@ export async function runChatTurn(
       session.permissionMode.mode === 'agent' && session.agentType
         ? prepared.mainThreadProfile
         : null,
-      {
-        planFilePath: prepared.planFilePath,
-        planExists: planExists(session, cwd),
-      },
       turnMemoryAppend(session, prepared),
     )
 
@@ -759,6 +719,9 @@ export async function runChatTurn(
           )
         : undefined
 
+    // Memories recalled before the first request. The loop adds them to the
+    // conversation ahead of the user message, so they are written in order.
+    const recalledMemories: Message[] = []
     try {
       if (memoryPrefetch) {
         const recallDecision = resolveMemoryRecallDecision(
@@ -770,9 +733,7 @@ export async function runChatTurn(
           prepared.toolUseContext.readFileState,
           0,
         )
-        for (const attachment of immediateAttachments) {
-          session.messages.push(ensureMessageUuid(attachment))
-        }
+        recalledMemories.push(...immediateAttachments)
         if (immediateAttachments.length > 0) {
           console.log(
             `[agent:main] memory recall decision=fast-hit attached=${immediateAttachments.length} before=step0`,
@@ -783,9 +744,7 @@ export async function runChatTurn(
             prepared.toolUseContext.readFileState,
             0,
           )
-          for (const attachment of semantic.attachments) {
-            session.messages.push(ensureMessageUuid(attachment))
-          }
+          recalledMemories.push(...semantic.attachments)
           console.log(
             semantic.timedOut
               ? '[agent:main] memory recall decision=semantic-timeout before=step0'
@@ -807,8 +766,14 @@ export async function runChatTurn(
         // A scheduled turn has nobody watching it.
         interactive: !isMeta,
       })
-      // Subagents ask through the same gate as the main agent.
+      // Subagents ask through the same gate as the main agent. The mode
+      // limits only the main thread; subagents have their own tool lists.
       prepared.toolContext.canUseTool = canUseTool
+      const mainThreadCanUseTool = withModeGate(
+        canUseTool,
+        () => session.permissionMode.mode,
+        name => isToolReadOnly(prepared.getToolDefinition(name)),
+      )
 
       const hooks = createSessionHookRunner({
         hooks: resolvedSettings.config.hooks,
@@ -827,75 +792,74 @@ export async function runChatTurn(
         hooks && !isMeta
           ? await submitUserPrompt(hooks, message, turnAbort.signal)
           : undefined
-      finalText = await runAgent(prepared.effectiveMessage, {
-        tools: prepared.tools,
-        systemPrompt,
-        eventBus,
-        wire,
-        provider,
-        fallbackProvider: models.fallbackProvider('large'),
-        toolUseSummary:
-          resolvedSettings.config.toolUseSummaries === false
-            ? undefined
-            : {
-                provider: models.provider('small'),
-                model: models.profile('small').model,
-              },
-        cwd,
-        compaction: resolvedSettings.config.compaction,
-        sessionMemory: resolvedSettings.config.sessionMemory,
-        messages: session.messages,
-        images: imageRefs,
-        attachmentPrelude,
-        afterUserMessages,
-        attachmentFiles,
-        displayUserMessage: message,
-        isMeta,
-        subagentNames: prepared.subagentNames,
-        deferredToolPool: prepared.deferredToolPool,
-        getToolDefinition: prepared.getToolDefinition,
-        canUseTool,
-        hooks,
-        concurrencyPolicy: prepared.concurrencyPolicy,
-        sessionId: session.id,
-        turnProfiler: turnProfile,
-        toolUseContext: prepared.toolUseContext,
-        refreshTools,
-        refreshSystemPrompt,
-        memoryPrefetch,
-        abortSignal: turnAbort.signal,
-        onMessagesSeeded: () => {
-          const opening = openingTurnMessage()
-          if (opening) {
+      const result = await runSessionTurn(
+        session.id,
+        prepared.effectiveMessage,
+        {
+          tools: prepared.tools,
+          systemPrompt,
+          eventBus,
+          wire,
+          provider,
+          fallbackProvider: models.fallbackProvider('large'),
+          toolUseSummary:
+            resolvedSettings.config.toolUseSummaries === false
+              ? undefined
+              : {
+                  provider: models.provider('small'),
+                  model: models.profile('small').model,
+                },
+          cwd,
+          compaction: resolvedSettings.config.compaction,
+          sessionMemory: resolvedSettings.config.sessionMemory,
+          messages: session.messages,
+          images: imageRefs,
+          leadingMessages: recalledMemories,
+          attachmentPrelude,
+          afterUserMessages,
+          attachmentFiles,
+          displayUserMessage: message,
+          isMeta,
+          subagentNames: prepared.subagentNames,
+          deferredToolPool: prepared.deferredToolPool,
+          getToolDefinition: prepared.getToolDefinition,
+          canUseTool: mainThreadCanUseTool,
+          hooks,
+          concurrencyPolicy: prepared.concurrencyPolicy,
+          sessionId: session.id,
+          turnProfiler: turnProfile,
+          toolUseContext: prepared.toolUseContext,
+          refreshSystemPrompt,
+          memoryPrefetch,
+          abortSignal: turnAbort.signal,
+          onAfterStep: memoryHooks.onAfterStep,
+          onTurnEnd: memoryHooks.onTurnEnd,
+        },
+        {
+          onSeeded: () => {
+            const opening = openingTurnMessage()
+            if (!opening) return
             if (durableRunId && opening.uuid) {
               prepareDurableRunOpening(durableRunId, opening.uuid)
+            }
+            if (!isMeta && opening.uuid) {
+              fileHistoryMakeSnapshot(session.id, opening.uuid)
+              wire.userMessageSaved(opening.uuid)
             }
             stampTurnTiming(turnMessages(), {
               isMeta: !!isMeta,
               startTime: turnStartTime,
               endTime: turnStartTime,
             })
-          }
-          persistPendingMessages()
+          },
+          onPersisted: message => {
+            persisted.add(message)
+            updateRunCheckpoint()
+          },
         },
-        onStepCommitted: () => {
-          persistPendingMessages()
-        },
-        onQueryResult: result => {
-          queryReason = result.reason
-        },
-        onAfterStep: memoryHooks.onAfterStep,
-        onTurnEnd: memoryHooks.onTurnEnd,
-        onFullCompaction: compactedMessages => {
-          persistFrom = persistFullCompactionFromCursor(
-            session.id,
-            session.messages,
-            persistFrom,
-            compactedMessages,
-          )
-          updateRunCheckpoint()
-        },
-      })
+      )
+      finalText = result.finalText
+      queryReason = result.reason
     } finally {
       memoryPrefetch?.dispose()
     }
@@ -920,7 +884,7 @@ export async function runChatTurn(
   if (opening?.uuid) {
     appendTurnTiming(session.id, opening.uuid, turnStartTime, turnEndTime)
   }
-  persistPendingMessages()
+  persistRemainingMessages()
 
   // A turn ends with one result event. query() emits it for every exit but
   // an abort; fill in only when it stayed silent or never got to run.

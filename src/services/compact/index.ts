@@ -11,6 +11,7 @@ export {
   estimateConversationTokens,
 } from './tokens.js'
 export type { AttachedTokenUsage } from './tokens.js'
+export { toAttachedUsage } from './tokens.js'
 
 export {
   applyMicroCompactProjection,
@@ -39,6 +40,7 @@ export {
 
 export {
   compactIfNeeded,
+  compactionLimits,
   resetCompactionFailures,
   isSummarizingCompactSource,
 } from './autoCompact.js'

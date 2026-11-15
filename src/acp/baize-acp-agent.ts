@@ -5,6 +5,8 @@ import type {
   CancelNotification,
   InitializeRequest,
   InitializeResponse,
+  LoadSessionRequest,
+  LoadSessionResponse,
   NewSessionRequest,
   NewSessionResponse,
   PromptRequest,
@@ -12,7 +14,7 @@ import type {
   SetSessionModeRequest,
   SetSessionModeResponse,
 } from '@agentclientprotocol/sdk'
-import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
+import { methods, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { RunAgentFn } from '../core/types.js'
 import {
   handlePlanModeTransition,
@@ -24,6 +26,7 @@ import { promptBlocksToUserTurn } from './prompt-input.js'
 import { AcpSessionRegistry, runAcpPromptTurn } from './turn-runner.js'
 import { AcpTurnSink } from './translate-outbound.js'
 import { APP_NAME } from '../brand.js'
+import { historyNotifications } from './history.js'
 
 export class BaizeAcpAgent {
   readonly #runAgent: RunAgentFn
@@ -40,7 +43,7 @@ export class BaizeAcpAgent {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: { name: APP_NAME, version: '1.0.0' },
       agentCapabilities: {
-        loadSession: false,
+        loadSession: true,
         promptCapabilities: {
           image: true,
           audio: false,
@@ -62,6 +65,24 @@ export class BaizeAcpAgent {
       sessionId: record.session.id,
       modes: sessionModeState(record.session),
     }
+  }
+
+  /** Resume a saved session, replaying its conversation to the client first. */
+  async loadSession(
+    params: LoadSessionRequest,
+    client: AgentContext,
+  ): Promise<LoadSessionResponse> {
+    const cwd = params.cwd || this.#defaultCwd
+    const record = this.#sessions.load(params.sessionId, cwd)
+    if (!record) throw new Error(`Session not found: ${params.sessionId}`)
+    for (const notification of historyNotifications(
+      params.sessionId,
+      record.session.messages,
+      cwd,
+    )) {
+      await client.notify(methods.client.session.update, notification)
+    }
+    return { modes: sessionModeState(record.session) }
   }
 
   setSessionMode(params: SetSessionModeRequest): SetSessionModeResponse {

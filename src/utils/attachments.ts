@@ -11,6 +11,8 @@ import {
 import type { Attachment } from './attachments/types.js'
 import { processAtMentionedFiles } from './attachments/generate-file-attachment.js'
 import {
+  getAskModeAttachments,
+  getAskModeExitAttachment,
   getPlanModeAttachments,
   getPlanModeExitAttachment,
 } from './attachments/plan-mode.js'
@@ -153,6 +155,12 @@ export async function getAttachments(
     ),
     maybe('plan_mode_exit', () =>
       Promise.resolve(getPlanModeExitAttachment(toolUseContext)),
+    ),
+    maybe('ask_mode', () =>
+      Promise.resolve([
+        ...getAskModeExitAttachment(messages, toolUseContext),
+        ...getAskModeAttachments(messages, toolUseContext),
+      ]),
     ),
     maybe('todo_reminders', () =>
       Promise.resolve(getTodoReminderAttachments(messages, toolUseContext)),

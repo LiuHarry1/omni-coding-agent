@@ -17,7 +17,6 @@ import {
   buildTruncationReminder,
   escalatedMaxOutputTokens,
   getMaxOutputTokens,
-  syncToolSet,
 } from './query/helpers.js'
 import {
   hookResultMessages,
@@ -36,7 +35,17 @@ import {
   TODO_WRITE_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { getActiveModelMessages } from '../services/compact/index.js'
+import {
+  compactionLimits,
+  getActiveModelMessages,
+  tokenCountWithEstimation,
+} from '../services/compact/index.js'
+import {
+  noticeFromBusEvent,
+  tapEventBus,
+  usageFromBusEvent,
+  type QueryEvent,
+} from './query/events.js'
 import { takeQueuedCommands } from '../utils/attachments/queued-commands.js'
 
 /** Plan approved — any of these in the same turn counts as implementation started. */
@@ -96,15 +105,28 @@ function stopReasonOf(terminal: Terminal): QueryStopReason {
       return 'max_steps'
     case 'model_error':
     case 'max_output_tokens':
+    case 'blocking_limit':
       return 'error'
   }
 }
 
-/**
- * Unified agent query loop.
- * Callers seed `messages` before invoking; `runAgent` appends the user turn.
- */
+/** Runs {@link queryEvents} to the end and returns its result. */
 export async function query(opts: QueryOptions): Promise<QueryResult> {
+  const events = queryEvents(opts)
+  while (true) {
+    const next = await events.next()
+    if (next.done) return next.value
+  }
+}
+
+/**
+ * Unified agent query loop. Callers seed `messages` before invoking;
+ * `runAgent` appends the user turn. Everything appended to `messages` is
+ * also yielded, in order, as a `message` event.
+ */
+export async function* queryEvents(
+  opts: QueryOptions,
+): AsyncGenerator<QueryEvent, QueryResult> {
   const {
     tools,
     systemPrompt,
@@ -121,7 +143,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     concurrencyPolicy,
     sessionId,
     toolUseContext,
-    refreshTools,
     refreshSystemPrompt,
     provider: configuredProvider,
     cwd,
@@ -138,6 +159,31 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
     turnProfiler,
   } = opts
   const deps = opts.deps ?? productionDeps()
+
+  const pendingQueryEvents: QueryEvent[] = []
+  // Only what this loop's own phases report; the session bus is shared.
+  const loopBus = tapEventBus(eventBus, (event, data) => {
+    if (event === 'usage') {
+      pendingQueryEvents.push({ type: 'usage', usage: usageFromBusEvent(data) })
+      return
+    }
+    const notice = noticeFromBusEvent(event, data)
+    if (!notice) return
+    // Shown right away: a retry notice is only useful while the retry waits.
+    wire.notice(notice)
+    pendingQueryEvents.push({ type: 'notice', notice })
+  })
+  const onCompacted: QueryOptions['onFullCompaction'] = rows => {
+    pendingQueryEvents.push({ type: 'compaction', messages: rows })
+    onFullCompaction?.(rows)
+  }
+  let emittedUpTo = opts.newMessagesFrom ?? messages.length
+  function* flush(): Generator<QueryEvent> {
+    while (pendingQueryEvents.length > 0) yield pendingQueryEvents.shift()!
+    while (emittedUpTo < messages.length) {
+      yield { type: 'message', message: messages[emittedUpTo++]! }
+    }
+  }
 
   if (!configuredProvider) {
     throw new Error('query requires a request-scoped provider')
@@ -196,14 +242,6 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
   const unsubMode = eventBus.on('mode_changed', data => {
     const newMode = (data as { mode?: string }).mode
     if (!newMode) return
-    // The tool set cannot wait for the step boundary: it is the only thing
-    // keeping a Write queued behind EnterPlanMode in this step from running.
-    if (refreshTools) {
-      syncToolSet(activeTools, refreshTools())
-      console.log(
-        `[${agentLogTag(logLabel)}] refreshed tools for mode=${newMode}: ${Object.keys(activeTools).join(', ')}`,
-      )
-    }
     pendingEvents.mode = newMode
   })
 
@@ -292,7 +330,10 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
    * abort has its interrupt marker instead) and returns the outcome. Todos
    * are left as the model last wrote them on every exit.
    */
-  const finish = (terminal: Terminal, text: string): QueryResult => {
+  function* finish(
+    terminal: Terminal,
+    text: string,
+  ): Generator<QueryEvent, QueryResult> {
     switch (terminal.reason) {
       case 'completed':
         wire.done()
@@ -309,6 +350,12 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         break
       case 'model_error':
         wire.error(terminal.error)
+        break
+      case 'blocking_limit':
+        wire.error(
+          `The conversation (~${terminal.currentTokens.toLocaleString()} tokens) no longer fits this model's context ` +
+            `(limit ${terminal.blockingLimit.toLocaleString()}). Run /compact or start a new conversation.`,
+        )
         break
       case 'max_output_tokens': {
         const hits = state.maxOutputTokensRecoveryCount + 1
@@ -341,12 +388,14 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       },
       reason,
     )
+    yield* flush()
     return { finalText: text, messages, reason, terminal, transitions }
   }
 
   try {
     while (true) {
       state = await applyPendingEvents(state)
+      yield* flush()
       const {
         turnCount,
         maxOutputTokensRecoveryCount,
@@ -365,7 +414,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       const requestModel = modelFor(usingFallbackModel)
 
       /** Abort noticed between requests: nothing in flight to salvage. */
-      const finishInterrupted = (): QueryResult =>
+      const finishInterrupted = () =>
         finish(
           { reason: 'aborted_streaming' },
           finalizeInterruptedTurn(messages, wire, {
@@ -385,7 +434,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           systemPrompt: activeSystemPrompt,
           provider: requestModel.provider,
           resolvedModel: requestModel.model,
-          eventBus,
+          eventBus: loopBus,
           wire,
           step: stepLimit,
           currentTodos,
@@ -393,22 +442,22 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           compaction,
           sessionMemory,
           sessionId,
-          onFullCompaction,
+          onFullCompaction: onCompacted,
           compactEnrichment,
         })
-        return finish(
+        return yield* finish(
           { reason: 'max_turns', turnCount, summarized: summary !== '' },
           summary || text,
         )
       }
 
-      if (abortSignal?.aborted) return finishInterrupted()
+      if (abortSignal?.aborted) return yield* finishInterrupted()
       wire.stepStart(step)
       const stepStart = Date.now()
 
       const activeMessages = await deps.preTurn({
         messages,
-        eventBus,
+        eventBus: loopBus,
         wire,
         step,
         resolvedModel: requestModel.model,
@@ -418,7 +467,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         compaction,
         sessionMemory,
         sessionId,
-        onFullCompaction,
+        onFullCompaction: onCompacted,
         compactEnrichment,
         logLabel,
         readFileState: toolUseContext?.readFileState,
@@ -427,7 +476,32 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         tools: activeTools,
       })
 
-      if (abortSignal?.aborted) return finishInterrupted()
+      yield* flush()
+      if (abortSignal?.aborted) return yield* finishInterrupted()
+
+      // Without auto-compaction nothing can make room; a request this size
+      // would only be refused.
+      const limits = compactionLimits(compaction, requestModel.provider)
+      if (!limits.autoCompactEnabled) {
+        const currentTokens = tokenCountWithEstimation(activeMessages).total
+        if (currentTokens >= limits.blockingLimit) {
+          const notice = {
+            kind: 'context_blocked' as const,
+            current_tokens: currentTokens,
+            blocking_limit: limits.blockingLimit,
+          }
+          wire.notice(notice)
+          pendingQueryEvents.push({ type: 'notice', notice })
+          return yield* finish(
+            {
+              reason: 'blocking_limit',
+              currentTokens,
+              blockingLimit: limits.blockingLimit,
+            },
+            priorText,
+          )
+        }
+      }
 
       wire.turnState('requesting', 'model.request', 'Waiting for model')
       const stepResult = await deps.runStep({
@@ -438,7 +512,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         provider: requestModel.provider,
         resolvedModel: requestModel.model,
         fallback: usingFallbackModel ? undefined : fallback,
-        eventBus,
+        eventBus: loopBus,
         wire,
         subagentNames,
         step,
@@ -452,9 +526,10 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         compaction,
         sessionMemory,
         sessionId,
-        onFullCompaction,
+        onFullCompaction: onCompacted,
         compactEnrichment,
         logLabel,
+        agentId: opts.agentId,
         abortSignal,
         readFileState: toolUseContext?.readFileState,
         dumpPrompts,
@@ -462,9 +537,10 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         turnProfiler,
         maxOutputTokensOverride,
       })
+      yield* flush()
 
       if (stepResult.aborted) {
-        return finish(
+        return yield* finish(
           {
             reason:
               stepResult.abortPhase === 'tools'
@@ -489,12 +565,12 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       // fall through so the committed prefix gets a continuation nudge below.
       if (!stepResult.completedCleanly && !stepResult.truncated) {
         // An abort that raced the failure is still an abort.
-        if (abortSignal?.aborted) return finishInterrupted()
+        if (abortSignal?.aborted) return yield* finishInterrupted()
         // runStep has already committed every complete assistant/tool pair.
         // Persist that valid prefix, but never turn an interrupted stream into
         // a successful turn or replay tools that may already have side effects.
         await onStepCommitted?.(messages)
-        return finish(
+        return yield* finish(
           {
             reason: 'model_error',
             error:
@@ -534,7 +610,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
         messages,
         activeTools,
         deferredPool: pool,
-        eventBus,
+        eventBus: loopBus,
         memoryPrefetch,
         toolUseContext,
         sessionId,
@@ -553,7 +629,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
       // A PreToolUse / PostToolUse hook answered `continue: false`. The tool
       // results are committed; the model is not asked again.
       if (stepResult.hookStopped !== undefined) {
-        return finish(
+        return yield* finish(
           {
             reason: 'hook_stopped',
             notice: hookStopNotice(stepResult.hookStopped),
@@ -589,7 +665,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           console.warn(
             `[${agentLogTag(logLabel)}] output token limit hit ${maxOutputTokensRecoveryCount + 1} times in a row -- giving up`,
           )
-          return finish(
+          return yield* finish(
             { reason: 'max_output_tokens' },
             extractPartialResult(messages) ?? finalText,
           )
@@ -634,14 +710,14 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
           if (hooks?.has('Stop')) {
             wire.turnState('tool-use', 'hooks.stop', 'Running Stop hooks')
             const stop = await hooks.stop(stopHookActive, abortSignal)
-            if (abortSignal?.aborted) return finishInterrupted()
+            if (abortSignal?.aborted) return yield* finishInterrupted()
             const notes = hookResultMessages(stop)
             for (const note of notes) {
               messages.push(ensureMessageUuid(note))
             }
             if (notes.length > 0) await onStepCommitted?.(messages)
             if (stop.preventContinuation) {
-              return finish(
+              return yield* finish(
                 {
                   reason: 'stop_hook_prevented',
                   notice: hookStopNotice(hookStoppedMessage(stop)),
@@ -680,7 +756,7 @@ export async function query(opts: QueryOptions): Promise<QueryResult> {
               continue
             }
           }
-          return finish(
+          return yield* finish(
             { reason: 'completed' },
             extractPartialResult(messages) ?? finalText,
           )
@@ -757,6 +833,10 @@ Do not reply with a summary or status update only -- call TodoWrite, Write, Edit
         transition: { reason: 'next_turn' },
       }
     }
+  } catch (err) {
+    // What was appended before the failure still belongs to the transcript.
+    yield* flush()
+    throw err
   } finally {
     unsubPlanReady()
     unsubMode()

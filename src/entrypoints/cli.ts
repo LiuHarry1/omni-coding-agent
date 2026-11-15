@@ -24,8 +24,8 @@ async function main(): Promise<void> {
 
   if (mode === 'stdio') {
     const [{ startStdioAgent }, { runAgent }] = await Promise.all([
-      import('../cli.js'),
-      import('../agent.js'),
+      import('../cli/main.js'),
+      import('../core/agent.js'),
     ])
     await startStdioAgent(runAgent)
     return
@@ -36,14 +36,14 @@ async function main(): Promise<void> {
       console.error('Unhandled Rejection at:', promise, 'reason:', reason)
     })
     const [{ startAcpAgent }, { runAgent }] = await Promise.all([
-      import('../acp.js'),
-      import('../agent.js'),
+      import('../acp/main.js'),
+      import('../core/agent.js'),
     ])
     await startAcpAgent(runAgent)
     return
   }
 
-  const { startServer } = await import('../server.js')
+  const { startServer } = await import('../server/index.js')
   startServer()
 }
 

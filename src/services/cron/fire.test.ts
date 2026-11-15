@@ -3,9 +3,7 @@ import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-vi.mock('../../agent-lazy.js', () => ({
-  getRunAgent: async () => async () => {},
-}))
+vi.mock('../../core/agent.js', () => ({ runAgent: async () => '' }))
 vi.mock('../../turn/run-chat-turn.js', () => ({
   runChatTurn: vi.fn(async () => {
     throw new Error('turn failed after running tools')

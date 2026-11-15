@@ -22,6 +22,7 @@ import {
   getLspWorkspaceKey,
 } from '../../services/lsp/manager.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import { fileHistoryTrackEdit } from '../../utils/fileHistory.js'
 import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 import { writesToAgentHost } from '../../execution/fs-route.js'
 import {
@@ -275,6 +276,7 @@ export const definition: ToolDefinition = {
         if ('error' in plan) return plan.error
         const { matchCount, newContent } = plan
 
+        fileHistoryTrackEdit(context.sessionId, abs)
         fs.writeFileSync(abs, newContent, 'utf-8')
         recordWriteInState(
           activeReadFileState(

@@ -2,6 +2,7 @@ import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
 import ModePicker from './ModePicker.jsx'
+import ContextNotice from './ContextNotice.jsx'
 import SchedulePicker from './SchedulePicker.jsx'
 import { agentApi } from '../lib/api/agent.js'
 import { createEnvironmentFsClient } from '../lib/environment-fs.js'
@@ -840,6 +841,7 @@ export default function InputArea() {
             ))}
           </div>
         )}
+        <ContextNotice />
         {attachError && (
           <div className='attach-error' role='alert'>
             {attachError}

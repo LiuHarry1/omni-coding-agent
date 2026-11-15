@@ -448,6 +448,20 @@
   color: var(--text-primary);
 }
 
+.context-notice {
+  margin: 0 12px 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: rgba(210, 153, 34, 0.12);
+  color: #c69026;
+  font-size: 12px;
+}
+
+.context-notice--blocked {
+  background: rgba(229, 83, 75, 0.12);
+  color: #e5534b;
+}
+
 .attach-error {
   display: flex;
   align-items: center;

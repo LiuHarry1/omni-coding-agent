@@ -3,7 +3,8 @@
  * access control stays here because it depends on server auth.
  */
 import type { Session } from '../core/types.js'
-import { isAuthEnabled, isSuperRole } from './auth/identity.js'
+import { isSuperRole } from './auth/identity.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 export {
   getToolResultFilePath,
@@ -26,7 +27,7 @@ export {
 } from '../session/index.js'
 
 /**
- * Whether `requesterEmail` may read/modify `session`.
+ * Whether `requesterEmail` may read `session`.
  *
  * - Auth off (legacy / local / password mode): always true.
  * - Auth on: the requester must match the session's recorded owner, unless
@@ -41,4 +42,27 @@ export function canAccessSession(
   if (!isAuthEnabled()) return true
   if (isSuperRole(requesterRole)) return true
   return Boolean(requesterEmail) && session.ownerEmail === requesterEmail
+}
+
+/**
+ * Whether the requester may change or delete `session`.
+ *
+ * Super may view any session ({@link canAccessSession}) but may only mutate
+ * their own — same rule as DELETE /sessions/:id.
+ */
+export function canMutateSession(
+  session: Session,
+  requesterEmail: string | undefined,
+  requesterRole?: string,
+): boolean {
+  if (!canAccessSession(session, requesterEmail, requesterRole)) return false
+  if (!isAuthEnabled()) return true
+  if (
+    isSuperRole(requesterRole) &&
+    session.ownerEmail &&
+    session.ownerEmail !== requesterEmail
+  ) {
+    return false
+  }
+  return true
 }

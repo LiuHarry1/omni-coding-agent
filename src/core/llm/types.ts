@@ -43,6 +43,11 @@ export interface LlmProfile {
    * max_tokens, steps that continue after an output-limit cut ask for more.
    */
   maxOutputTokens?: number
+  /**
+   * Tokens the endpoint accepts per request. Needed for gateways, whose limit
+   * may be below the model's; first-party models have a built-in default.
+   */
+  contextWindow?: number
 }
 
 export type AgentStreamTextExtras = {
@@ -91,6 +96,8 @@ export interface IProvider {
   supportsImageInput?(): boolean
   /** The profile's `maxOutputTokens`. Omitted/undefined → unknown, never raised. */
   maxOutputTokenCap?(): number | undefined
+  /** Tokens a request may hold. Omitted/undefined → the compaction setting applies. */
+  contextWindow?(): number | undefined
 }
 
 export interface ProviderStrategy {

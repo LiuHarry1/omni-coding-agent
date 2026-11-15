@@ -45,7 +45,6 @@ import {
 import {
   authenticateRequest,
   getUsersRoot,
-  isAuthEnabled,
   isSuperUser,
   AuthError,
   type AuthedRequest,
@@ -78,7 +77,8 @@ import {
 } from './routes/workspace-reset.js'
 import { handleSessionLive } from './session-live.js'
 import { handleSessionQueue } from './routes/session-queue.js'
-import { getRunAgent } from '../agent-lazy.js'
+import { handleSessionRewind } from './routes/session-rewind.js'
+import { runAgent } from '../core/agent.js'
 import { abortTool } from '../core/tool-abort-registry.js'
 import {
   attachDurableRunStream,
@@ -107,14 +107,15 @@ import {
   appendModeChange,
   appendAgentChange,
   canAccessSession,
+  canMutateSession,
 } from './session.js'
 import { sessionJsonlToUIMessages } from './session-ui.js'
 import type {
   RouterOptions,
   MCPServerConfig,
   AppConfig,
-  RunAgentFn,
 } from '../core/types.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 registerBuiltinSubagents(defaultRegistry)
 initCodePlugins(defaultRegistry).catch(err => {
@@ -153,11 +154,7 @@ export function createRouter({ staticDir }: RouterOptions) {
       }
     },
   })
-  const lazyRunAgent: RunAgentFn = async (...args) => {
-    const runAgent = await getRunAgent()
-    return runAgent(...args)
-  }
-  const skillsApi = createSkillsApi({ runAgent: lazyRunAgent })
+  const skillsApi = createSkillsApi({ runAgent })
   const executionRouter = createExecutionRouter()
   const cloudWorkspacesRouter = createCloudWorkspacesRouter()
   const capabilitiesRouter = createCapabilitiesRouter()
@@ -355,7 +352,7 @@ export function createRouter({ staticDir }: RouterOptions) {
       if (method === 'DELETE' && url?.startsWith('/sessions/')) {
         const id = url.split('/sessions/')[1]
         const session = getSession(id)
-        // 404 (not 403) when the caller doesn't own it — don't leak existence.
+        // 404 (not 403) when the caller can't see it — don't leak existence.
         // Super may view any session but may only delete their own.
         if (
           session &&
@@ -366,10 +363,7 @@ export function createRouter({ staticDir }: RouterOptions) {
         }
         if (
           session &&
-          isAuthEnabled() &&
-          isSuperUser(authed.user) &&
-          session.ownerEmail &&
-          session.ownerEmail !== authed.user?.email
+          !canMutateSession(session, authed.user?.email, authed.user?.role)
         ) {
           sendJSON(res, 403, { error: "Cannot delete another user's session" })
           return
@@ -395,6 +389,7 @@ export function createRouter({ staticDir }: RouterOptions) {
       }
       if (handleSessionLive(req, res)) return
       if (await handleSessionQueue(req, res)) return
+      if (await handleSessionRewind(req, res)) return
       if (method === 'GET' && url?.match(/^\/sessions\/[^/]+\/messages$/)) {
         const id = url.split('/sessions/')[1].split('/messages')[0]
         const session = getSession(id)
@@ -1227,7 +1222,7 @@ export function createRouter({ staticDir }: RouterOptions) {
       }
 
       if (method === 'POST' && url?.split('?')[0] === '/chat') {
-        await handleChat(req, res, lazyRunAgent)
+        await handleChat(req, res, runAgent)
         return
       }
 

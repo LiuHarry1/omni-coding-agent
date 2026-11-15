@@ -11,6 +11,7 @@ import {
   getManagedMemoryEntryPaths,
 } from './managed-path.js'
 import { getAgentHome } from './request-scope.js'
+import { isAuthEnabled } from './env.js'
 
 /**
  * Instructions loader (memory + rules, with managed policy layer).
@@ -94,11 +95,7 @@ function findGitRoot(dir: string): string | null {
 
 function projectCeiling(absDir: string): string {
   const gitRoot = findGitRoot(absDir)
-  const authEnabled =
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  if (!authEnabled) return gitRoot || absDir
+  if (!isAuthEnabled()) return gitRoot || absDir
 
   const home =
     canonicalExistingPath(getAgentHome()) ?? path.resolve(getAgentHome())
@@ -109,11 +106,7 @@ function projectCeiling(absDir: string): string {
 }
 
 function isTrustedProjectDir(absDir: string): boolean {
-  const authEnabled =
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  if (!authEnabled) return true
+  if (!isAuthEnabled()) return true
   const home =
     canonicalExistingPath(getAgentHome()) ?? path.resolve(getAgentHome())
   const candidate = canonicalExistingPath(absDir) ?? path.resolve(absDir)

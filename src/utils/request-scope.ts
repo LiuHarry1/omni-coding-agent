@@ -13,6 +13,7 @@ import { AsyncLocalStorage } from 'node:async_hooks'
 import * as os from 'os'
 import * as path from 'path'
 import { normalizeWorkspacePath } from '../core/workspace-path.js'
+import { isAuthEnabled } from './env.js'
 
 export type RequestScope = {
   /** Logical HOME for user-scope app-dir, tilde expand, shell $HOME. */
@@ -22,14 +23,6 @@ export type RequestScope = {
 }
 
 const requestScopeAls = new AsyncLocalStorage<RequestScope>()
-
-function authEnabled(): boolean {
-  return (
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  )
-}
 
 /** Run `fn` with request scope bound for the current async context. */
 export function runWithRequestScope<T>(scope: RequestScope, fn: () => T): T {
@@ -52,7 +45,7 @@ export function getRequestScope(): RequestScope | undefined {
  * Logical HOME. AUTH off → os.homedir(). AUTH on → ALS agentHome or throw.
  */
 export function getAgentHome(): string {
-  if (!authEnabled()) {
+  if (!isAuthEnabled()) {
     return os.homedir()
   }
   const scope = requestScopeAls.getStore()
@@ -84,7 +77,7 @@ export function resolveAgentHome(explicit?: string): string {
 export function getRequestCwd(): string {
   const scope = requestScopeAls.getStore()
   if (scope?.cwd) return scope.cwd
-  if (authEnabled()) {
+  if (isAuthEnabled()) {
     throw new Error(
       'getRequestCwd() called with AUTH_ENABLED but no request scope; wrap with runWithRequestScope({ agentHome, cwd })',
     )
@@ -102,7 +95,7 @@ export function getShellHome(): string {
   try {
     return getAgentHome()
   } catch (err) {
-    if (authEnabled()) {
+    if (isAuthEnabled()) {
       const pinned = process.env.HOME?.trim()
       if (pinned) return path.resolve(pinned)
     }

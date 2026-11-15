@@ -6,16 +6,12 @@ const esbuild = require('esbuild')
 const fs = require('fs')
 const path = require('path')
 
-const root = path.join(__dirname, '../..')
-const brand = JSON.parse(
-  fs.readFileSync(path.join(root, 'brand.json'), 'utf8'),
-)
+const root = path.join(__dirname, '..')
+const brand = JSON.parse(fs.readFileSync(path.join(root, 'brand.json'), 'utf8'))
 const slug = brand.slug || 'baize'
 const agentFile = `${slug}-agent.cjs`
 const outfile = path.join(root, 'dist', 'agent', agentFile)
-const pkg = JSON.parse(
-  fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-)
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 /** Native or heavy deps resolved at runtime from node_modules next to AGENT_ROOT. */
 const external = [

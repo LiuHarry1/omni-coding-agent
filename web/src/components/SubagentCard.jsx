@@ -84,8 +84,10 @@ export default function SubagentCard({ part, onStopTool }) {
     args.description ||
     args.task ||
     (typeof args.prompt === 'string' ? args.prompt.slice(0, 120) : '') ||
+    (typeof args.message === 'string' ? args.message.slice(0, 120) : '') ||
     null
-  const fullPrompt = args.prompt || args.task || ''
+  // SendMessage continues an agent: `message` is its prompt.
+  const fullPrompt = args.prompt || args.task || args.message || ''
   const isDone = part.status === 'done'
   const isError =
     isDone &&

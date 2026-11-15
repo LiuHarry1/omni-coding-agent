@@ -12,7 +12,7 @@
  * running one is over, so the copies left here are dropped at turn end.
  */
 import { randomUUID } from 'crypto'
-import { getRunAgent } from '../../agent-lazy.js'
+import { runAgent } from '../../core/agent.js'
 import { EventBus } from '../../core/event-bus.js'
 import { queuedTurnMessage } from '../../core/protocol-messages.js'
 import type { Session } from '../../core/types.js'
@@ -170,7 +170,6 @@ async function runQueuedTurn(
       }
     }
 
-    const runAgent = await getRunAgent()
     const transport = createSessionLiveTransport(session.id)
     transport.emit(
       queuedTurnMessage(commands[0]!.mode, notificationSummaries(commands), {

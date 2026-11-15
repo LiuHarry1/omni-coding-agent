@@ -378,7 +378,9 @@ describe('Agent tool: where it cannot run in the background', () => {
     await vi.waitFor(() => expect(calls).toHaveLength(1))
     finish('Found 12 routes.')
 
-    expect(((await pending) as ToolResult).data.text).toBe('Found 12 routes.')
+    expect(((await pending) as ToolResult).data.text).toMatch(
+      /^Found 12 routes\.\n\nagentId: /,
+    )
     expect(tasks()).toEqual([])
   })
 
@@ -391,7 +393,9 @@ describe('Agent tool: where it cannot run in the background', () => {
     expect(emitted.length).toBeGreaterThan(0)
     finish('Found 12 routes.')
 
-    expect(((await pending) as ToolResult).data.text).toBe('Found 12 routes.')
+    expect(((await pending) as ToolResult).data.text).toMatch(
+      /^Found 12 routes\.\n\nagentId: /,
+    )
     expect(tasks()).toEqual([])
     expect(dequeueAll(sessionId)).toEqual([])
   })

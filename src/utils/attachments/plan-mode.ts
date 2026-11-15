@@ -32,12 +32,19 @@ function isHumanUserTurn(message: Message): boolean {
   return content.length > 0 && !isSystemReminderContent(content)
 }
 
-function getPlanModeAttachmentTurnCount(messages: Message[]): {
+/**
+ * Human turns since the latest reminder of a mode. A reminder from before
+ * the mode was last left does not count: re-entering needs a fresh one.
+ */
+function getModeReminderTurnCount(
+  messages: Message[],
+  reminderTypes: ReadonlyArray<Attachment['type']>,
+  exitType: Attachment['type'],
+): {
   turnCount: number
   foundPlanModeAttachment: boolean
 } {
   let turnsSinceLastAttachment = 0
-  let foundPlanModeAttachment = false
 
   for (let i = messages.length - 1; i >= 0; i--) {
     const message = messages[i]
@@ -45,17 +52,38 @@ function getPlanModeAttachmentTurnCount(messages: Message[]): {
 
     if (isHumanUserTurn(message)) {
       turnsSinceLastAttachment++
-    } else if (
-      isAttachmentMessage(message) &&
-      (message.attachment.type === 'plan_mode' ||
-        message.attachment.type === 'plan_mode_reentry')
-    ) {
-      foundPlanModeAttachment = true
-      break
+    } else if (isAttachmentMessage(message)) {
+      if (message.attachment.type === exitType) break
+      if (reminderTypes.includes(message.attachment.type)) {
+        return {
+          turnCount: turnsSinceLastAttachment,
+          foundPlanModeAttachment: true,
+        }
+      }
     }
   }
 
-  return { turnCount: turnsSinceLastAttachment, foundPlanModeAttachment }
+  return {
+    turnCount: turnsSinceLastAttachment,
+    foundPlanModeAttachment: false,
+  }
+}
+
+function needsModeReminder(
+  messages: Message[] | undefined,
+  reminderTypes: ReadonlyArray<Attachment['type']>,
+  exitType: Attachment['type'],
+): boolean {
+  if (!messages || messages.length === 0) return true
+  const { turnCount, foundPlanModeAttachment } = getModeReminderTurnCount(
+    messages,
+    reminderTypes,
+    exitType,
+  )
+  return (
+    !foundPlanModeAttachment ||
+    turnCount >= PLAN_MODE_ATTACHMENT_CONFIG.TURNS_BETWEEN_ATTACHMENTS
+  )
 }
 
 function countPlanModeAttachmentsSinceLastExit(messages: Message[]): number {
@@ -75,16 +103,14 @@ export function getPlanModeAttachments(
 ): Attachment[] {
   const mode = ctx.session.permissionMode.mode
   if (mode !== 'plan') return []
-
-  if (messages && messages.length > 0) {
-    const { turnCount, foundPlanModeAttachment } =
-      getPlanModeAttachmentTurnCount(messages)
-    if (
-      foundPlanModeAttachment &&
-      turnCount < PLAN_MODE_ATTACHMENT_CONFIG.TURNS_BETWEEN_ATTACHMENTS
-    ) {
-      return []
-    }
+  if (
+    !needsModeReminder(
+      messages,
+      ['plan_mode', 'plan_mode_reentry'],
+      'plan_mode_exit',
+    )
+  ) {
+    return []
   }
 
   const planFilePath = getPlanFilePath(ctx.session, ctx.cwd)
@@ -131,6 +157,34 @@ export function getPlanModeExitAttachment(ctx: ToolUseContext): Attachment[] {
       planExists: planExists(ctx.session, ctx.cwd),
     },
   ]
+}
+
+/** Ask-mode rules while ask mode is active, at the plan-mode cadence. */
+export function getAskModeAttachments(
+  messages: Message[] | undefined,
+  ctx: ToolUseContext,
+): Attachment[] {
+  if (ctx.session.permissionMode.mode !== 'ask') return []
+  return needsModeReminder(messages, ['ask_mode'], 'ask_mode_exit')
+    ? [{ type: 'ask_mode' }]
+    : []
+}
+
+/** Says ask mode is over once the mode changed after an ask-mode reminder. */
+export function getAskModeExitAttachment(
+  messages: Message[] | undefined,
+  ctx: ToolUseContext,
+): Attachment[] {
+  if (ctx.session.permissionMode.mode === 'ask' || !messages) return []
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i]
+    if (!message || !isAttachmentMessage(message)) continue
+    if (message.attachment.type === 'ask_mode_exit') return []
+    if (message.attachment.type === 'ask_mode') {
+      return [{ type: 'ask_mode_exit' }]
+    }
+  }
+  return []
 }
 
 function attachmentToMessage(text: string): UserMessage {

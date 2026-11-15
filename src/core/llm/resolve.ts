@@ -88,6 +88,10 @@ export function resolveProfile(raw: unknown): LlmProfile {
       typeof merged.maxOutputTokens === 'number' && merged.maxOutputTokens > 0
         ? merged.maxOutputTokens
         : undefined,
+    contextWindow:
+      typeof merged.contextWindow === 'number' && merged.contextWindow > 0
+        ? merged.contextWindow
+        : undefined,
   }
 }
 
@@ -102,5 +106,6 @@ export function profileToRecord(p: LlmProfile): Record<string, unknown> {
     thinking: p.thinking,
     vision: p.vision,
     maxOutputTokens: p.maxOutputTokens,
+    contextWindow: p.contextWindow,
   }
 }

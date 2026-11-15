@@ -13,6 +13,7 @@ import { SUPPRESSED_TOOL_CARDS } from '../../lib/tool-names.js'
 import { getMdComponents } from '../../lib/markdown-components.jsx'
 import CompactionRow from '../CompactionRow.jsx'
 import PartRenderer from '../PartRenderer.jsx'
+import UserMessageActions from '../UserMessageActions.jsx'
 
 function UserAttachmentImg({ src, index, onOpen }) {
   const { src: resolved, failed } = useAuthedImage(src)
@@ -102,6 +103,9 @@ function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
           </div>
         )}
         {bubble.content}
+        {bubble.messageId && !embedded && (
+          <UserMessageActions messageId={bubble.messageId} />
+        )}
         {lightbox && (
           <div className='lightbox' onClick={() => setLightbox(null)}>
             <img src={lightbox} alt='Preview' />

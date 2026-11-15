@@ -40,7 +40,7 @@ import { formatSkillListing, MAX_LISTING_DESC_CHARS } from '../skills/index.js'
 import { loadSkillsFromDisk } from '../skills/loadSkillsDir.js'
 import { getAttachmentMessages } from '../utils/attachments.js'
 import { expandAttachmentMessagesForAPI } from '../utils/messages.js'
-import { resolveSlashCommand } from '../utils/processUserInput/prepare_chat_turn.js'
+import { resolveSlashCommand } from '../turn/prepare-chat-turn.js'
 import { toolResultOutputToText } from '../utils/tool-result-content.js'
 
 const REPO_ROOT = path.resolve(

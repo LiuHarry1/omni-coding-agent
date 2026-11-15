@@ -123,7 +123,7 @@ flowchart LR
 ## Source map
 
 - Turn ownership and persistence: `src/turn/run-chat-turn.ts`
-- Per-turn preparation: `src/utils/processUserInput/prepare_chat_turn.ts`
+- Per-turn preparation: `src/turn/prepare-chat-turn.ts`
 - Loop, continuation, and stopping: `src/core/query.ts`
 - Queued commands: `src/utils/messageQueueManager.ts`,
   `src/services/queue/queue-processor.ts`

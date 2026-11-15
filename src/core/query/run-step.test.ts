@@ -14,6 +14,7 @@ import type { IProvider } from '../llm/types.js'
 import { registerSessionLocation } from '../session-paths.js'
 import type { Message } from '../types.js'
 import { noopWireEmitter } from '../wire-emitter.js'
+import { MAX_REQUEST_RETRIES } from '../llm/with-retry.js'
 import { runStep, withExecutorToolCalls, type RunStepArgs } from './run-step.js'
 
 type DoStream = NonNullable<
@@ -214,7 +215,7 @@ describe('runStep when the model is overloaded', () => {
     expect(messages.at(-1)).toMatchObject({ role: 'assistant' })
   })
 
-  it("counts the SDK's own retries toward the three", async () => {
+  it('sends each attempt itself instead of leaving retries to the SDK', async () => {
     const { fallback, requests: fallbackRequests } = fallbackModel()
     const { args, requests } = stepArgs(
       () => {
@@ -225,8 +226,7 @@ describe('runStep when the model is overloaded', () => {
 
     const result = await settled(runStep(args))
 
-    // One surfaced error stands for the request and its three SDK retries.
-    expect(requests).toHaveLength(4)
+    expect(requests).toHaveLength(3)
     expect(fallbackRequests).toHaveLength(1)
     expect(result.modelFallback).toBe(true)
   })
@@ -271,7 +271,7 @@ describe('runStep when the model is overloaded', () => {
 
     const result = await settled(runStep(args))
 
-    expect(requests).toHaveLength(3)
+    expect(requests).toHaveLength(1 + MAX_REQUEST_RETRIES)
     expect(result.completedCleanly).toBe(false)
     expect(result.completionError).toContain('Overloaded')
     expect(result.modelFallback).toBeUndefined()

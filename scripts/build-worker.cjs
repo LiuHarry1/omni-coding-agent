@@ -7,17 +7,13 @@ const esbuild = require('esbuild')
 const fs = require('fs')
 const path = require('path')
 
-const root = path.join(__dirname, '../..')
-const brand = JSON.parse(
-  fs.readFileSync(path.join(root, 'brand.json'), 'utf8'),
-)
+const root = path.join(__dirname, '..')
+const brand = JSON.parse(fs.readFileSync(path.join(root, 'brand.json'), 'utf8'))
 const slug = brand.slug || 'baize'
 const workerFile = `${slug}-worker.cjs`
 const outfile = path.join(root, 'dist', 'worker', workerFile)
 const versionFile = path.join(root, 'dist', 'worker', 'version.json')
-const pkg = JSON.parse(
-  fs.readFileSync(path.join(root, 'package.json'), 'utf8'),
-)
+const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'))
 
 async function main() {
   fs.mkdirSync(path.dirname(outfile), { recursive: true })
@@ -39,10 +35,7 @@ async function main() {
   // (package.json version alone stays stable across rebuilds).
   const builtAt = new Date().toISOString()
   const version = `${pkg.version || '1.0.0'}+${builtAt.replace(/[-:.]/g, '').replace('T', '').replace('Z', '')}`
-  fs.writeFileSync(
-    versionFile,
-    JSON.stringify({ version, builtAt }, null, 2),
-  )
+  fs.writeFileSync(versionFile, JSON.stringify({ version, builtAt }, null, 2))
   // Remove stale worker bundles from other brand slugs
   const workerDir = path.join(root, 'dist', 'worker')
   for (const name of fs.readdirSync(workerDir)) {

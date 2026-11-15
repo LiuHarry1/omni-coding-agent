@@ -15,8 +15,7 @@ import {
   ENTER_PLAN_MODE_TOOL_NAME,
   TOOL_SEARCH_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { applyModeRestrictions } from '../core/mode-restrictions.js'
-import { instantiateTool, isToolReadOnly } from '../core/tool-definition.js'
+import { instantiateTool } from '../core/tool-definition.js'
 import { definition as enterPlanModeDef } from './EnterPlanModeTool/EnterPlanModeTool.js'
 import { definition as exitPlanModeDef } from './ExitPlanModeTool/ExitPlanModeTool.js'
 import { findPrimaryAgent } from './AgentTool/mergeAgents.js'
@@ -51,9 +50,6 @@ export interface AssembleToolPoolInput {
 
 export interface AssembleToolPoolResult {
   tools: Record<string, AnyTool>
-  /** Tools before mode filtering -- used to refresh when mode changes mid-turn. */
-  baseTools: Record<string, AnyTool>
-  modeTools: Record<string, AnyTool>
   deferredToolPool?: Record<string, AnyTool>
   deferredDefs: Array<{ name: string; description: string; isMcp: boolean }>
   /**
@@ -63,7 +59,6 @@ export interface AssembleToolPoolResult {
    */
   dynamicDefs: Record<string, ToolDefinition>
   mainThreadProfile: AgentDefinition | null
-  /** Re-applied after mid-turn mode refresh so ExitPlanMode cannot sneak back. */
   denyGlobs: string[] | undefined
 }
 
@@ -142,7 +137,7 @@ export function assembleToolPool(
   }
 
   const dynamicDefs: Record<string, ToolDefinition> = {}
-  if (deferredDefs.length > 0 && session.permissionMode.mode !== 'ask') {
+  if (deferredDefs.length > 0) {
     const tsearchDef = createToolSearchDefinition(deferredDefs)
     active[TOOL_SEARCH_TOOL_NAME] = instantiateTool(
       tsearchDef,
@@ -167,26 +162,9 @@ export function assembleToolPool(
     [exitPlanModeDef.name]: instantiateTool(exitPlanModeDef, cwd, toolContext),
   }
 
-  // Ask mode: promote read-only deferred tools (LSP/WebSearch/…) into the
-  // active set. Do not expose ToolSearch or mutating/MCP deferred tools.
-  const isReadOnly = (name: string) =>
-    isToolReadOnly(dynamicDefs[name] ?? registry.get(name))
-  if (session.permissionMode.mode === 'ask') {
-    for (const name of Object.keys(deferred)) {
-      if (!isReadOnly(name)) {
-        delete deferred[name]
-      } else if (!enablementFiltered[name]) {
-        enablementFiltered[name] = deferred[name]!
-      }
-    }
-    // No ToolSearch in ask — mutating deferred tools stay withheld.
-  }
-
-  let tools = applyModeRestrictions(
-    session.permissionMode.mode,
-    enablementFiltered,
-    { extra: modeTools, isReadOnly },
-  )
+  // Every mode gets the same tools; withModeGate refuses calls the mode
+  // does not allow.
+  let tools = { ...enablementFiltered, ...modeTools }
   if (denyGlobs.length > 0) {
     tools = filterToolsRecordByDisallowedGlobs(tools, denyGlobs)
   }
@@ -195,17 +173,10 @@ export function assembleToolPool(
     delete tools[ENTER_PLAN_MODE_TOOL_NAME]
   }
 
-  const askMode = session.permissionMode.mode === 'ask'
-  const deferredForTurn = askMode ? {} : deferred
-  const deferredDefsForTurn = askMode ? [] : deferredDefs
-
   return {
     tools,
-    baseTools: enablementFiltered,
-    modeTools,
-    deferredToolPool:
-      Object.keys(deferredForTurn).length > 0 ? deferredForTurn : undefined,
-    deferredDefs: deferredDefsForTurn,
+    deferredToolPool: Object.keys(deferred).length > 0 ? deferred : undefined,
+    deferredDefs,
     dynamicDefs,
     mainThreadProfile,
     denyGlobs: denyGlobs.length > 0 ? denyGlobs : undefined,

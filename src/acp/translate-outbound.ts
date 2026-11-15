@@ -6,7 +6,7 @@ import type {
 } from '@agentclientprotocol/sdk'
 import { methods, PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import type { ControlRequest } from '../../protocol/src/control.js'
-import type { ServerMessage } from '../../protocol/src/server.js'
+import type { ServerMessage, SystemNotice } from '../../protocol/src/server.js'
 import type { OutgoingMessage } from '../../protocol/src/wire.js'
 import type { ProtocolSink } from '../core/protocol-sink.js'
 import {
@@ -228,6 +228,18 @@ function serverMessageToNotifications(
     return out
   }
 
+  if (msg.type === 'system' && msg.subtype === 'notice') {
+    out.push(
+      chunkNotification(
+        sessionId,
+        'agent_thought_chunk',
+        messageId,
+        `${noticeText(msg.notice)}\n`,
+      ),
+    )
+    return out
+  }
+
   if (msg.type === 'result' && msg.subtype === 'error') {
     out.push(
       chunkNotification(sessionId, 'agent_message_chunk', messageId, msg.error),
@@ -235,6 +247,22 @@ function serverMessageToNotifications(
   }
 
   return out
+}
+
+/** One line for clients that only show text. */
+export function noticeText(notice: SystemNotice): string {
+  switch (notice.kind) {
+    case 'retry':
+      return `Request failed, retrying in ${Math.ceil(notice.delay_ms / 1000)}s (attempt ${notice.attempt}/${notice.max_attempts}): ${notice.error}`
+    case 'model_fallback':
+      return `${notice.from} is overloaded; switched to ${notice.to}`
+    case 'context_warning':
+      return `Context left: ${notice.percent_left}% before older messages are summarized`
+    case 'context_blocked':
+      return `The conversation (~${notice.current_tokens} tokens) no longer fits the context (limit ${notice.blocking_limit})`
+    case 'compaction_error':
+      return `Summarizing the conversation failed: ${notice.error}`
+  }
 }
 
 function chunkNotification(

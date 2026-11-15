@@ -66,6 +66,26 @@ export const agentApi = {
   deleteSession: id =>
     fetch(apiUrl(`/sessions/${id}`), withAuth({ method: 'DELETE' })),
   getSessionMessages: id => fetchJSON(`/sessions/${id}/messages`),
+  /** What rewinding to before a user message would put back. */
+  previewRewind: (sessionId, messageId) =>
+    fetchJSON(
+      `/sessions/${encodeURIComponent(sessionId)}/rewind/${encodeURIComponent(messageId)}`,
+    ),
+  rewindSession: (sessionId, { messageId, restoreFiles }) =>
+    fetchJSON(`/sessions/${encodeURIComponent(sessionId)}/rewind`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message_id: messageId,
+        restore_files: !!restoreFiles,
+      }),
+    }),
+  forkSession: (sessionId, messageId) =>
+    fetchJSON(`/sessions/${encodeURIComponent(sessionId)}/fork`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: messageId }),
+    }),
   listSessionTasks: id => fetchJSON(`/sessions/${id}/tasks`),
   /** Queue a message for the turn that is running in the session. */
   queueMessage: (sessionId, { id, message }) =>

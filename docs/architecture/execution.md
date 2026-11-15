@@ -124,7 +124,7 @@ For remote sessions, files, commands, search, and language servers operate in th
 - `src/execution/providers/local/local-provider.ts` — local worker startup
 - `src/execution/providers/ssh/ssh-provider.ts` — SSH connection and worker deployment
 - `src/execution/providers/ssh/ssh-stdio-session.ts` — SSH runtime channel
-- `src/utils/processUserInput/prepare_chat_turn.ts` — remote fallback boundary
+- `src/turn/prepare-chat-turn.ts` — remote fallback boundary
 - `src/worker/main.ts` — filesystem, shell, search, and bind handling
 - `src/worker/lsp-host.ts` — worker-local language servers
 

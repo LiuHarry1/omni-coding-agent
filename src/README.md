@@ -9,9 +9,10 @@ Coding agent 核心实现：`tools/*Tool/` 包、根级 `tools.ts` 注册表、�
 ```text
 src/
 ├── tools.ts              # 工具注册表（导入各 *Tool 并写入 defaultRegistry）
-├── agent.ts / server.ts / cli.ts / acp.ts / prompts.ts   # 启动入口 re-export
+├── entrypoints/          # 启动入口：cli.ts 按参数分发到 server/ · cli/ · acp/ · worker/
 ├── tools/                # PascalCase *Tool 包（BashTool、FileReadTool、AgentTool…）
-├── core/                 # agent 循环、LLM、registry、plugins、sandbox、permission mode
+├── turn/                 # 一轮对话的宿主：run-chat-turn.ts、prepare-chat-turn.ts
+├── core/                 # agent 循环（agent.ts → query.ts）、LLM、registry、plugins、permission mode
 ├── services/             # compact、lsp、auto-memory、session-memory…
 ├── commands/             # slash commands
 ├── skills/               # Skill 加载与 fork

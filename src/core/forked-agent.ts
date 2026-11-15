@@ -305,6 +305,7 @@ export async function runForkedAgent(
     inputTokens: 0,
     outputTokens: 0,
     cachedInputTokens: 0,
+    cacheWriteTokens: 0,
     steps: 0,
   }
   const unsubUsage = isolated.eventBus.on('usage', data => {
@@ -312,10 +313,12 @@ export async function runForkedAgent(
       inputTokens?: number
       outputTokens?: number
       cachedInputTokens?: number
+      cacheWriteTokens?: number
     }
     usageAcc.inputTokens += e.inputTokens ?? 0
     usageAcc.outputTokens += e.outputTokens ?? 0
     usageAcc.cachedInputTokens += e.cachedInputTokens ?? 0
+    usageAcc.cacheWriteTokens += e.cacheWriteTokens ?? 0
     usageAcc.steps += 1
   })
 
@@ -351,6 +354,7 @@ export async function runForkedAgent(
       `in=${fmt(usageAcc.inputTokens)}`,
       `out=${fmt(usageAcc.outputTokens)}`,
       `cached=${fmt(usageAcc.cachedInputTokens)}`,
+      `cache_write=${fmt(usageAcc.cacheWriteTokens)}`,
     ]
     console.log(
       `[forked-agent] done label=${forkLabel} durationMs=${durationMs} ` +

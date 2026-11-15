@@ -268,30 +268,26 @@ describe('query loop: failed request', () => {
 describe('query loop: permission mode change', () => {
   const tool = {} as AnyTool
 
-  it('swaps the tool set at once and the system prompt for the next step', async () => {
-    const toolsSeen: string[][] = []
+  it('keeps the tool set and refreshes the system prompt for the next step', async () => {
     const h = createQueryHarness({
       tools: { Read: tool, Write: tool },
-      refreshTools: () => ({ Read: tool, ExitPlanMode: tool }),
       refreshSystemPrompt: async () => 'plan-mode system',
     })
-    h.scriptSteps(
-      [toolStep('EnterPlanMode'), { text: 'Done.' }],
-      (index, args) => {
-        if (index === 0) {
-          h.eventBus.emit('mode_changed', { mode: 'plan' })
-          toolsSeen.push(Object.keys(args.tools).sort())
-        }
-      },
-    )
+    h.scriptSteps([toolStep('EnterPlanMode'), { text: 'Done.' }], index => {
+      if (index === 0) h.eventBus.emit('mode_changed', { mode: 'plan' })
+    })
 
     await query(h.options)
 
-    expect(toolsSeen).toEqual([['ExitPlanMode', 'Read']])
     const prompts = h.deps.runStep.mock.calls.map(([args]) => args.systemPrompt)
     expect(prompts).toEqual(['system', 'plan-mode system'])
-    const nextTools = h.deps.runStep.mock.calls[1]![0].tools
-    expect(Object.keys(nextTools).sort()).toEqual(['ExitPlanMode', 'Read'])
+    const toolsPerStep = h.deps.runStep.mock.calls.map(([args]) =>
+      Object.keys(args.tools).sort(),
+    )
+    expect(toolsPerStep).toEqual([
+      ['Read', 'Write'],
+      ['Read', 'Write'],
+    ])
   })
 
   const promptsAfterModeChange = async (

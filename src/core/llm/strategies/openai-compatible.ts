@@ -1,3 +1,4 @@
+import { resolveContextWindow } from '../model-capabilities.js'
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { applyMaxTokensToChatBody } from '../max-tokens.js'
 import type { ProviderStrategy } from '../types.js'
@@ -33,6 +34,7 @@ export const openaiCompatibleStrategy: ProviderStrategy = {
       supportsNativePdf: () => false,
       supportsImageInput: () => p.vision !== false,
       maxOutputTokenCap: () => p.maxOutputTokens,
+      contextWindow: () => resolveContextWindow(p),
       describe: () =>
         `openai-compatible model=${p.model} structuredOutputs=true vision=${p.vision !== false}`,
     }

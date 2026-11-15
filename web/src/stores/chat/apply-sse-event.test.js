@@ -10,7 +10,10 @@ function context(initial = {}) {
     ctx: {
       get: () => state,
       set: patch => {
-        state = { ...state, ...patch }
+        state = {
+          ...state,
+          ...(typeof patch === 'function' ? patch(state) : patch),
+        }
       },
       mutators: {
         _appendPart: vi.fn(),
@@ -119,5 +122,45 @@ describe('queued command SSE reduction', () => {
     )
 
     expect(target.ctx.mutators._onQueuedCommand).not.toHaveBeenCalled()
+  })
+})
+
+describe('notice SSE reduction', () => {
+  it('keeps the latest notice with the time it arrived', () => {
+    const target = context()
+    applySseEvent(
+      {
+        type: 'system',
+        subtype: 'notice',
+        notice: { kind: 'context_warning', percent_left: 8, current_tokens: 1 },
+      },
+      target.ctx,
+    )
+    expect(target.state.notice).toMatchObject({
+      kind: 'context_warning',
+      percent_left: 8,
+    })
+    expect(typeof target.state.notice.at).toBe('number')
+  })
+})
+
+describe('user_message_saved SSE reduction', () => {
+  it("gives the turn's user bubble the saved message id", () => {
+    const target = context({
+      bubbleOrder: ['u1', 'u2', 'q', 'a'],
+      bubblesById: {
+        u1: { id: 'u1', kind: 'user', messageId: 'm1' },
+        u2: { id: 'u2', kind: 'user' },
+        q: { id: 'q', kind: 'user', queued: true },
+        a: { id: 'a', kind: 'assistant_text' },
+      },
+    })
+    applySseEvent(
+      { type: 'system', subtype: 'user_message_saved', message_uuid: 'm2' },
+      target.ctx,
+    )
+    expect(target.state.bubblesById.u2.messageId).toBe('m2')
+    expect(target.state.bubblesById.u1.messageId).toBe('m1')
+    expect(target.state.bubblesById.q.messageId).toBeUndefined()
   })
 })

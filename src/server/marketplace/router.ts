@@ -6,7 +6,7 @@ import {
   type ExecutionPlane,
 } from '../../execution/bootstrap.js'
 import { readBody, sendJSON } from '../http.js'
-import { isAuthEnabled, type AuthedRequest } from '../auth/identity.js'
+import { type AuthedRequest } from '../auth/identity.js'
 import { resolveRequestCwd } from '../request-cwd.js'
 import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
 import type { WorkspaceHandle } from '../../execution/types.js'
@@ -26,6 +26,7 @@ import {
   marketplaceProviderSummary,
 } from './providers.js'
 import type { MarketplaceKind, MarketplaceRequestContext } from './types.js'
+import { isAuthEnabled } from '../../utils/env.js'
 
 function parseKind(value: unknown): MarketplaceKind {
   if (value === 'skill' || value === 'agent' || value === 'bundle') return value

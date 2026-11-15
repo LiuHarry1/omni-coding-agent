@@ -19,6 +19,7 @@ function messageFromLine(line: JsonlRow): Message {
   const {
     type: _,
     timestamp: __,
+    parentUuid: ___,
     messageType,
     messageTimestamp,
     ...stored
@@ -31,7 +32,7 @@ function messageFromLine(line: JsonlRow): Message {
 }
 
 function attachmentFromLine(line: JsonlRow): Message {
-  const { timestamp, messageTimestamp, ...stored } = line
+  const { timestamp, messageTimestamp, parentUuid: _, ...stored } = line
   return reviveBuffersInMessages([
     {
       ...stored,
@@ -160,12 +161,60 @@ export function replayLegacyCompaction(history: Message[], raw: unknown): void {
 }
 
 /**
+ * The conversation as of the leaf (by default the latest message): walk
+ * `parentUuid` back from it, so branches abandoned by a rewind drop out. Rows
+ * from before `parentUuid` existed (or a link that cannot be followed) fall
+ * back to file order.
+ */
+export function activeBranch(
+  messages: readonly Message[],
+  parents: ReadonlyMap<Message, string | null | undefined>,
+  leafIndex = messages.length - 1,
+): Message[] {
+  const leaf = messages[leafIndex]
+  if (!leaf) return []
+  if (parents.get(leaf) === undefined) return messages.slice(0, leafIndex + 1)
+  const indexByUuid = new Map<string, number>()
+  messages.forEach((m, i) => {
+    if (m.uuid) indexByUuid.set(m.uuid, i)
+  })
+  const chain: Message[] = []
+  let index = leafIndex
+  while (true) {
+    const message = messages[index]!
+    chain.push(message)
+    const parent = parents.get(message)
+    if (parent === null) break
+    const parentIndex =
+      parent === undefined ? undefined : indexByUuid.get(parent)
+    // Messages rebuilt from a legacy `compacted` row have no row of their
+    // own; a link that jumps over them cannot say where they belong.
+    if (
+      parentIndex === undefined ||
+      parentIndex >= index ||
+      messages.slice(parentIndex + 1, index).some(m => !parents.has(m))
+    ) {
+      chain.push(...messages.slice(0, index).reverse())
+      break
+    }
+    if (parents.get(messages[parentIndex]!) === undefined) {
+      chain.push(...messages.slice(0, parentIndex + 1).reverse())
+      break
+    }
+    index = parentIndex
+  }
+  return chain.reverse()
+}
+
+/**
  * Shared store/UI transcript replay. Missing UUIDs are restored from
  * append-only migration rows, or assigned once and returned for persistence.
  */
 export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
   messages: Message[]
   migrations: MessageUuidMigration[]
+  /** The last message read from a row: the parent of the next row written. */
+  leafUuid: string | null
 } {
   const existingMigrations = new Map<number, string>()
   for (const line of lines) {
@@ -178,8 +227,12 @@ export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
     }
   }
 
-  const messages: Message[] = []
+  let messages: Message[] = []
   const migrations: MessageUuidMigration[] = []
+  /** The line's `parentUuid`; absent (undefined) on rows written before it existed. */
+  const parents = new Map<Message, string | null | undefined>()
+  /** Set by a `rewind` row no message has been written after. */
+  let rewoundTo: string | null | undefined
   let eventIndex = 0
   for (const line of lines) {
     let message: Message | undefined
@@ -187,6 +240,11 @@ export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
     else if (line.type === 'attachment') message = attachmentFromLine(line)
     else if (line.type === 'compacted') {
       replayLegacyCompaction(messages, line.messages)
+      continue
+    } else if (line.type === 'rewind') {
+      if (typeof line.leafUuid === 'string' || line.leafUuid === null) {
+        rewoundTo = line.leafUuid
+      }
       continue
     } else {
       continue
@@ -198,8 +256,26 @@ export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
       if (!migrated) migrations.push({ eventIndex, uuid: message.uuid })
     }
     messages.push(message)
+    rewoundTo = undefined
+    parents.set(
+      message,
+      typeof line.parentUuid === 'string' || line.parentUuid === null
+        ? line.parentUuid
+        : undefined,
+    )
     eventIndex++
   }
+  if (rewoundTo === undefined) {
+    messages = activeBranch(messages, parents)
+  } else {
+    const leafIndex =
+      rewoundTo === null ? -1 : messages.findIndex(m => m.uuid === rewoundTo)
+    messages =
+      rewoundTo !== null && leafIndex < 0
+        ? activeBranch(messages, parents)
+        : activeBranch(messages, parents, leafIndex)
+  }
+  const leafUuid = messages.at(-1)?.uuid ?? null
 
   const byUuid = new Map(
     messages
@@ -260,5 +336,5 @@ export function replayTranscriptMessages(lines: readonly JsonlRow[]): {
       })
     }
   }
-  return { messages, migrations }
+  return { messages, migrations, leafUuid }
 }

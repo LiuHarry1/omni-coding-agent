@@ -140,7 +140,7 @@ const fixtureResult = (await fixtureTool.execute(
   },
   { toolCallId: 'fixture-call' },
 )) as { data: { text: string } }
-assert.equal(fixtureResult.data.text, 'fixture result')
+assert.match(fixtureResult.data.text, /^fixture result\n\nagentId: /)
 assert.deepEqual(runPrompts, ['Inspect fixture.'])
 
 const emptyTool = fixtureDefinition.create(process.cwd(), {

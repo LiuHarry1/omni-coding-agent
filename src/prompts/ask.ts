@@ -5,28 +5,14 @@ import {
   WEB_FETCH_TOOL_NAME,
   WEB_SEARCH_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { computeSimpleEnvInfo } from '../constants/prompts.js'
-import { setCwd } from '../utils/cwd.js'
-import { workspaceBoundaryPromptSection } from '../utils/permissions/workspace-boundary-prompt.js'
 
 /**
- * Ask mode system prompt — read-only exploration, no code changes.
+ * Ask-mode rules, sent as a reminder while ask mode is active so the system
+ * prompt stays the same in every mode.
  */
-export async function askSystemPrompt(
-  cwd: string,
-  projectRules?: string,
-  modelId = '',
-): Promise<string> {
-  setCwd(cwd)
-  const env =
-    (await computeSimpleEnvInfo(modelId)) + workspaceBoundaryPromptSection(cwd)
-
-  const sections = [
-    `You are an expert coding assistant in **Ask mode**.`,
-    '',
-    'Ask mode is active. You MUST NOT make any edits, run shell commands, spawn subagents, or otherwise change the system. You may only use read-only tools to explore and answer questions.',
-    '',
-    env.trim(),
+export function askModeInstructions(): string {
+  return [
+    'Ask mode is active. You MUST NOT make any edits, run shell commands, spawn subagents, or otherwise change the system. You may only use read-only tools to explore and answer questions. Calls to other tools are refused.',
     '',
     '## Guidelines',
     '- Answer questions clearly and concisely about the codebase.',
@@ -35,11 +21,8 @@ export async function askSystemPrompt(
     '- Cite specific file paths and line numbers when referencing code.',
     '- If the user wants changes implemented, tell them to switch to Agent mode.',
     '- Do not suggest you will make changes — you cannot in Ask mode.',
-  ]
-
-  if (projectRules?.trim()) {
-    sections.push('', '## Project rules', projectRules.trim())
-  }
-
-  return sections.join('\n')
+  ].join('\n')
 }
+
+export const ASK_MODE_EXIT_INSTRUCTIONS =
+  'You have left Ask mode. You can now make edits, run tools, and take actions.'

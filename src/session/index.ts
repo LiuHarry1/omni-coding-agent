@@ -17,6 +17,8 @@ export {
   appendCompaction,
   appendModeChange,
   appendAgentChange,
+  appendRewind,
+  resyncDerivedSessionState,
   getSessionTranscriptPath,
   getSessionDataDirFor,
 } from './store.js'

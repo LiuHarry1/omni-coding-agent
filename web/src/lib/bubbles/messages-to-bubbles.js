@@ -175,6 +175,18 @@ export function patchBubble(state, id, patch) {
   }
 }
 
+/** Give the turn's user bubble the id the server saved its message under. */
+export function tagLatestUserBubble(state, messageId) {
+  for (let i = state.bubbleOrder.length - 1; i >= 0; i--) {
+    const bubble = state.bubblesById[state.bubbleOrder[i]]
+    if (bubble?.kind !== 'user' || bubble.queued) continue
+    return bubble.messageId
+      ? state
+      : patchBubble(state, bubble.id, { messageId })
+  }
+  return state
+}
+
 /** Remove a bubble id from order + map. */
 export function removeBubble(state, id) {
   if (!state.bubblesById[id]) return state
@@ -198,6 +210,7 @@ export function messagesToBubbles(messages) {
       state = appendBubble(state, {
         id: msg.id || newId(),
         kind: 'user',
+        ...(msg.messageId ? { messageId: msg.messageId } : {}),
         content: msg.content,
         images: msg.images,
         files: msg.files,

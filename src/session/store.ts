@@ -47,8 +47,20 @@ import { projectMessageForDisk } from './persist-project.js'
 import { replayTranscriptMessages } from './compact-replay.js'
 import { restoreInvokedSkillsFromMessages } from '../skills/invoked-skills.js'
 import { restoreTodosFromMessages } from '../tools/TodoWriteTool/todo-state.js'
+import { clearPromptSections } from '../prompts/section-cache.js'
+import { clearReadFileState } from '../utils/read/read-file-state.js'
 
 const sessions = new Map<string, Session>()
+/** UUID of the last message row written per session: the next row's parent. */
+const chainTips = new Map<string, string | null>()
+
+/**
+ * Continue the transcript from `uuid` (null: from the start). Rows written
+ * after this hang off it, so later loads drop whatever followed it before.
+ */
+export function setChainTip(sessionId: string, uuid: string | null): void {
+  chainTips.set(sessionId, uuid)
+}
 
 export { getToolResultFilePath }
 
@@ -509,6 +521,7 @@ export function listSessions(ownerEmail?: string): SessionInfo[] {
 export function deleteSession(id: string): void {
   const loc = getCachedSessionLocation(id) ?? findSessionLocation(id)
   sessions.delete(id)
+  chainTips.delete(id)
 
   if (loc) {
     removeRunsForSession(id, loc.agentHome)
@@ -528,6 +541,7 @@ export function deleteSession(id: string): void {
   resetSessionMemoryState(id)
   resetAutoMemoryState(id)
   resetMicroCompactState(id)
+  clearPromptSections(id)
   setToolResultsHostOnly(id, false)
   try {
     removeTasksForSession(id)
@@ -545,6 +559,8 @@ export function deleteSession(id: string): void {
  */
 export function forgetSession(id: string): void {
   sessions.delete(id)
+  chainTips.delete(id)
+  clearPromptSections(id)
   unregisterSessionLocation(id)
   resetSessionMemoryState(id)
   resetAutoMemoryState(id)
@@ -554,9 +570,12 @@ export function forgetSession(id: string): void {
 
 export function appendMessage(sessionId: string, message: Message): void {
   const timestamp = Date.now()
+  if (!message.uuid) message.uuid = randomUUID()
+  const parentUuid = chainTipFor(sessionId, message)
+  chainTips.set(sessionId, message.uuid)
   if (isAttachmentMessage(message)) {
     const { timestamp: messageTimestamp, ...rest } = message
-    appendLine(sessionId, { ...rest, messageTimestamp, timestamp })
+    appendLine(sessionId, { ...rest, parentUuid, messageTimestamp, timestamp })
     return
   }
   const forDisk = projectMessageForDisk(message)
@@ -566,12 +585,55 @@ export function appendMessage(sessionId: string, message: Message): void {
       type: 'message',
       messageType,
       ...rest,
+      parentUuid,
       messageTimestamp,
       timestamp,
     })
     return
   }
-  appendLine(sessionId, { type: 'message', ...forDisk, timestamp })
+  appendLine(sessionId, { type: 'message', ...forDisk, parentUuid, timestamp })
+}
+
+function chainTipFor(sessionId: string, message: Message): string | null {
+  const tip = chainTips.get(sessionId)
+  if (tip !== undefined) return tip
+  // Not written to or loaded by this process yet: the message before it.
+  const history = sessions.get(sessionId)?.messages ?? []
+  const index = history.lastIndexOf(message)
+  const before = index >= 0 ? history.slice(0, index) : history
+  for (let i = before.length - 1; i >= 0; i--) {
+    const uuid = before[i]!.uuid
+    if (uuid) return uuid
+  }
+  return null
+}
+
+/**
+ * Make `leafUuid` (null: nothing) the end of the conversation. Later loads
+ * drop what followed it; the next message written continues from it.
+ */
+export function appendRewind(sessionId: string, leafUuid: string | null): void {
+  appendLine(sessionId, { type: 'rewind', leafUuid, timestamp: Date.now() })
+  chainTips.set(sessionId, leafUuid)
+}
+
+/**
+ * After the transcript was shortened (rewind), drop what described the
+ * dropped turns: the record of files read (a later Read would answer
+ * "unchanged" for content no longer in the conversation), the todo list, and
+ * whether the skill listing was shown.
+ *
+ * Invoked skills and discovered tools are kept. Neither can be rebuilt from
+ * the transcript, and one too many is harmless where one too few is not.
+ */
+export function resyncDerivedSessionState(session: Session): void {
+  clearReadFileState(session.readFileState)
+  session.todos = restoreTodosFromMessages(session.messages)
+  session.skillListingAnnounced = session.messages.some(
+    message =>
+      isAttachmentMessage(message) &&
+      message.attachment.type === 'skill_listing',
+  )
 }
 
 /** Append-only enrichment for an opening user message already checkpointed. */
@@ -703,6 +765,7 @@ function restoreFromDisk(id: string): Session {
 
   const replayed = replayTranscriptMessages(lines)
   session.messages = replayed.messages
+  chainTips.set(id, replayed.leafUuid)
   restoreInvokedSkillsFromMessages(session, session.messages)
   session.todos = restoreTodosFromMessages(session.messages)
 

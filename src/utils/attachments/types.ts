@@ -96,6 +96,14 @@ export type PlanModeExitAttachment = {
   planExists: boolean
 }
 
+export type AskModeAttachment = {
+  type: 'ask_mode'
+}
+
+export type AskModeExitAttachment = {
+  type: 'ask_mode_exit'
+}
+
 export type SkillListingAttachment = {
   type: 'skill_listing'
   content: string
@@ -246,6 +254,8 @@ export type Attachment =
   | PlanModeAttachment
   | PlanModeReentryAttachment
   | PlanModeExitAttachment
+  | AskModeAttachment
+  | AskModeExitAttachment
   | SkillListingAttachment
   | InvokedSkillsAttachment
   | AgentListingDeltaAttachment

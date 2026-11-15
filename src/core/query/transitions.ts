@@ -21,3 +21,5 @@ export type Terminal =
   | { reason: 'hook_stopped'; notice: string }
   /** A Stop hook answered `continue: false`. */
   | { reason: 'stop_hook_prevented'; notice: string }
+  /** The conversation no longer fits and auto-compaction is off. */
+  | { reason: 'blocking_limit'; currentTokens: number; blockingLimit: number }

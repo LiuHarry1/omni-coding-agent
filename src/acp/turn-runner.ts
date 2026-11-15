@@ -30,6 +30,20 @@ export class AcpSessionRegistry {
     return record
   }
 
+  /** Pick up a saved session; null when there is none. */
+  load(sessionId: string, cwd: string): AcpSessionRecord | null {
+    const session = getSession(sessionId)
+    if (!session) return null
+    const record: AcpSessionRecord = {
+      session,
+      cwd,
+      emitHandshake: false,
+      abortController: null,
+    }
+    this.#records.set(sessionId, record)
+    return record
+  }
+
   get(sessionId: string): AcpSessionRecord | undefined {
     const existing = getSession(sessionId)
     if (!existing) return this.#records.get(sessionId)

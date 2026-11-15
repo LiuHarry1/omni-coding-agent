@@ -10,6 +10,7 @@ import {
 } from '../core/session-paths.js'
 import { getAppDirName } from '../utils/app-dir.js'
 import { resolveAgentHome } from '../utils/request-scope.js'
+import { isAuthEnabled } from '../utils/env.js'
 
 export type SessionIndexEntry = {
   projectKey: string
@@ -193,11 +194,7 @@ export function listSessionAgentHomes(): string[] {
   const homes = new Set<string>()
   homes.add(resolveAgentHome())
 
-  const authOn =
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase() === 'true'
-  if (authOn) {
+  if (isAuthEnabled()) {
     const usersRoot = process.env.USERS_ROOT?.trim()
     if (usersRoot) {
       const root = path.resolve(usersRoot)

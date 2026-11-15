@@ -25,6 +25,7 @@ interface UsageEvent {
   inputTokens: number
   outputTokens: number
   cachedInputTokens: number
+  cacheWriteTokens: number
   reasoningTokens: number
   totalTokens: number
   latencyMs?: number

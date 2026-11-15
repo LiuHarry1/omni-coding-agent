@@ -1,10 +1,6 @@
 import type { IncomingMessage, ServerResponse } from 'http'
 import { readBody, sendJSON } from '../http.js'
-import {
-  isAuthEnabled,
-  isSuperUser,
-  type AuthedRequest,
-} from '../auth/identity.js'
+import { isSuperUser, type AuthedRequest } from '../auth/identity.js'
 import { getSession } from '../session.js'
 import {
   CloudWorkspaceError,
@@ -20,6 +16,7 @@ import {
   listActiveTurnSessionIds,
 } from '../../session/store.js'
 import { findSessionLocation } from '../../session/session-index.js'
+import { isAuthEnabled } from '../../utils/env.js'
 
 /** Owner used when auth is off (single-user development). */
 const LOCAL_OWNER = 'local@localhost'

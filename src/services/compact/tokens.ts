@@ -2,6 +2,7 @@
  * Token estimation and hybrid counting for compaction threshold decisions.
  * Canonical "context size" measurement.
  */
+import type { LanguageModelUsage } from 'ai'
 import type { Message } from '../../core/types.js'
 import { isAttachmentMessage, isRoleMessage } from '../../core/types.js'
 import {
@@ -76,8 +77,35 @@ export interface AttachedTokenUsage {
   inputTokens?: number
   outputTokens?: number
   totalTokens?: number
+  /** Input tokens read from the prompt cache. */
   cachedInputTokens?: number
+  /** Input tokens written to the prompt cache. */
+  cacheWriteTokens?: number
   reasoningTokens?: number
+}
+
+/** The fields we keep from an AI SDK usage report. */
+export function toAttachedUsage(
+  usage: Partial<LanguageModelUsage> | undefined,
+): AttachedTokenUsage {
+  if (!usage) return {}
+  const out: AttachedTokenUsage = {}
+  const set = (k: keyof AttachedTokenUsage, v: number | undefined) => {
+    if (typeof v === 'number') out[k] = v
+  }
+  set('inputTokens', usage.inputTokens)
+  set('outputTokens', usage.outputTokens)
+  set('totalTokens', usage.totalTokens)
+  set(
+    'cachedInputTokens',
+    usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens,
+  )
+  set('cacheWriteTokens', usage.inputTokenDetails?.cacheWriteTokens)
+  set(
+    'reasoningTokens',
+    usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens,
+  )
+  return out
 }
 
 const tokenUsageMap = new WeakMap<object, AttachedTokenUsage>()

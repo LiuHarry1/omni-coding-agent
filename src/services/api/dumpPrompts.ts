@@ -18,6 +18,7 @@ import { createHash } from 'crypto'
 import { promises as fs } from 'fs'
 import { dirname, join } from 'path'
 import { getUserAppDir } from '../../utils/app-dir.js'
+import { isEnvTruthy } from '../../utils/env.js'
 
 function hashString(str: string): string {
   return createHash('sha256').update(str).digest('hex')
@@ -31,15 +32,9 @@ function jsonParse(text: string): unknown {
   return JSON.parse(text)
 }
 
-function envTruthy(v: string | undefined): boolean {
-  if (!v) return false
-  const t = v.trim().toLowerCase()
-  return t === '1' || t === 'true' || t === 'yes' || t === 'on'
-}
-
 /** Gate for the dump write path. */
 export function isDumpPromptsEnabled(): boolean {
-  return envTruthy(process.env.DUMP_PROMPTS)
+  return isEnvTruthy(process.env.DUMP_PROMPTS)
 }
 
 // Cache last few API requests. Useful for local debug too.

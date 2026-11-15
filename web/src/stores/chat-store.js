@@ -32,6 +32,7 @@ import {
 import { applySseEvent } from './chat/apply-sse-event.js'
 import { createAssistantMutators } from './chat/assistant-mutators.js'
 import { createQueuedMessageActions } from './chat/queued-messages.js'
+import { createRewindActions } from './chat/rewind.js'
 import { refreshIdeAfterAgentTurn } from './chat/ide-bridge.js'
 import {
   streamChatTurn,
@@ -152,6 +153,8 @@ export const useChatStore = create((set, get) => {
     turnDetail: null,
     turnStateLabel: null,
     turnStateSince: 0,
+    /** Latest `system/notice` (retry, fallback, context left) plus `at`. */
+    notice: null,
     /** True while a scheduled-task turn is rendering from /sessions/:id/live. */
     scheduledTurnActive: false,
     /** Open live SSE only when this session has (or just got) a timer. */
@@ -164,6 +167,7 @@ export const useChatStore = create((set, get) => {
 
     // ── Messages typed while the agent works ────
     ...createQueuedMessageActions(set, get),
+    ...createRewindActions(set, get),
 
     // ── UI state ────────────────────────────────
     theme: localStorage.getItem('coding_agent_theme') || 'dark',
@@ -595,6 +599,7 @@ export const useChatStore = create((set, get) => {
         sessionReadOnly: readOnly,
         viewingOwnerEmail: readOnly ? selectedSession.ownerEmail : null,
         ...emptyTranscript(),
+        notice: null,
         todos: [],
         queuedMessages: [],
         restoredDraft: null,
@@ -746,6 +751,7 @@ export const useChatStore = create((set, get) => {
         sessionReadOnly: false,
         viewingOwnerEmail: null,
         ...emptyTranscript(),
+        notice: null,
         todos: [],
         queuedMessages: [],
         restoredDraft: null,

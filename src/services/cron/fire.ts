@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto'
-import { getRunAgent } from '../../agent-lazy.js'
+import { runAgent } from '../../core/agent.js'
 import { EventBus } from '../../core/event-bus.js'
 import { scheduledTurnMessage } from '../../core/protocol-messages.js'
 import { runChatTurn } from '../../turn/run-chat-turn.js'
@@ -110,7 +110,6 @@ export async function fireScheduledTask(
       }
     }
 
-    const runAgent = await getRunAgent()
     const transport = createSessionLiveTransport(session.id)
     const prompt = formatScheduledPrompt(task, new Date(nowMs))
     transport.emit(scheduledTurnMessage(prompt, { session_id: session.id }))

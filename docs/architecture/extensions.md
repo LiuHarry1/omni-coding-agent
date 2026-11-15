@@ -110,7 +110,7 @@ Remote execution is a deliberate split boundary: declarative plugins, skills, MC
 
 ## Source map
 
-- Turn composition and remote/control-workspace split: `src/utils/processUserInput/prepare_chat_turn.ts`
+- Turn composition and remote/control-workspace split: `src/turn/prepare-chat-turn.ts`
 - Active, deferred, and policy filtering: `src/tools/assembleToolPool.ts`
 - Subagent registration and dispatch: `src/tools/AgentTool/`
 - Skill loading and expansion: `src/skills/`

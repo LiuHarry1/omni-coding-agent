@@ -239,7 +239,7 @@ Read paths versus write paths (interleaved within the same turn):
 
 ### 3.1 Turn preparation
 
-`src/utils/processUserInput/prepare_chat_turn.ts` is responsible for:
+`src/turn/prepare-chat-turn.ts` is responsible for:
 
 1. Parsing slash commands.
 2. Loading plugins, skills, subagents, and MCP.
@@ -809,7 +809,7 @@ This covers compact boundaries/repeated active model projections, the Full cache
 
 Turn orchestration:
 
-- `src/utils/processUserInput/prepare_chat_turn.ts`
+- `src/turn/prepare-chat-turn.ts`
 - `src/turn/run-chat-turn.ts`
 - `src/turn/memory-lifecycle.ts`
 - `src/core/query.ts`

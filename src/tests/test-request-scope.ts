@@ -20,7 +20,11 @@ import {
   resetSettingsCache,
   resolveSettings,
 } from '../core/settings-manager.js'
-import { canAccessSession, listSessions } from '../server/session.js'
+import {
+  canAccessSession,
+  canMutateSession,
+  listSessions,
+} from '../server/session.js'
 import type { Session } from '../core/types.js'
 import {
   computeProjectKey,
@@ -280,6 +284,18 @@ try {
   assert(
     !canAccessSession(fakeAliceSession, 'bob@example.com', 'user'),
     'peer user must not view alice session',
+  )
+  assert(
+    !canMutateSession(fakeAliceSession, 'super@example.com', 'super'),
+    'super may not mutate another user session',
+  )
+  assert(
+    canMutateSession(fakeAliceSession, 'alice@example.com', 'super'),
+    'super may mutate their own session',
+  )
+  assert(
+    canMutateSession(fakeAliceSession, 'alice@example.com', 'user'),
+    'owner may mutate their session',
   )
   const all = listSessions(undefined)
   assert(Array.isArray(all), 'listSessions(undefined) returns array')

@@ -2,8 +2,11 @@ import path from 'path'
 import type {
   AgentDefinition,
   AgentMode,
+  AgentPermissionMode,
   AgentSource,
+  MCPServerConfig,
 } from '../../core/types.js'
+import { parseHooksConfig } from '../../core/settings-manager.js'
 import {
   sourceRank,
   type MarkdownFile,
@@ -44,6 +47,65 @@ function parseAgentMode(value: unknown): AgentMode | undefined {
   if (v === 'primary') return 'primary'
   if (v === 'subagent') return 'subagent'
   return undefined
+}
+
+function parsePermissionMode(
+  agentType: string,
+  value: unknown,
+): AgentPermissionMode | undefined {
+  if (typeof value !== 'string') return undefined
+  const v = value.trim()
+  if (v === 'plan' || v === 'ask' || v === 'dontAsk') return v
+  if (v === 'agent' || v === 'default' || v === 'acceptEdits') return 'agent'
+  console.warn(
+    `[agents] agent '${agentType}': permissionMode '${v}' is not supported; ignored`,
+  )
+  return undefined
+}
+
+function isServerConfig(value: unknown): value is MCPServerConfig {
+  if (!value || typeof value !== 'object') return false
+  const v = value as Record<string, unknown>
+  return typeof v.command === 'string' || typeof v.url === 'string'
+}
+
+/** `mcpServers:` — server names, or `{ name: config }` entries. */
+function parseMcpServers(
+  value: unknown,
+): Array<string | Record<string, MCPServerConfig>> | undefined {
+  const items = Array.isArray(value)
+    ? value
+    : value && typeof value === 'object'
+      ? Object.entries(value).map(([k, v]) => ({ [k]: v }))
+      : typeof value === 'string'
+        ? value.split(',')
+        : []
+  const out: Array<string | Record<string, MCPServerConfig>> = []
+  for (const item of items) {
+    if (typeof item === 'string') {
+      if (item.trim()) out.push(item.trim())
+    } else if (item && typeof item === 'object') {
+      for (const [name, config] of Object.entries(item)) {
+        if (isServerConfig(config)) out.push({ [name]: config })
+      }
+    }
+  }
+  return out.length > 0 ? out : undefined
+}
+
+/** An agent finishing is its Stop: `SubagentStop` hooks are Stop hooks here. */
+function subagentStopAsStop(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || !('SubagentStop' in value)) {
+    return value
+  }
+  const { SubagentStop, Stop, ...rest } = value as Record<string, unknown>
+  return {
+    ...rest,
+    Stop: [
+      ...(Array.isArray(Stop) ? Stop : []),
+      ...(Array.isArray(SubagentStop) ? SubagentStop : []),
+    ],
+  }
 }
 
 export function parseAgentFromMarkdown(file: MarkdownFile): AgentParseResult {
@@ -149,6 +211,16 @@ export function parseAgentFromMarkdown(file: MarkdownFile): AgentParseResult {
     ...(memory ? { memory } : {}),
     ...(memoryPolicy ? { memoryPolicy } : {}),
   }
+  const permissionMode = parsePermissionMode(agentType, fm.permissionMode)
+  if (permissionMode) agent.permissionMode = permissionMode
+  const hooks = parseHooksConfig(subagentStopAsStop(fm.hooks))
+  if (hooks) agent.hooks = hooks
+  const mcpServers = parseMcpServers(fm.mcpServers)
+  if (mcpServers) agent.mcpServers = mcpServers
+  const skills = parseToolList(fm.skills)
+  if (skills?.length) agent.skills = skills
+  if (parseBool(fm.background) === true) agent.background = true
+  if (fm.isolation === 'worktree') agent.isolation = 'worktree'
 
   return { agent, filePath: file.filePath }
 }

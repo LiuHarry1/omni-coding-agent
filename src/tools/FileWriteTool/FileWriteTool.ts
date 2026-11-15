@@ -17,6 +17,7 @@ import {
   getLspWorkspaceKey,
 } from '../../services/lsp/manager.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import { fileHistoryTrackEdit } from '../../utils/fileHistory.js'
 import { isWorkerChannelLostError } from '../../execution/worker-channel-error.js'
 import { writesToAgentHost } from '../../execution/fs-route.js'
 import {
@@ -177,6 +178,7 @@ export const definition: ToolDefinition = {
             beforeContent = undefined
           }
         }
+        fileHistoryTrackEdit(context.sessionId, abs)
         fs.mkdirSync(path.dirname(abs), { recursive: true })
         fs.writeFileSync(abs, content, 'utf-8')
         recordWriteInState(

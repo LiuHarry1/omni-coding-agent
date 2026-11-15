@@ -37,7 +37,6 @@ export {
   getMaxOutputTokens,
 }
 
-export const MAX_TRANSIENT_RETRIES = 2
 /** Consecutive overloaded responses from the main model before falling back. */
 export const MAX_OVERLOADED_RETRIES = 3
 /** Max retry attempts for overflow max_tokens adjustment */
@@ -226,14 +225,4 @@ export function activateDeferredTools(
       }
     }
   }
-}
-
-export function syncToolSet(
-  target: Record<string, AnyTool>,
-  source: Record<string, AnyTool>,
-): void {
-  for (const key of Object.keys(target)) {
-    if (!(key in source)) delete target[key]
-  }
-  Object.assign(target, source)
 }

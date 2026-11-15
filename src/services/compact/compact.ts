@@ -474,16 +474,80 @@ export async function compactConversation(
   }
 }
 
+/** Output budget of a fallback summary request. */
+const COMPACT_MAX_OUTPUT_TOKENS = 20_000
+
+function mediaPlaceholder(mediaType?: string): { type: 'text'; text: string } {
+  return {
+    type: 'text',
+    text:
+      !mediaType || mediaType.startsWith('image/') ? '[image]' : '[document]',
+  }
+}
+
+/**
+ * Replaces images and documents with placeholders. The summary does not need
+ * them, and screenshots are what most often push this request over the limit.
+ */
+export function stripMediaForSummary(messages: RoleMessage[]): RoleMessage[] {
+  return messages.map(message => {
+    if (!Array.isArray(message.content)) return message
+    if (message.role === 'user') {
+      return {
+        ...message,
+        content: message.content.map(part =>
+          part.type === 'image'
+            ? mediaPlaceholder()
+            : part.type === 'file'
+              ? mediaPlaceholder(part.mediaType)
+              : part,
+        ),
+      }
+    }
+    if (message.role === 'tool') {
+      return {
+        ...message,
+        content: message.content.map(part => {
+          if (part.type !== 'tool-result' || part.output.type !== 'content') {
+            return part
+          }
+          return {
+            ...part,
+            output: {
+              ...part.output,
+              value: part.output.value.map(item =>
+                item.type === 'text'
+                  ? item
+                  : mediaPlaceholder(
+                      'mediaType' in item
+                        ? item.mediaType
+                        : (item as { type: string }).type.startsWith('image')
+                          ? 'image/*'
+                          : 'application/octet-stream',
+                    ),
+              ),
+            },
+          }
+        }),
+      }
+    }
+    return message
+  }) as RoleMessage[]
+}
+
 async function generateSummaryFallback(
   messages: Message[],
   model: string,
   provider: IProvider,
   system: string,
 ): Promise<string> {
-  const conversation = prepareSummaryMessages(messages, provider)
+  const conversation = stripMediaForSummary(
+    prepareSummaryMessages(messages, provider),
+  )
   const result = await generateText({
     model: provider.chatModel(model),
     system,
+    maxOutputTokens: COMPACT_MAX_OUTPUT_TOKENS,
     messages: [
       ...conversation,
       {

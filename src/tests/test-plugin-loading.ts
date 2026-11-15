@@ -1,7 +1,7 @@
 /**
  * Full plugin loading test: agents, commands, skills, MCP (+ hot reload).
  *
- * Mirrors prepare_chat_turn.ts integration:
+ * Mirrors turn/prepare-chat-turn.ts integration:
  *   loadPlugins → registerSubagents / registerSkills / mergeMCPServers / slash registry
  *
  * Run: npx tsx src/tests/test-plugin-loading.ts

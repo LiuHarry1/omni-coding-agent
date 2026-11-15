@@ -6,6 +6,7 @@
  * else full LLM compact. Both append boundary + summary + attachments;
  * session-memory additionally references a preserved tail through metadata.
  */
+import { clearPromptSections } from '../../prompts/section-cache.js'
 import type {
   CompactionConfig,
   IEventBus,
@@ -60,7 +61,11 @@ function parseEnvInt(name: string, fallback: number): number {
   return Number.isFinite(n) ? n : fallback
 }
 
-function getCompactionConfig(base?: CompactionConfig) {
+/**
+ * The env override, else the window of the model being called, else the
+ * compaction setting.
+ */
+function getCompactionConfig(base?: CompactionConfig, provider?: IProvider) {
   const c = base ?? DEFAULTS.compaction
   return {
     enabled:
@@ -69,7 +74,10 @@ function getCompactionConfig(base?: CompactionConfig) {
         : process.env.DISABLE_COMPACT === '1'
           ? false
           : c.enabled,
-    contextWindow: parseEnvInt('COMPACT_CONTEXT_WINDOW', c.contextWindow),
+    contextWindow: parseEnvInt(
+      'COMPACT_CONTEXT_WINDOW',
+      provider?.contextWindow?.() ?? c.contextWindow,
+    ),
     microCompactKeepRecent: parseEnvInt(
       'COMPACT_MICRO_KEEP',
       c.microCompactKeepRecent,
@@ -152,6 +160,25 @@ function getBlockingLimit(
   )
 }
 
+/** Where compaction starts and where a request no longer fits, in tokens. */
+export function compactionLimits(
+  compaction?: CompactionConfig,
+  provider?: IProvider,
+): {
+  contextWindow: number
+  threshold: number
+  blockingLimit: number
+  autoCompactEnabled: boolean
+} {
+  const cfg = getCompactionConfig(compaction, provider)
+  return {
+    autoCompactEnabled: cfg.enabled,
+    contextWindow: cfg.contextWindow,
+    threshold: getAutoCompactThreshold(cfg.contextWindow, cfg.maxOutputTokens),
+    blockingLimit: getBlockingLimit(cfg.contextWindow, cfg.maxOutputTokens),
+  }
+}
+
 // ── Circuit breaker ─────────────────────────────────────
 
 const MAX_CONSECUTIVE_FAILURES = 3
@@ -217,6 +244,18 @@ function afterMicro(original: Message[], working: Message[]): CompactOutcome {
  * events; microcompact remains an API-view only.
  */
 export async function compactIfNeeded(
+  ...args: Parameters<typeof compactMessages>
+): Promise<CompactOutcome> {
+  const outcome = await compactMessages(...args)
+  const sessionId = args[9]
+  // A summary starts the cached prefix over, so stale sections can refresh.
+  if (sessionId && isSummarizingCompactSource(outcome.source)) {
+    clearPromptSections(sessionId)
+  }
+  return outcome
+}
+
+async function compactMessages(
   messages: Message[],
   eventBus: IEventBus,
   wire: WireEmitter,
@@ -228,7 +267,7 @@ export async function compactIfNeeded(
   provider?: IProvider,
   sessionId?: string,
 ): Promise<CompactOutcome> {
-  const cfg = getCompactionConfig(compaction)
+  const cfg = getCompactionConfig(compaction, provider)
   const force = !!opts.force
   const aggressive = !!opts.aggressive
   const smConfig = opts.sessionMemory ?? DEFAULTS.sessionMemory
@@ -245,12 +284,8 @@ export async function compactIfNeeded(
     return none(messages)
   }
 
-  const threshold = getAutoCompactThreshold(
-    cfg.contextWindow,
-    cfg.maxOutputTokens,
-  )
+  const { threshold, blockingLimit } = compactionLimits(compaction, provider)
   const microThreshold = getMicroCompactThreshold(threshold)
-  const blockingLimit = getBlockingLimit(cfg.contextWindow, cfg.maxOutputTokens)
   let tokens = tokenCountWithEstimation(messages).total
 
   if (

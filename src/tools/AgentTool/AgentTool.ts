@@ -1,6 +1,18 @@
-import { withoutStopHooks } from '../../core/hooks/hooks.js'
+import { combineHookRunners, withoutStopHooks } from '../../core/hooks/hooks.js'
+import { createSessionHookRunner } from '../../core/hooks/session-hooks.js'
+import { withModeGate } from '../../core/mode-restrictions.js'
+import { isToolReadOnly } from '../../core/tool-definition.js'
+import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
+import {
+  createAgentWorktree,
+  finishAgentWorktree,
+  worktreeOutcomeText,
+  type AgentWorktree,
+} from '../../utils/worktree.js'
+import { connectAgentMcp, preloadSkillMessages } from './agentRuntime.js'
 import { tool } from 'ai'
 import { z } from 'zod'
+import fs from 'fs'
 import path from 'path'
 import type {
   AgentDefinition,
@@ -27,6 +39,7 @@ import {
   FILE_READ_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,
+  SEND_MESSAGE_TOOL_NAME,
 } from '../../constants/tool_names.js'
 import { EXPLORE_AGENT_TYPE } from './built-in/exploreAgent.js'
 import { PLAN_AGENT_TYPE } from './built-in/planAgent.js'
@@ -46,6 +59,12 @@ import {
 } from '../../core/tool-abort-registry.js'
 import { getAgentMemoryDir, loadAgentMemoryPrompt } from './agentMemory.js'
 import { buildAgentUiProjection } from './uiProjection.js'
+import {
+  appendSidechainMessage,
+  readSidechain,
+  writeSidechainMeta,
+} from '../../session/sidechain.js'
+import { ensureToolResultPairing } from '../../core/agent/messageSanitize.js'
 
 const SUBAGENT_STOPPED = 'Error: Subagent stopped by user.'
 
@@ -212,11 +231,14 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             description: shortDesc,
             prompt,
             run_in_background,
+            resume,
           }: {
             subagent_type: string
             description: string
             prompt: string
             run_in_background?: boolean
+            /** Agent id to continue from its transcript (SendMessage). */
+            resume?: string
           },
           options?: { toolCallId?: string; abortSignal?: AbortSignal },
         ) => {
@@ -246,6 +268,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
           }
           const resolvedParentId = parentToolCallId ?? randomUUID()
           const sessionId = context.sessionId ?? ''
+          const prior = resume ? readSidechain(sessionId, resume) : null
+          if (resume && !prior) {
+            return `Error: no transcript for agent '${resume}'; it cannot be continued.`
+          }
 
           if (!provider) {
             return 'Error: task tool requires provider in ToolContext'
@@ -257,7 +283,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
           // a session there is no queue to report back on, and a backend
           // that cannot be forked ends with the turn: run in the foreground.
           const background =
-            run_in_background === true &&
+            (run_in_background === true || def.background === true) &&
             !!sessionId &&
             (!context.execution || !!context.execution.fork)
               ? {
@@ -269,7 +295,48 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               : undefined
           // Every subagent run has an id, so what it starts can be traced
           // back to it and cleaned up when it exits.
-          const agentId = generateTaskId('local_agent')
+          const agentId = resume ?? generateTaskId('local_agent')
+          const local =
+            !isRemoteWorkspace(context.session?.workspace) &&
+            !isWorkerExecutionBackend(context.execution)
+          let worktree: AgentWorktree | undefined
+          let isolationNote = ''
+          if (prior?.meta.worktree) {
+            if (fs.existsSync(prior.meta.worktree.path)) {
+              worktree = prior.meta.worktree
+            }
+          } else if (def.isolation === 'worktree' && !prior) {
+            if (!local) {
+              isolationNote =
+                'isolation: worktree needs a local git workspace; the agent worked in the shared one.'
+            } else {
+              try {
+                worktree = await createAgentWorktree(cwd, agentId)
+              } catch (err) {
+                isolationNote = `No git worktree (${err instanceof Error ? err.message : String(err)}); the agent worked in the shared workspace.`
+              }
+            }
+          }
+          const agentCwd = worktree?.cwd ?? cwd
+          if (sessionId && !prior) {
+            writeSidechainMeta(sessionId, {
+              agentId,
+              agentType: subagent_type,
+              description: shortDesc,
+              createdAt: Date.now(),
+              ...(worktree ? { worktree } : {}),
+            })
+          }
+          let agentMcp: Awaited<ReturnType<typeof connectAgentMcp>> | undefined
+          let finished: Promise<string> | undefined
+          const finishRun = (): Promise<string> =>
+            (finished ??= (async () => {
+              await agentMcp?.close().catch(() => {})
+              const outcome = worktree
+                ? worktreeOutcomeText(await finishAgentWorktree(worktree))
+                : ''
+              return [isolationNote, outcome].filter(Boolean).join('\n')
+            })())
           const subExecution = background
             ? background.execution
             : context.execution
@@ -323,6 +390,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 : undefined
 
             const parentPerm = context.permissionContext
+              ? worktree
+                ? { ...context.permissionContext, root: path.resolve(agentCwd) }
+                : context.permissionContext
+              : undefined
             const permissionContext =
               agentMemDir && parentPerm
                 ? {
@@ -339,22 +410,49 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 : parentPerm
 
             // Tool hooks apply to a subagent's calls; Stop is the main agent's.
-            const subHooks = context.hooks
-              ? withoutStopHooks(context.hooks)
-              : undefined
-            // Nobody can answer a prompt from an agent in the background.
-            const subCanUseTool =
-              background && context.canUseTool
-                ? createCanUseTool({
-                    cwd,
-                    getDefinition: name => registry.get(name),
-                    permissionContext,
-                    session: context.session,
-                    wire: noopWireEmitter,
-                    abortSignal: background.abortController.signal,
-                    shouldAvoidPermissionPrompts: true,
+            // The definition's own hooks run for this agent only, its Stop
+            // hooks when it finishes.
+            const subHooks = combineHookRunners(
+              context.hooks ? withoutStopHooks(context.hooks) : undefined,
+              def.hooks
+                ? createSessionHookRunner({
+                    hooks: def.hooks,
+                    remote: !local,
+                    cwd: agentCwd,
+                    sessionId,
+                    getPermissionMode: () => def.permissionMode,
                   })
-                : context.canUseTool
+                : undefined,
+            )
+            // Nobody can answer a prompt from an agent in the background.
+            // A worktree is a root of its own; dontAsk refuses what would ask.
+            const ownGate =
+              context.canUseTool &&
+              (background || worktree || def.permissionMode === 'dontAsk')
+            const gate = ownGate
+              ? createCanUseTool({
+                  cwd: agentCwd,
+                  getDefinition: name => registry.get(name),
+                  permissionContext,
+                  session: context.session,
+                  wire: background ? noopWireEmitter : context.wire,
+                  abortSignal: background?.abortController.signal,
+                  shouldAvoidPermissionPrompts:
+                    !!background || def.permissionMode === 'dontAsk',
+                })
+              : context.canUseTool
+            const readOnlyMode =
+              def.permissionMode === 'plan' || def.permissionMode === 'ask'
+                ? def.permissionMode
+                : undefined
+            const subCanUseTool =
+              gate && readOnlyMode
+                ? withModeGate(
+                    gate,
+                    () => readOnlyMode,
+                    name => isToolReadOnly(registry.get(name)),
+                  )
+                : gate
             const subContext: ToolContext = {
               eventBus: subEventBus,
               wire: subWire,
@@ -368,7 +466,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               permissionContext,
               canUseTool: subCanUseTool,
               hooks: subHooks,
-              cwd: context.cwd ?? cwd,
+              cwd: worktree ? agentCwd : (context.cwd ?? cwd),
+              mcpTools: context.mcpTools,
               execution: subExecution,
               autoMemory: context.autoMemory,
               agentId,
@@ -376,9 +475,9 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
 
             let subTools: Record<string, AnyTool>
             if (toolAllow) {
-              subTools = registry.createAll(cwd, subContext, toolAllow)
+              subTools = registry.createAll(agentCwd, subContext, toolAllow)
             } else {
-              subTools = registry.createAll(cwd, subContext)
+              subTools = registry.createAll(agentCwd, subContext)
               const patterns = def.disallowedTools ?? []
               for (const n of Object.keys(subTools)) {
                 if (
@@ -390,6 +489,11 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               }
             }
             delete subTools[AGENT_TOOL_NAME]
+            delete subTools[SEND_MESSAGE_TOOL_NAME]
+            if (def.mcpServers) {
+              agentMcp = await connectAgentMcp(def.mcpServers, context.mcpTools)
+              Object.assign(subTools, agentMcp.tools)
+            }
 
             let basePrompt = def.systemPrompt
             if (agentMemEnabled && def.memory) {
@@ -403,19 +507,30 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
 
             const projectRules = def.omitProjectRules
               ? ''
-              : loadAllAgentRules(cwd)
+              : loadAllAgentRules(agentCwd)
             const withRules = projectRules
               ? `${basePrompt}\n\n<project_rules>\nThe following rules were auto-loaded (user ~/.ai-agent/AGENTS.md, project AGENTS.md / .ai-agent/AGENTS.md / .ai-agent/rules/*.md, and AGENTS.local.md). They take precedence over all other sections when there is a conflict.\n\n${projectRules}\n</project_rules>`
               : basePrompt
-            setCwd(cwd)
+            setCwd(agentCwd)
             const subSystemPrompt = (
               await enhanceSystemPromptWithEnvDetails(
                 [withRules],
                 subModel ?? '',
               )
             ).join('\n\n')
+            if (worktree) setCwd(cwd)
 
-            const subMessages: Message[] = []
+            // Calls cut off when the agent last stopped get placeholder results.
+            const subMessages: Message[] = prior
+              ? ensureToolResultPairing(prior.messages)
+              : def.skills
+                ? await preloadSkillMessages(def.skills, agentCwd)
+                : []
+            if (sessionId && !prior) {
+              for (const m of subMessages) {
+                appendSidechainMessage(sessionId, agentId, m)
+              }
+            }
             const runSubagent = (extra: Partial<AgentOptions>) =>
               runAgent(prompt, {
                 throwOnError: true,
@@ -433,7 +548,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 ...(def.model === undefined
                   ? { fallbackProvider: models?.fallbackProvider(tier) }
                   : {}),
-                cwd,
+                cwd: agentCwd,
                 compaction,
                 concurrencyPolicy: registry
                   ? buildConcurrencyPolicy(registry)
@@ -443,6 +558,12 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 canUseTool: subCanUseTool,
                 hooks: subHooks,
                 agentId,
+                ...(sessionId
+                  ? {
+                      onMessage: (message: Message) =>
+                        appendSidechainMessage(sessionId, agentId, message),
+                    }
+                  : {}),
                 ...extra,
               })
 
@@ -471,21 +592,27 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                   }),
                 cleanup: async () => {
                   killAgentShells()
+                  const note = await finishRun()
+                  if (note) console.log(`[Agent] ${agentId}: ${note}`)
                   background.execution?.dispose?.()
                   await settleUsage?.()
                 },
               })
               return {
                 data: {
-                  text: asyncAgentLaunchedText({
-                    agentId: task.agentId,
-                    outputFile: task.outputFile,
-                    // The file is on this machine; a remote workspace's Read
-                    // looks on the worker.
-                    canReadOutputFile: !isRemoteWorkspace(
-                      context.session?.workspace,
-                    ),
-                  }),
+                  text:
+                    asyncAgentLaunchedText({
+                      agentId: task.agentId,
+                      outputFile: task.outputFile,
+                      // The file is on this machine; a remote workspace's Read
+                      // looks on the worker.
+                      canReadOutputFile: !isRemoteWorkspace(
+                        context.session?.workspace,
+                      ),
+                    }) +
+                    (worktree
+                      ? `\nIt works in a git worktree: ${worktree.path} (branch ${worktree.branch}); kept afterwards if it changed anything.`
+                      : ''),
                 },
               }
             }
@@ -510,7 +637,15 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               // Never hand the parent an empty tool_result —
               // some models treat that as "nothing to act on" and stop.
               const text = typeof result === 'string' ? result.trim() : ''
-              return output(text || SUBAGENT_NO_OUTPUT_MARKER)
+              const resumable = sessionId
+                ? `\n\nagentId: ${agentId} (use ${SEND_MESSAGE_TOOL_NAME} with this id to continue this agent with its full context)`
+                : ''
+              const note = await finishRun()
+              return output(
+                (text || SUBAGENT_NO_OUTPUT_MARKER) +
+                  (note ? `\n\n${note}` : '') +
+                  resumable,
+              )
             } catch (err) {
               if (
                 abortSignal?.aborted ||
@@ -531,6 +666,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             if (background && !background.handedOver) {
               background.execution?.dispose?.()
             }
+            // A background agent finishes in its own lifecycle.
+            if (!background?.handedOver) await finishRun()
           }
         },
       })

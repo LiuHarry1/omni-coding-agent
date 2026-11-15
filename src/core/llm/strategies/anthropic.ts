@@ -1,3 +1,4 @@
+import { resolveContextWindow } from '../model-capabilities.js'
 import { createAnthropic } from '@ai-sdk/anthropic'
 import type {
   ProviderStrategy,
@@ -81,6 +82,7 @@ export const anthropicStrategy: ProviderStrategy = {
       supportsNativePdf: () => true,
       supportsImageInput: () => p.vision !== false,
       maxOutputTokenCap: () => p.maxOutputTokens,
+      contextWindow: () => resolveContextWindow(p),
       describe: () => {
         const adaptive = p.thinking.mode === 'auto' || needsAdaptive(p.model)
         if (p.thinking.mode === 'off')

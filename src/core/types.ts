@@ -381,6 +381,7 @@ export interface AssistantMessage {
     outputTokens?: number
     totalTokens?: number
     cachedInputTokens?: number
+    cacheWriteTokens?: number
     reasoningTokens?: number
   }
 }
@@ -517,6 +518,12 @@ export interface AgentOptions {
   messages?: Message[]
   images?: string[]
   /**
+   * Placed ahead of everything else this turn adds (memories recalled before
+   * the first request). They join the conversation here rather than being
+   * pushed by the caller, so they are handed out and written in order.
+   */
+  leadingMessages?: Message[]
+  /**
    * Composer attachments already resolved to meta messages (PDF documents,
    * Read-style file attachments, binary notes). Injected just before the user
    * turn, after `@mention` attachments.
@@ -638,11 +645,6 @@ export interface AgentOptions {
   sessionId?: string
   /** Request-scoped context for getAttachmentMessages. */
   toolUseContext?: ToolUseContext
-  /**
-   * Rebuild the active tool set when permission mode changes mid-turn
-   * (e.g. ExitPlanMode approval unlocks Write/Bash after planning).
-   */
-  refreshTools?: () => Record<string, AnyTool>
   /** Rebuild system prompt when permission mode changes mid-turn. */
   refreshSystemPrompt?: () => string | Promise<string>
   /** Inject plan-exit reminders when transitioning out of plan mode mid-turn. */
@@ -650,26 +652,17 @@ export interface AgentOptions {
   /**
    * Called with boundary/summary/attachment events appended by a
    * session-memory or full compact. The in-memory transcript is never
-   * replaced. Not invoked for microcompact (API-view only).
+   * replaced. Not invoked for microcompact (API-view only). The rows also
+   * arrive as `message` events, which is where they are persisted.
    */
   onFullCompaction?: (messages: readonly Message[]) => void
-  /**
-   * Durable boundary after attachments and the opening user message have
-   * entered history, before the first model request begins.
-   */
-  onMessagesSeeded?: (messages: readonly Message[]) => void | Promise<void>
   /**
    * Durable boundary after one complete model/tool step, including any
    * post-step attachments. Unlike onAfterStep, the loop awaits this hook.
    */
   onStepCommitted?: (messages: readonly Message[]) => void | Promise<void>
-  /**
-   * Observe the structured query outcome before runAgent returns its legacy
-   * text result (or applies throwOnError). The loop awaits this hook.
-   */
-  onQueryResult?: (
-    result: import('./query/types.js').QueryResult,
-  ) => void | Promise<void>
+  /** Each message the turn appends, in order, as the loop hands it over. */
+  onMessage?: (message: Message) => void
   /**
    * After each completed step (stream + tools). Host may fire session-memory
    * extract; the loop never awaits this.
@@ -938,7 +931,24 @@ export interface AgentDefinition {
   source?: AgentSource
   /** Absolute path to the defining `.md` file, when loaded from disk. */
   filePath?: string
+  /**
+   * `plan` / `ask`: the agent may only use read-only tools. `dontAsk`: what
+   * would ask for permission is refused instead.
+   */
+  permissionMode?: AgentPermissionMode
+  /** Hooks for this agent's own run, on top of the session's. Its Stop hooks run when it finishes. */
+  hooks?: import('./hooks/types.js').HooksConfig
+  /** MCP servers for this agent: names of the session's servers, or `{ name: config }`. */
+  mcpServers?: Array<string | Record<string, MCPServerConfig>>
+  /** Skills loaded into the agent's context before it starts. */
+  skills?: string[]
+  /** Always runs in the background. */
+  background?: boolean
+  /** `worktree`: runs in a git worktree of its own (local git workspaces). */
+  isolation?: 'worktree'
 }
+
+export type AgentPermissionMode = 'agent' | 'ask' | 'plan' | 'dontAsk'
 
 export interface AgentDefinitionsResult {
   activeAgents: AgentDefinition[]

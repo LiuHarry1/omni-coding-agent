@@ -42,6 +42,49 @@ describe('resolveModelProfiles maxOutputTokens', () => {
   })
 })
 
+describe('context window', () => {
+  it('is the configured one, else the known window of a first-party model', () => {
+    const profiles = resolveModelProfiles({
+      models: {
+        large: { ...base, model: 'claude-opus-4-6', contextWindow: 500_000 },
+        small: { model: 'claude-haiku-4-5' },
+      },
+    })
+    const registry = createModelRegistry(profiles)
+    expect(registry.provider('large').contextWindow?.()).toBe(500_000)
+    expect(registry.provider('small').contextWindow?.()).toBe(200_000)
+  })
+
+  it('is unknown behind a gateway unless configured', () => {
+    const gateway = {
+      provider: 'openai-compatible',
+      baseURL: 'http://localhost:4141/v1',
+      apiKey: 'k',
+    }
+    const profiles = resolveModelProfiles({
+      models: {
+        large: { ...gateway, model: 'gpt-4.1' },
+        small: { model: 'qwen3', contextWindow: 128_000 },
+      },
+    })
+    const registry = createModelRegistry(profiles)
+    expect(registry.provider('large').contextWindow?.()).toBeUndefined()
+    expect(registry.provider('small').contextWindow?.()).toBe(128_000)
+  })
+
+  it('is not inherited by a tier that swaps the model', () => {
+    const profiles = resolveModelProfiles({
+      models: {
+        large: { ...base, model: 'big', contextWindow: 1_000_000 },
+        medium: { thinking: { mode: 'low' } },
+        small: { model: 'tiny' },
+      },
+    })
+    expect(profiles.medium.contextWindow).toBe(1_000_000)
+    expect(profiles.small.contextWindow).toBeUndefined()
+  })
+})
+
 describe('fallbackProvider', () => {
   const profiles = resolveModelProfiles({
     models: {

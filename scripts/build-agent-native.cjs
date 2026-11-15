@@ -8,10 +8,8 @@ const fs = require('fs')
 const path = require('path')
 const { spawnSync } = require('child_process')
 
-const root = path.join(__dirname, '../..')
-const brand = JSON.parse(
-  fs.readFileSync(path.join(root, 'brand.json'), 'utf8'),
-)
+const root = path.join(__dirname, '..')
+const brand = JSON.parse(fs.readFileSync(path.join(root, 'brand.json'), 'utf8'))
 const slug = brand.slug || 'baize'
 const entry = path.join(root, 'src', 'entrypoints', 'agent-bundle.ts')
 const outDir = path.join(root, 'dist', 'agent')

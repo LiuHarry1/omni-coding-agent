@@ -24,6 +24,11 @@ import {
   TODO_WRITE_TOOL_NAME,
 } from '../constants/tool_names.js'
 import { wrapInSystemReminder } from './system-reminder.js'
+import { planModeInstructions } from '../prompts/plan.js'
+import {
+  ASK_MODE_EXIT_INSTRUCTIONS,
+  askModeInstructions,
+} from '../prompts/ask.js'
 
 const MAX_DIAGNOSTICS_SUMMARY_CHARS = 8000
 const SR_PREFIX = '<system-reminder>'
@@ -97,22 +102,15 @@ function sparsePlanReminder(planFilePath: string): string {
   return `Plan mode still active (see full instructions earlier in conversation). Read-only except plan file (${planFilePath}). Follow 5-phase workflow. End turns with ${ASK_USER_QUESTION_TOOL_NAME} (for clarifications) or ${EXIT_PLAN_MODE_TOOL_NAME} (for plan approval). Never ask about plan approval via text or AskUserQuestion.`
 }
 
-function fullPlanReminder(planFilePath: string, exists: boolean): string {
-  return `Plan mode is active. You MUST NOT make any edits except the plan file, run shell commands on the main thread, or spawn non-Explore/Plan subagents.
-
-Plan file: ${planFilePath}${exists ? ' (exists — read it first)' : ' (not created yet)'}
-
-Workflow: Phase 1 Explore agents → Phase 2 Plan agents → Phase 3 Review/Ask → Phase 4 Write plan file → Phase 5 ${EXIT_PLAN_MODE_TOOL_NAME}
-
-End each turn with ${ASK_USER_QUESTION_TOOL_NAME} or ${EXIT_PLAN_MODE_TOOL_NAME} — not plain text alone.`
-}
-
 function getPlanModeInstructions(
   attachment: Extract<Attachment, { type: 'plan_mode' }>,
 ): UserMessage[] {
   const content =
     attachment.reminderType === 'full'
-      ? fullPlanReminder(attachment.planFilePath, attachment.planExists)
+      ? planModeInstructions({
+          planFilePath: attachment.planFilePath,
+          planExists: attachment.planExists,
+        })
       : sparsePlanReminder(attachment.planFilePath)
   return wrapMessagesInSystemReminder([metaUserMessage(content)])
 }
@@ -156,6 +154,16 @@ You are returning to plan mode after having previously exited it. A plan file ex
 4. Continue on with the plan process and most importantly you should always edit the plan file one way or the other before calling ${EXIT_PLAN_MODE_TOOL_NAME}
 
 Treat this as a fresh planning session. Do not assume the existing plan is relevant without evaluating it first.`),
+      ])
+
+    case 'ask_mode':
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(askModeInstructions()),
+      ])
+
+    case 'ask_mode_exit':
+      return wrapMessagesInSystemReminder([
+        metaUserMessage(ASK_MODE_EXIT_INSTRUCTIONS),
       ])
 
     case 'plan_mode_exit': {

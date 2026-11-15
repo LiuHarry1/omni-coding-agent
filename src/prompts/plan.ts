@@ -19,9 +19,6 @@ import {
   getPlanModeExploreAgentCount,
 } from '../utils/plan-config.js'
 import { PLAN_PHASE4_SECTION } from './plan-phase4.js'
-import { computeSimpleEnvInfo } from '../constants/prompts.js'
-import { setCwd } from '../utils/cwd.js'
-import { workspaceBoundaryPromptSection } from '../utils/permissions/workspace-boundary-prompt.js'
 
 export interface PlanPromptOptions {
   planFilePath: string
@@ -29,18 +26,10 @@ export interface PlanPromptOptions {
 }
 
 /**
- * Plan mode system prompt — 5-phase workflow.
+ * The plan-mode workflow, sent as a reminder while plan mode is active so
+ * the system prompt stays the same in every mode.
  */
-export async function planSystemPrompt(
-  cwd: string,
-  projectRules: string | undefined,
-  options: PlanPromptOptions,
-  modelId = '',
-): Promise<string> {
-  setCwd(cwd)
-  const env =
-    (await computeSimpleEnvInfo(modelId)) + workspaceBoundaryPromptSection(cwd)
-
+export function planModeInstructions(options: PlanPromptOptions): string {
   const { planFilePath, planExists } = options
   const agentCount = getPlanModeAgentCount()
   const exploreAgentCount = getPlanModeExploreAgentCount()
@@ -67,8 +56,6 @@ Example perspectives by task type:
       : ''
 
   const sections = [
-    `You are an expert coding assistant in **Plan mode**.`,
-    '',
     'Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.',
     '',
     '## Plan File Info:',
@@ -120,8 +107,6 @@ Example perspectives by task type:
     '',
     `NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications using the ${ASK_USER_QUESTION_TOOL_NAME} tool. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.`,
     '',
-    env.trim(),
-    '',
     '## Tool usage (read-only during Phases 1-3)',
     `- Exploration agents: ${EXPLORE_AGENT_TYPE} (Phase 1), ${PLAN_AGENT_TYPE} (Phase 2)`,
     `- Direct reads when needed: ${FILE_READ_TOOL_NAME}, ${GLOB_TOOL_NAME}, ${GREP_TOOL_NAME}, ${WEB_SEARCH_TOOL_NAME}, ${WEB_FETCH_TOOL_NAME}`,
@@ -133,10 +118,6 @@ Example perspectives by task type:
     '## TodoWrite',
     `${TODO_WRITE_TOOL_NAME} is optional during planning. You do NOT need to call it before ${EXIT_PLAN_MODE_TOOL_NAME}. After the user approves the plan, update your todo list with ${TODO_WRITE_TOOL_NAME} if tracking progress would help.`,
   ]
-
-  if (projectRules?.trim()) {
-    sections.push('', '## Project rules', projectRules.trim())
-  }
 
   return sections.join('\n')
 }

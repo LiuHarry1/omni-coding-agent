@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import '../tools.js'
 import { BROWSER_READ_ONLY_TOOL_NAMES } from '../constants/tool_names.js'
-import { applyModeRestrictions } from './mode-restrictions.js'
+import { modeDenial } from './mode-restrictions.js'
 import {
   defineTool,
   instantiateTool,
@@ -157,22 +157,15 @@ describe('validateInput bound to a tool instance', () => {
 
 describe('ask mode', () => {
   const isReadOnly = (name: string) => isToolReadOnly(defaultRegistry.get(name))
-  const fake = (name: string) => ({ description: name }) as unknown as AnyTool
+  const allowed = (names: string[]) =>
+    names.filter(name => !modeDenial('ask', name, isReadOnly))
 
-  it('offers exactly the built-in tools that declare themselves read-only', () => {
+  it('runs exactly the built-in tools that declare themselves read-only, and ToolSearch', () => {
     const builtIn = defaultRegistry.list().map(item => item.name)
-    const pool = Object.fromEntries(
-      [...builtIn, 'ToolSearch', 'mcp__docs__search'].map(name => [
-        name,
-        fake(name),
-      ]),
-    )
 
-    const offered = Object.keys(
-      applyModeRestrictions('ask', pool, { isReadOnly }),
-    )
-
-    expect(offered.sort()).toEqual(
+    expect(
+      allowed([...builtIn, 'ToolSearch', 'mcp__docs__search']).sort(),
+    ).toEqual(
       [
         'Read',
         'Glob',
@@ -180,24 +173,13 @@ describe('ask mode', () => {
         'LSP',
         'WebSearch',
         'WebFetch',
+        'ToolSearch',
         ...BROWSER_READ_ONLY_TOOL_NAMES,
       ].sort(),
     )
   })
 
-  it('withholds the mode-switch tools', () => {
-    const offered = applyModeRestrictions(
-      'ask',
-      { Read: fake('Read') },
-      {
-        extra: {
-          EnterPlanMode: fake('EnterPlanMode'),
-          ExitPlanMode: fake('ExitPlanMode'),
-        },
-        isReadOnly,
-      },
-    )
-
-    expect(Object.keys(offered)).toEqual(['Read'])
+  it('refuses the mode-switch tools', () => {
+    expect(allowed(['Read', 'EnterPlanMode', 'ExitPlanMode'])).toEqual(['Read'])
   })
 })

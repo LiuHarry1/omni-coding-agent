@@ -2,14 +2,7 @@ import type { Message } from '../types.js'
 import { createHookRunner, type HookRunner } from './hooks.js'
 import { hookResultMessages } from './messages.js'
 import type { HooksConfig } from './types.js'
-
-function isAuthEnabled(): boolean {
-  return ['1', 'true', 'yes', 'on'].includes(
-    String(process.env.AUTH_ENABLED ?? '')
-      .trim()
-      .toLowerCase(),
-  )
-}
+import { isAuthEnabled } from '../../utils/env.js'
 
 let warnedSkipped = false
 

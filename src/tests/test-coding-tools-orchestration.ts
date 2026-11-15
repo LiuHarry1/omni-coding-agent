@@ -21,7 +21,7 @@ import {
   TOOL_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { applyModeRestrictions } from '../core/mode-restrictions.js'
+import { modeDenial } from '../core/mode-restrictions.js'
 import { isToolReadOnly } from '../core/tool-definition.js'
 import { ToolRegistry, defaultRegistry } from '../core/tool-registry.js'
 import type {
@@ -152,40 +152,28 @@ function testConstantsAndDefaultRegistry(): void {
 }
 
 function testModeRestrictionsAndAssembly(): void {
-  const raw = {
-    [FILE_READ_TOOL_NAME]: fakeTool(FILE_READ_TOOL_NAME),
-    [WRITE_FILE_TOOL_NAME]: fakeTool(WRITE_FILE_TOOL_NAME),
-    [BASH_TOOL_NAME]: fakeTool(BASH_TOOL_NAME),
-    [ASK_USER_QUESTION_TOOL_NAME]: fakeTool(ASK_USER_QUESTION_TOOL_NAME),
-  }
-  const extras = {
-    [ENTER_PLAN_MODE_TOOL_NAME]: fakeTool(ENTER_PLAN_MODE_TOOL_NAME),
-    [EXIT_PLAN_MODE_TOOL_NAME]: fakeTool(EXIT_PLAN_MODE_TOOL_NAME),
-  }
   const isReadOnly = (name: string) => isToolReadOnly(defaultRegistry.get(name))
-  assert.deepEqual(
-    Object.keys(applyModeRestrictions('ask', raw, { isReadOnly })),
-    [FILE_READ_TOOL_NAME],
-  )
+  const allowedIn = (mode: 'agent' | 'ask' | 'plan') =>
+    [
+      FILE_READ_TOOL_NAME,
+      WRITE_FILE_TOOL_NAME,
+      BASH_TOOL_NAME,
+      ASK_USER_QUESTION_TOOL_NAME,
+      ENTER_PLAN_MODE_TOOL_NAME,
+      EXIT_PLAN_MODE_TOOL_NAME,
+    ].filter(name => !modeDenial(mode, name, isReadOnly))
+  assert.deepEqual(allowedIn('ask'), [FILE_READ_TOOL_NAME])
+  assert.ok(allowedIn('agent').includes(ENTER_PLAN_MODE_TOOL_NAME))
+  assert.ok(!allowedIn('agent').includes(EXIT_PLAN_MODE_TOOL_NAME))
+  const plan = allowedIn('plan')
   assert.ok(
-    applyModeRestrictions('agent', raw, { extra: extras, isReadOnly })[
-      ENTER_PLAN_MODE_TOOL_NAME
-    ],
+    plan.includes(WRITE_FILE_TOOL_NAME),
+    'plan allows writes for the plan-file guard',
   )
-  assert.ok(
-    !applyModeRestrictions('agent', raw, { extra: extras, isReadOnly })[
-      EXIT_PLAN_MODE_TOOL_NAME
-    ],
-  )
-  const plan = applyModeRestrictions('plan', raw, { extra: extras, isReadOnly })
-  assert.ok(
-    plan[WRITE_FILE_TOOL_NAME],
-    'plan keeps writes for the plan-file guard',
-  )
-  assert.ok(plan[ASK_USER_QUESTION_TOOL_NAME])
-  assert.ok(plan[EXIT_PLAN_MODE_TOOL_NAME])
-  assert.ok(!plan[BASH_TOOL_NAME])
-  assert.ok(!plan[ENTER_PLAN_MODE_TOOL_NAME])
+  assert.ok(plan.includes(ASK_USER_QUESTION_TOOL_NAME))
+  assert.ok(plan.includes(EXIT_PLAN_MODE_TOOL_NAME))
+  assert.ok(!plan.includes(BASH_TOOL_NAME))
+  assert.ok(!plan.includes(ENTER_PLAN_MODE_TOOL_NAME))
 
   const registry = new ToolRegistry()
   registry.register(
@@ -215,24 +203,22 @@ function testModeRestrictionsAndAssembly(): void {
   assert.ok(agent.tools[BASH_TOOL_NAME])
   assert.ok(agent.tools[TOOL_SEARCH_TOOL_NAME])
   assert.ok(agent.tools[ENTER_PLAN_MODE_TOOL_NAME])
-  assert.ok(!agent.tools[EXIT_PLAN_MODE_TOOL_NAME])
+  assert.ok(agent.tools[EXIT_PLAN_MODE_TOOL_NAME])
   assert.ok(agent.deferredToolPool?.[FILE_READ_TOOL_NAME])
   assert.ok(agent.deferredToolPool?.[TODO_WRITE_TOOL_NAME])
   assert.ok(agent.deferredToolPool?.mcp_lookup)
   assert.ok(agent.dynamicDefs[TOOL_SEARCH_TOOL_NAME])
 
-  const ask = assemble('ask')
-  assert.deepEqual(Object.keys(ask.tools), [FILE_READ_TOOL_NAME])
-  assert.equal(ask.deferredToolPool, undefined)
-  assert.deepEqual(ask.deferredDefs, [])
-  assert.equal(ask.dynamicDefs[TOOL_SEARCH_TOOL_NAME], undefined)
-
-  const planPool = assemble('plan')
-  assert.ok(planPool.tools[WRITE_FILE_TOOL_NAME])
-  assert.ok(planPool.tools[ASK_USER_QUESTION_TOOL_NAME])
-  assert.ok(planPool.tools[EXIT_PLAN_MODE_TOOL_NAME])
-  assert.ok(!planPool.tools[BASH_TOOL_NAME])
-  assert.ok(!planPool.tools[ENTER_PLAN_MODE_TOOL_NAME])
+  // The prompt cache survives a mode switch only if the tools stay the same.
+  for (const mode of ['ask', 'plan'] as const) {
+    const pool = assemble(mode)
+    assert.deepEqual(Object.keys(pool.tools), Object.keys(agent.tools), mode)
+    assert.deepEqual(
+      Object.keys(pool.deferredToolPool ?? {}),
+      Object.keys(agent.deferredToolPool ?? {}),
+      mode,
+    )
+  }
 }
 
 async function testToolSearch(): Promise<void> {
