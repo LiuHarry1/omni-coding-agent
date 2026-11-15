@@ -66,6 +66,11 @@ export const agentApi = {
   deleteSession: id =>
     fetch(apiUrl(`/sessions/${id}`), withAuth({ method: 'DELETE' })),
   getSessionMessages: id => fetchJSON(`/sessions/${id}/messages`),
+  /** A subagent's own conversation: `{ agent, messages }`. */
+  getSubagentTranscript: (sessionId, agentId) =>
+    fetchJSON(
+      `/sessions/${encodeURIComponent(sessionId)}/subagents/${encodeURIComponent(agentId)}`,
+    ),
   /** What rewinding to before a user message would put back. */
   previewRewind: (sessionId, messageId) =>
     fetchJSON(

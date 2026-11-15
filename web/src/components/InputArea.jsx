@@ -1,6 +1,7 @@
 import { useRef, useCallback, useState, useEffect, useMemo } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
 import { useWorkspaceContextStore } from '../stores/workspace-context-store.js'
+import { useSubagentTabsStore } from '../stores/subagent-tabs-store.js'
 import ModePicker from './ModePicker.jsx'
 import ContextNotice from './ContextNotice.jsx'
 import SchedulePicker from './SchedulePicker.jsx'
@@ -455,6 +456,8 @@ export default function InputArea() {
     setAttachments([])
     setAttachError(null)
     setAtSuggestions([])
+    // The message goes to the chat, not to the subagent whose tab is open.
+    useSubagentTabsStore.getState().showChat()
     sendMessage(text || describeAttachments(outgoing), outgoing)
   }, [sendMessage, queueMessage, isStreaming, sessionLoading, attachments])
 

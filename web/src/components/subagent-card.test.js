@@ -39,7 +39,7 @@ describe('subagentRowSubtitle', () => {
         [],
         'Analyze exports',
       ),
-    ).toBe('Starting…')
+    ).toBe('Planning next moves')
   })
 
   it('keeps distinct live task text', () => {
@@ -81,5 +81,26 @@ describe('subagentRowSubtitle', () => {
     expect(
       subagentRowSubtitle({ status: 'running' }, settled, 'Find broker'),
     ).toBe('Planning next moves')
+  })
+
+  it('says how the call ended once it is done', () => {
+    const settled = [
+      { type: 'tool_call', toolCallId: 'grep-1', name: 'Grep', status: 'done' },
+    ]
+    // Not a count of its steps: that is shown where the steps are.
+    expect(
+      subagentRowSubtitle(
+        { status: 'done', result: 'Found the broker.' },
+        settled,
+        'Find broker',
+      ),
+    ).toBe('Completed')
+    expect(
+      subagentRowSubtitle(
+        { status: 'done', result: 'Error: Subagent stopped by user.' },
+        settled,
+        'Find broker',
+      ),
+    ).toBe('Stopped')
   })
 })

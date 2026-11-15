@@ -135,13 +135,19 @@ export class WireEmitter {
     )
   }
 
-  stepStart(step: number, extra?: { task?: string; label?: string }): void {
+  stepStart(
+    step: number,
+    extra?: { task?: string; label?: string; agentId?: string },
+  ): void {
     this.emit({
       type: 'system',
       subtype: 'step_start',
       step,
       task: extra?.task,
       label: extra?.label,
+      // A subagent's first step names it, so its transcript can be opened
+      // while it is still running.
+      ...(extra?.agentId ? { agent_id: extra.agentId } : {}),
       ...this.#env,
     })
   }

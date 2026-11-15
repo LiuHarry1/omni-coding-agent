@@ -20,6 +20,8 @@ export interface SidechainMeta {
   agentType: string
   description: string
   createdAt: number
+  /** The model it last ran on. */
+  model?: string
   /** The git worktree the agent works in (`isolation: worktree`). */
   worktree?: import('../utils/worktree.js').AgentWorktree
 }
@@ -74,10 +76,42 @@ export function appendSidechainMessage(
   )
 }
 
-/** The subagent's metadata and messages, or null when it left no transcript. */
+/**
+ * How long a run took, kept for the message that opened it: reading the
+ * transcript puts the span on that message, as the session's own does.
+ */
+export function appendSidechainTurnTiming(
+  sessionId: string,
+  agentId: string,
+  messageUuid: string,
+  startTime: number,
+  endTime: number,
+): void {
+  const paths = filePaths(sessionId, agentId)
+  if (!paths) return
+  fs.mkdirSync(path.dirname(paths.transcript), { recursive: true })
+  fs.appendFileSync(
+    paths.transcript,
+    stringifySessionJsonLine({
+      type: 'turn_timing',
+      messageUuid,
+      startTime,
+      endTime,
+      timestamp: Date.now(),
+    }) + '\n',
+  )
+}
+
+/**
+ * The subagent's metadata and messages, or null when it left no transcript.
+ *
+ * `view` is for a reader that will not write after it (showing the
+ * transcript): it leaves alone the place a running agent appends from.
+ */
 export function readSidechain(
   sessionId: string,
   agentId: string,
+  opts?: { view?: boolean },
 ): { meta: SidechainMeta; messages: Message[] } | null {
   const paths = filePaths(sessionId, agentId)
   if (!paths || !fs.existsSync(paths.meta)) return null
@@ -96,6 +130,6 @@ export function readSidechain(
         })
     : []
   const { messages, leafUuid } = replayTranscriptMessages(rows)
-  tips.set(paths.transcript, leafUuid)
+  if (!opts?.view) tips.set(paths.transcript, leafUuid)
   return { meta, messages }
 }

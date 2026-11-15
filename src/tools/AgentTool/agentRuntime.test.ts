@@ -110,6 +110,48 @@ function setup(
 }
 
 describe('agent definitions at run time', () => {
+  it('keeps the model and how long each run took with the transcript', async () => {
+    const run = setup({}, async (prompt, options) => {
+      options.onMessage!({ role: 'user', content: prompt, uuid: 'u-1' })
+      await new Promise(resolve => setTimeout(resolve, 5))
+      options.onMessage!({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Done.' }],
+        uuid: 'a-1',
+      })
+      return 'Done.'
+    })
+    const before = Date.now()
+    const result = await run()
+    const agentId = /agentId: (\S+)/.exec(result.data.text)![1]!
+
+    const { meta, messages } = readSidechain(sessionId, agentId)!
+    expect(meta.model).toBe('fixture-model')
+    expect(messages.map(m => m.uuid)).toEqual(['u-1', 'a-1'])
+    const opening = messages[0] as {
+      turnStartTime: number
+      turnEndTime: number
+    }
+    expect(opening.turnStartTime).toBeGreaterThanOrEqual(before)
+    expect(opening.turnEndTime).toBeGreaterThan(opening.turnStartTime)
+  })
+
+  it('keeps how long a run took when it fails', async () => {
+    const run = setup({}, async (prompt, options) => {
+      options.onMessage!({ role: 'user', content: prompt, uuid: 'u-1' })
+      throw new Error('model unavailable')
+    })
+    const result = await run()
+    const { agentId } = result.data as unknown as { agentId: string }
+
+    const opening = readSidechain(sessionId, agentId)!.messages[0] as {
+      turnStartTime?: number
+      turnEndTime?: number
+    }
+    expect(opening.turnStartTime).toEqual(expect.any(Number))
+    expect(opening.turnEndTime).toEqual(expect.any(Number))
+  })
+
   it('isolation: worktree runs the agent in a worktree and reports kept changes', async () => {
     let agentCwd = ''
     const run = setup({ isolation: 'worktree' }, async (_prompt, options) => {

@@ -86,6 +86,7 @@ import {
 import { handleSessionLive } from './session-live.js'
 import { handleSessionQueue } from './routes/session-queue.js'
 import { handleSessionRewind } from './routes/session-rewind.js'
+import { handleSessionSubagents } from './routes/session-subagents.js'
 import {
   handleMcpActions,
   handleMcpOAuthCallback,
@@ -412,6 +413,7 @@ export function createRouter({ staticDir }: RouterOptions) {
       if (handleSessionLive(req, res)) return
       if (await handleSessionQueue(req, res)) return
       if (await handleSessionRewind(req, res)) return
+      if (handleSessionSubagents(req, res)) return
       if (method === 'GET' && url?.match(/^\/sessions\/[^/]+\/messages$/)) {
         const id = url.split('/sessions/')[1].split('/messages')[0]
         const session = getSession(id)

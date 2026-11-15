@@ -166,6 +166,8 @@ export const StepStartMessageSchema = z.object({
   step: z.number(),
   task: z.string().optional(),
   label: z.string().optional(),
+  /** Set on a subagent's first step: the id its transcript is read by. */
+  agent_id: z.string().optional(),
   ...envelopeFields,
 })
 

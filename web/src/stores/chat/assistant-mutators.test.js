@@ -219,3 +219,100 @@ describe('_beginQueuedTurn', () => {
     expect(get().activeTurnId).toBe('turn-1')
   })
 })
+
+describe('_appendSubagentEvent', () => {
+  /** A turn with one running Agent call. */
+  function runningAgent() {
+    const turn = liveTurn()
+    turn.set(s =>
+      appendBubble(s, {
+        id: toolBubbleId('agent-1'),
+        kind: 'tool',
+        turnId: 'turn-1',
+        toolCallId: 'agent-1',
+        name: 'Agent',
+        isSubagent: true,
+        status: 'running',
+      }),
+    )
+    const send = event => {
+      turn.mutators._appendSubagentEvent({
+        parentToolCallId: 'agent-1',
+        ...event,
+      })
+      turn.mutators._flushStreamBatch()
+    }
+    const agent = () => turn.get().bubblesById[toolBubbleId('agent-1')]
+    return { ...turn, send, agent }
+  }
+
+  it('keeps what the agent says between its tool steps, in order', () => {
+    const { send, agent } = runningAgent()
+
+    send({ type: 'text_delta', delta: 'Looking at ' })
+    send({ type: 'text_delta', delta: 'the router.' })
+    send({
+      type: 'tool_call',
+      name: 'Read',
+      args: { file_path: 'router.ts' },
+      toolCallId: 'read-1',
+    })
+    send({ type: 'tool_result', toolCallId: 'read-1', result: 'source' })
+    send({ type: 'text_delta', delta: 'Found 12 routes.' })
+
+    const parts = agent().subagentParts
+    expect(parts.map(p => p.type)).toEqual(['text', 'tool_call', 'text'])
+    expect(parts[0].content).toBe('Looking at the router.')
+    expect(parts[1]).toMatchObject({ toolCallId: 'read-1', status: 'done' })
+    expect(parts[2].content).toBe('Found 12 routes.')
+    expect(parts[0].id).not.toBe(parts[2].id)
+  })
+
+  it('ignores an empty delta', () => {
+    const { send, agent, get } = runningAgent()
+    const before = get().bubblesById
+
+    send({ type: 'text_delta', delta: '' })
+
+    expect(agent().subagentParts).toBeUndefined()
+    expect(get().bubblesById).toBe(before)
+  })
+
+  it('learns the agent id from its first step and keeps it', () => {
+    const { send, agent } = runningAgent()
+
+    send({
+      type: 'step_start',
+      task: 'Audit the routes',
+      label: 'Explorer',
+      agentId: 'a1b2c3d4e',
+    })
+    // The agent's later steps carry neither.
+    send({ type: 'step_start' })
+
+    expect(agent()).toMatchObject({
+      agentId: 'a1b2c3d4e',
+      liveTask: 'Audit the routes',
+      liveLabel: 'Explorer',
+    })
+  })
+
+  it('leaves what the agent said alone when the turn is cut off', () => {
+    const { send, agent, mutators } = runningAgent()
+    send({ type: 'text_delta', delta: 'Looking.' })
+    send({ type: 'tool_call', name: 'Read', args: {}, toolCallId: 'read-1' })
+
+    mutators._finalizeAssistant()
+    mutators._flushStreamBatch()
+
+    expect(agent().subagentParts).toEqual([
+      { type: 'text', id: 'text:0', content: 'Looking.' },
+      expect.objectContaining({
+        toolCallId: 'read-1',
+        status: 'done',
+        isError: true,
+        result: 'Interrupted by user',
+      }),
+    ])
+  })
+})

@@ -102,6 +102,7 @@ export function toolBubbleToPart(b) {
     isSubagent: b.isSubagent,
     subagentParts: b.subagentParts,
     omittedSubagentSteps: b.omittedSubagentSteps,
+    agentId: b.agentId,
     startTime: b.startTime,
     endTime: b.endTime,
     duration: b.duration,

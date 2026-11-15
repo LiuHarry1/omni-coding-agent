@@ -23,6 +23,7 @@ import type {
   ToolContext,
   ToolDefinition,
 } from '../../core/types.js'
+import { isRoleMessage } from '../../core/types.js'
 import { createCanUseTool } from '../../utils/permissions/can-use-tool.js'
 import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
@@ -62,12 +63,22 @@ import { getAgentMemoryDir, loadAgentMemoryPrompt } from './agentMemory.js'
 import { buildAgentUiProjection } from './uiProjection.js'
 import {
   appendSidechainMessage,
+  appendSidechainTurnTiming,
   readSidechain,
   writeSidechainMeta,
 } from '../../session/sidechain.js'
 import { ensureToolResultPairing } from '../../core/agent/messageSanitize.js'
 
 const SUBAGENT_STOPPED = 'Error: Subagent stopped by user.'
+
+/** How an Agent call ended; `background` means it only launched the agent. */
+const AGENT_RESULT_STATUSES = [
+  'completed',
+  'stopped',
+  'error',
+  'background',
+] as const
+type AgentResultStatus = (typeof AGENT_RESULT_STATUSES)[number]
 
 /** tools/AgentTool/AgentTool.tsx — single dispatcher for all subagents. */
 export function createTaskTool(
@@ -170,6 +181,10 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
     },
     outputSchema: z.object({
       text: z.string(),
+      /** The run's id: its transcript can be read and continued by it. */
+      agentId: z.string().optional(),
+      /** How the call ended, so the UI need not read it off the text. */
+      status: z.enum(AGENT_RESULT_STATUSES).optional(),
       ui: z
         .object({
           version: z.literal(1),
@@ -324,20 +339,6 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
             }
           }
           const agentCwd = worktree?.cwd ?? cwd
-          if (
-            sessionId &&
-            (!prior || (worktree && worktree !== priorWorktree))
-          ) {
-            writeSidechainMeta(sessionId, {
-              ...(prior?.meta ?? {
-                agentId,
-                agentType: subagent_type,
-                description: shortDesc,
-                createdAt: Date.now(),
-              }),
-              ...(worktree ? { worktree } : {}),
-            })
-          }
           let agentMcp: Awaited<ReturnType<typeof connectAgentMcp>> | undefined
           /**
            * What the run leaves behind, settled once: a note for whoever
@@ -376,6 +377,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               subWire.stepStart(0, {
                 task: shortDesc.slice(0, 80),
                 label: def.label || subagent_type,
+                // Only a run with a session leaves a transcript to open.
+                ...(sessionId ? { agentId } : {}),
               })
             }
 
@@ -390,6 +393,23 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               def.model ??
               models?.profile(tier).model ??
               subProvider.defaultModelId()
+            if (
+              sessionId &&
+              (!prior ||
+                (worktree && worktree !== priorWorktree) ||
+                (subModel && subModel !== prior.meta.model))
+            ) {
+              writeSidechainMeta(sessionId, {
+                ...(prior?.meta ?? {
+                  agentId,
+                  agentType: subagent_type,
+                  description: shortDesc,
+                  createdAt: Date.now(),
+                }),
+                ...(worktree ? { worktree } : {}),
+                ...(subModel ? { model: subModel } : {}),
+              })
+            }
 
             const autoMemOn = context.autoMemory?.enabled !== false
             const agentMemEnabled = Boolean(autoMemOn && def.memory)
@@ -552,41 +572,64 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                 appendSidechainMessage(sessionId, agentId, m)
               }
             }
-            const runSubagent = (extra: Partial<AgentOptions>) =>
-              runAgent(prompt, {
-                throwOnError: true,
-                tools: subTools,
-                systemPrompt: subSystemPrompt,
-                eventBus: subEventBus,
-                wire: subWire,
-                messages: subMessages,
-                ...(def.maxSteps !== undefined
-                  ? { maxSteps: def.maxSteps }
-                  : {}),
-                model: subModel,
-                provider: subProvider,
-                // A model the definition names explicitly is not swapped out.
-                ...(def.model === undefined
-                  ? { fallbackProvider: models?.fallbackProvider(tier) }
-                  : {}),
-                cwd: agentCwd,
-                compaction,
-                concurrencyPolicy: registry
-                  ? buildConcurrencyPolicy(registry)
-                  : undefined,
-                sessionId: context.sessionId,
-                getToolDefinition: name => registry.get(name),
-                canUseTool: subCanUseTool,
-                hooks: subHooks,
-                agentId,
-                ...(sessionId
-                  ? {
-                      onMessage: (message: Message) =>
-                        appendSidechainMessage(sessionId, agentId, message),
-                    }
-                  : {}),
-                ...extra,
-              })
+            // The span of the run goes on the message that opened it, so
+            // the transcript can say how long the agent worked.
+            const runSubagent = async (extra: Partial<AgentOptions>) => {
+              const startTime = Date.now()
+              let opening: string | undefined
+              const onMessage = (message: Message) => {
+                appendSidechainMessage(sessionId, agentId, message)
+                if (
+                  !opening &&
+                  isRoleMessage(message) &&
+                  message.role === 'user' &&
+                  !message.isMeta
+                ) {
+                  opening = message.uuid
+                }
+              }
+              try {
+                return await runAgent(prompt, {
+                  throwOnError: true,
+                  tools: subTools,
+                  systemPrompt: subSystemPrompt,
+                  eventBus: subEventBus,
+                  wire: subWire,
+                  messages: subMessages,
+                  ...(def.maxSteps !== undefined
+                    ? { maxSteps: def.maxSteps }
+                    : {}),
+                  model: subModel,
+                  provider: subProvider,
+                  // A model the definition names explicitly is not swapped out.
+                  ...(def.model === undefined
+                    ? { fallbackProvider: models?.fallbackProvider(tier) }
+                    : {}),
+                  cwd: agentCwd,
+                  compaction,
+                  concurrencyPolicy: registry
+                    ? buildConcurrencyPolicy(registry)
+                    : undefined,
+                  sessionId: context.sessionId,
+                  getToolDefinition: name => registry.get(name),
+                  canUseTool: subCanUseTool,
+                  hooks: subHooks,
+                  agentId,
+                  ...(sessionId ? { onMessage } : {}),
+                  ...extra,
+                })
+              } finally {
+                if (opening) {
+                  appendSidechainTurnTiming(
+                    sessionId,
+                    agentId,
+                    opening,
+                    startTime,
+                    Date.now(),
+                  )
+                }
+              }
+            }
 
             if (background) {
               const task = registerAsyncAgent({
@@ -637,6 +680,8 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
                     (worktree
                       ? `\nIt works in a git worktree: ${worktree.path} (branch ${worktree.branch}); kept afterwards if it changed anything.`
                       : isolationNote && `\n${isolationNote}`),
+                  agentId: task.agentId,
+                  status: 'background' satisfies AgentResultStatus,
                 },
               }
             }
@@ -646,9 +691,16 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               (sessionId
                 ? registerToolAbort(sessionId, resolvedParentId)
                 : undefined)
-            const output = (text: string) => {
+            const output = (text: string, status: AgentResultStatus) => {
               const ui = buildAgentUiProjection(subMessages)
-              return { data: { text, ...(ui ? { ui } : {}) } }
+              return {
+                data: {
+                  text,
+                  ...(sessionId ? { agentId } : {}),
+                  status,
+                  ...(ui ? { ui } : {}),
+                },
+              }
             }
             // However the run ended, the parent hears where its changes
             // are. Its shells go first: the worktree is judged by what is
@@ -663,7 +715,7 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               const result = await runSubagent({ abortSignal })
 
               if (abortSignal?.aborted) {
-                return output(await withOutcome(SUBAGENT_STOPPED))
+                return output(await withOutcome(SUBAGENT_STOPPED), 'stopped')
               }
 
               // Never hand the parent an empty tool_result —
@@ -675,16 +727,17 @@ assistant: Uses the ${AGENT_TOOL_NAME} tool to launch the ${PLAN_AGENT_TYPE} age
               return output(
                 (await withOutcome(text || SUBAGENT_NO_OUTPUT_MARKER)) +
                   resumable,
+                'completed',
               )
             } catch (err) {
               if (
                 abortSignal?.aborted ||
                 (err instanceof Error && err.name === 'AbortError')
               ) {
-                return output(await withOutcome(SUBAGENT_STOPPED))
+                return output(await withOutcome(SUBAGENT_STOPPED), 'stopped')
               }
               const message = err instanceof Error ? err.message : String(err)
-              return output(await withOutcome(`Error: ${message}`))
+              return output(await withOutcome(`Error: ${message}`), 'error')
             } finally {
               killAgentShells()
               if (sessionId && !options?.abortSignal) {

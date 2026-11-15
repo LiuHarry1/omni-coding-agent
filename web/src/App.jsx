@@ -12,6 +12,7 @@ import ChatView from './components/ChatView.jsx'
 import BackgroundTerminals from './components/BackgroundTerminals.jsx'
 import InputArea from './components/InputArea.jsx'
 import WorkspaceIDE from './components/workspace-ide/index.js'
+import SubagentTabsStage from './components/SubagentTabs.jsx'
 
 export default function App() {
   const theme = useChatStore(s => s.theme)
@@ -139,7 +140,9 @@ export default function App() {
         <Header />
         <BrowserLockBar />
         <ChatActionsProvider>
-          <ChatView />
+          <SubagentTabsStage>
+            <ChatView />
+          </SubagentTabsStage>
           <BackgroundTerminals />
           <InputArea />
         </ChatActionsProvider>

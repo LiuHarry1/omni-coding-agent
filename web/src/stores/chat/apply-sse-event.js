@@ -50,6 +50,7 @@ export function applySseEvent(data, { set, get, mutators: m }) {
           type: 'step_start',
           task: data.task,
           label: data.label,
+          agentId: data.agent_id,
           parentToolCallId: parentId,
         })
       } else if (data.subtype === 'tool_input_start') {

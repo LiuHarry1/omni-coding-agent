@@ -29,11 +29,18 @@ function UserAttachmentImg({ src, index, onOpen }) {
 }
 
 /**
- * Single canonical bubble — subscribes only to bubblesById[bubbleId].
- * @param {{ bubbleId: string, streamingTail?: boolean, embedded?: boolean }} props
+ * One bubble, given rather than looked up: the transcript's rows pass the
+ * store's, the subagent panel passes its own.
+ *
+ * `readOnly` leaves out what acts on the session (rewind / fork).
+ * @param {{ bubble: object, streamingTail?: boolean, embedded?: boolean, readOnly?: boolean }} props
  */
-function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
-  const bubble = useChatStore(s => s.bubblesById[bubbleId])
+export function BubbleView({
+  bubble,
+  streamingTail = false,
+  embedded = false,
+  readOnly = false,
+}) {
   const [lightbox, setLightbox] = useState(null)
 
   if (!bubble) return null
@@ -103,7 +110,7 @@ function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
           </div>
         )}
         {bubble.content}
-        {bubble.messageId && !embedded && (
+        {bubble.messageId && !embedded && !readOnly && (
           <UserMessageActions messageId={bubble.messageId} />
         )}
         {lightbox && (
@@ -147,6 +154,21 @@ function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
       rowCount={1}
       messageStreaming={!!bubble.streaming || streamingTail}
     />,
+  )
+}
+
+/**
+ * Single canonical bubble — subscribes only to bubblesById[bubbleId].
+ * @param {{ bubbleId: string, streamingTail?: boolean, embedded?: boolean }} props
+ */
+function BubbleRow({ bubbleId, streamingTail = false, embedded = false }) {
+  const bubble = useChatStore(s => s.bubblesById[bubbleId])
+  return (
+    <BubbleView
+      bubble={bubble}
+      streamingTail={streamingTail}
+      embedded={embedded}
+    />
   )
 }
 

@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
+import { useSubagentTabsStore } from '../stores/subagent-tabs-store.js'
 
 /**
  * Transcript interaction callbacks for leaf tool / control cards.
@@ -13,6 +14,13 @@ import { useChatStore } from '../stores/chat-store.js'
 
 const ChatActionsContext = createContext(null)
 
+/** Show a subagent's conversation in a tab of its own, beside the chat. */
+function openSubagent(target) {
+  const sessionId = useChatStore.getState().currentSessionId
+  if (!sessionId || !target?.toolCallId) return
+  useSubagentTabsStore.getState().open({ sessionId, ...target })
+}
+
 export function ChatActionsProvider({ children }) {
   const answerQuestion = useChatStore(s => s.answerQuestion)
   const answerCanUseTool = useChatStore(s => s.answerCanUseTool)
@@ -20,7 +28,13 @@ export function ChatActionsProvider({ children }) {
   const stopTool = useChatStore(s => s.stopSubagent)
 
   const value = useMemo(
-    () => ({ answerQuestion, answerCanUseTool, approvePlan, stopTool }),
+    () => ({
+      answerQuestion,
+      answerCanUseTool,
+      approvePlan,
+      stopTool,
+      openSubagent,
+    }),
     [answerQuestion, answerCanUseTool, approvePlan, stopTool],
   )
 
@@ -37,6 +51,7 @@ export function ChatActionsProvider({ children }) {
  *   answerCanUseTool: (id: string, decision: 'allow' | 'always' | 'reject') => Promise<void>,
  *   approvePlan: (requestId: string, opts: object) => Promise<void>,
  *   stopTool: (toolCallId: string) => Promise<void>,
+ *   openSubagent: (target: { toolCallId: string, agentId: string | null, title: string }) => void,
  * }}
  */
 export function useChatActions() {

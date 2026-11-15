@@ -818,13 +818,29 @@ export const useChatStore = create((set, get) => {
         }
       })
 
-      try {
-        await agentApi.abortTool({
-          session_id: sessionId,
-          tool_use_id: toolCallId,
-        })
-      } catch (err) {
-        console.warn('[chat] abortTool failed', err)
+      // The AbortController is only registered once execute starts. A Stop
+      // clicked while args are still streaming gets 404; retry briefly.
+      const deadline = Date.now() + 8000
+      let lastErr = null
+      while (Date.now() < deadline) {
+        try {
+          await agentApi.abortTool({
+            session_id: sessionId,
+            tool_use_id: toolCallId,
+          })
+          lastErr = null
+          break
+        } catch (err) {
+          lastErr = err
+          const gone = err?.status === 404
+          const stillRunning =
+            get().bubblesById[toolBubbleId(toolCallId)]?.status !== 'done'
+          if (!gone || !stillRunning) break
+          await new Promise(r => setTimeout(r, 200))
+        }
+      }
+      if (lastErr) {
+        console.warn('[chat] abortTool failed', lastErr)
         set(s => {
           const id = toolBubbleId(toolCallId)
           if (!s.bubblesById[id]) return s

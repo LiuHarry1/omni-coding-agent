@@ -164,3 +164,45 @@ describe('user_message_saved SSE reduction', () => {
     expect(target.state.bubblesById.q.messageId).toBeUndefined()
   })
 })
+
+describe('subagent SSE reduction', () => {
+  const nested = event => {
+    const target = context()
+    target.ctx.mutators._appendSubagentEvent = vi.fn()
+    applySseEvent({ parent_tool_use_id: 'agent-1', ...event }, target.ctx)
+    return target.ctx.mutators
+  }
+
+  it('hands the agent id of its first step to the call it belongs to', () => {
+    const mutators = nested({
+      type: 'system',
+      subtype: 'step_start',
+      step: 0,
+      task: 'Audit the routes',
+      label: 'Explorer',
+      agent_id: 'a1b2c3d4e',
+    })
+
+    expect(mutators._appendSubagentEvent).toHaveBeenCalledWith({
+      type: 'step_start',
+      task: 'Audit the routes',
+      label: 'Explorer',
+      agentId: 'a1b2c3d4e',
+      parentToolCallId: 'agent-1',
+    })
+  })
+
+  it('hands what the agent says to its call, not to the reply', () => {
+    const mutators = nested({
+      type: 'stream_event',
+      delta: { kind: 'text', text: 'Looking.' },
+    })
+
+    expect(mutators._appendSubagentEvent).toHaveBeenCalledWith({
+      type: 'text_delta',
+      delta: 'Looking.',
+      parentToolCallId: 'agent-1',
+    })
+    expect(mutators._appendPart).not.toHaveBeenCalled()
+  })
+})

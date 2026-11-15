@@ -399,7 +399,27 @@ export function createAssistantMutators(set, get) {
             patchBubble(s, parentId, {
               liveTask: ev.task || parent.liveTask,
               liveLabel: ev.label || parent.liveLabel,
+              // Named on the agent's first step, so it can be opened
+              // before its result arrives.
+              ...(ev.agentId ? { agentId: ev.agentId } : {}),
             }),
+          )
+        }
+        if (ev.type === 'text_delta') {
+          // What the agent says goes between its tool steps, in order.
+          if (typeof ev.delta !== 'string' || !ev.delta) return s
+          const last = sub[sub.length - 1]
+          if (last?.type === 'text') {
+            sub[sub.length - 1] = { ...last, content: last.content + ev.delta }
+          } else {
+            sub.push({
+              type: 'text',
+              id: `text:${sub.length}`,
+              content: ev.delta,
+            })
+          }
+          return transcriptPatch(
+            patchBubble(s, parentId, { subagentParts: sub }),
           )
         }
         if (ev.type === 'tool_input_start') {
@@ -646,7 +666,7 @@ export function createAssistantMutators(set, get) {
           let sub = b.subagentParts
           if (Array.isArray(sub)) {
             sub = sub.map(sp =>
-              sp.status === 'done'
+              sp.type !== 'tool_call' || sp.status === 'done'
                 ? sp
                 : {
                     ...sp,

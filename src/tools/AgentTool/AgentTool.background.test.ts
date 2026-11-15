@@ -17,6 +17,7 @@ import { WireEmitter } from '../../core/wire-emitter.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import type { LocalAgentTaskState } from '../../tasks/LocalAgentTask/LocalAgentTask.js'
 import { stopTask } from '../../tasks/stopTask.js'
+import { abortTool } from '../../core/tool-abort-registry.js'
 import {
   dequeueAll,
   resetCommandQueue,
@@ -398,5 +399,87 @@ describe('Agent tool: where it cannot run in the background', () => {
     )
     expect(tasks()).toEqual([])
     expect(dequeueAll(sessionId)).toEqual([])
+  })
+})
+
+describe('Agent tool: what its result says about the run', () => {
+  type Described = {
+    data: { text: string; agentId?: string; status?: string }
+  }
+  const outputSchema = createTaskTool([fixtureAgent]).outputSchema!
+
+  it('names the agent and that it completed, and keeps both through the output schema', async () => {
+    const { emitted, execute, calls, finish } = setup()
+
+    const pending = execute(input)
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    // The first event already carries the id: a running agent can be opened.
+    const started = emitted.find(
+      m => (m as { subtype?: string }).subtype === 'step_start',
+    ) as { agent_id?: string; parent_tool_use_id?: string }
+    expect(started.parent_tool_use_id).toBe('call-1')
+    expect(started.agent_id).toBe(calls[0]!.options.agentId)
+
+    finish('Found 12 routes.')
+    const result = (await pending) as Described
+    expect(result.data).toMatchObject({
+      agentId: calls[0]!.options.agentId,
+      status: 'completed',
+    })
+    expect(outputSchema.safeParse(result.data)).toMatchObject({
+      success: true,
+      data: { agentId: result.data.agentId, status: 'completed' },
+    })
+  })
+
+  it('tells a stop by the user from a failure', async () => {
+    const stopped = setup()
+    const stopping = stopped.execute(input)
+    await vi.waitFor(() => expect(stopped.calls).toHaveLength(1))
+    expect(abortTool(sessionId, 'call-1')).toBe(true)
+    expect(((await stopping) as Described).data).toMatchObject({
+      text: 'Error: Subagent stopped by user.',
+      status: 'stopped',
+    })
+
+    const failed = setup()
+    const failing = failed.execute(input)
+    await vi.waitFor(() => expect(failed.calls).toHaveLength(1))
+    failed.fail(new Error('model unavailable'))
+    expect(((await failing) as Described).data).toMatchObject({
+      text: 'Error: model unavailable',
+      status: 'error',
+    })
+  })
+
+  it('says when it only launched the agent', async () => {
+    const { execute, finish } = setup()
+
+    const result = (await execute({
+      ...input,
+      run_in_background: true,
+    })) as Described
+
+    expect(result.data).toMatchObject({
+      agentId: tasks()[0]!.id,
+      status: 'background',
+    })
+    finish('done')
+    await settled()
+  })
+
+  it('names no agent when there is no session to keep its transcript', async () => {
+    const { emitted, execute, calls, finish } = setup({ sessionId: undefined })
+
+    const pending = execute(input)
+    await vi.waitFor(() => expect(calls).toHaveLength(1))
+    finish('Found 12 routes.')
+
+    const result = (await pending) as Described
+    expect(result.data.status).toBe('completed')
+    expect(result.data.agentId).toBeUndefined()
+    expect(
+      emitted.some(m => (m as { agent_id?: string }).agent_id !== undefined),
+    ).toBe(false)
   })
 })

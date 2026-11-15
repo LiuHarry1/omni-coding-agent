@@ -1,4 +1,355 @@
-/* Subagent stop control + timeline (flat tool-row tier; no card chrome). */
+/* ── Subagent card ────────────────────────────────────────────────
+   No card chrome. [indicator] title · type / what it is doing or how it
+   ended. The whole card is a button that shows the agent's conversation;
+   actions (Stop) sit over its top-right corner on hover or focus. */
+.subagent-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.subagent-card__header {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border-radius: 4px;
+  user-select: none;
+}
+.subagent-card__header[role='button'] {
+  cursor: pointer;
+}
+.subagent-card__header:focus-visible {
+  outline: 1px solid var(--border-light);
+  outline-offset: 1px;
+}
+.subagent-card__row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+/* First column: 20px wide, its mark centred on the 22px title line. */
+.subagent-card__indicator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  padding-top: 6px;
+  padding-left: 2px;
+}
+/* Stopped by the user: done, and visibly not a result. */
+.subagent-card__indicator--dimmed {
+  opacity: 0.65;
+}
+.subagent-card__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+}
+.subagent-card__mark[data-subagent-task-status='running'] {
+  color: color-mix(in srgb, var(--text-primary) 52%, transparent);
+}
+.subagent-card__dot {
+  display: inline-block;
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.subagent-card__dot--done {
+  background-color: color-mix(in srgb, var(--text-primary) 28%, transparent);
+}
+.subagent-card__dot--error {
+  background-color: var(--red);
+}
+
+/* Working: a 3×3 grid of dots lit in an eight-frame wave, 250ms a frame. */
+.subagent-dot-grid {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.subagent-dot-grid__dot {
+  fill: currentColor;
+  animation-duration: 2s;
+  animation-timing-function: step-end;
+  animation-iteration-count: infinite;
+}
+.subagent-dot-grid__dot--1 {
+  animation-name: subagent-dot-1;
+}
+.subagent-dot-grid__dot--2 {
+  animation-name: subagent-dot-2;
+}
+.subagent-dot-grid__dot--3 {
+  animation-name: subagent-dot-3;
+}
+.subagent-dot-grid__dot--4 {
+  animation-name: subagent-dot-4;
+}
+.subagent-dot-grid__dot--5 {
+  animation-name: subagent-dot-5;
+}
+.subagent-dot-grid__dot--6 {
+  animation-name: subagent-dot-6;
+}
+.subagent-dot-grid__dot--7 {
+  animation-name: subagent-dot-7;
+}
+.subagent-dot-grid__dot--8 {
+  animation-name: subagent-dot-8;
+}
+.subagent-dot-grid__dot--9 {
+  animation-name: subagent-dot-9;
+}
+@keyframes subagent-dot-1 {
+  0% { opacity: 0; }
+  62.5% { opacity: 1; }
+}
+@keyframes subagent-dot-2 {
+  0% { opacity: 1; }
+  25% { opacity: 0; }
+  87.5% { opacity: 1; }
+}
+@keyframes subagent-dot-3 {
+  0% { opacity: 0; }
+  12.5% { opacity: 1; }
+  50% { opacity: 0; }
+}
+@keyframes subagent-dot-4 {
+  0% { opacity: 1; }
+  12.5% { opacity: 0; }
+  50% { opacity: 1; }
+}
+@keyframes subagent-dot-5 {
+  0% { opacity: 1; }
+  37.5% { opacity: 0; }
+  75% { opacity: 1; }
+}
+@keyframes subagent-dot-6 {
+  0% { opacity: 1; }
+  62.5% { opacity: 0; }
+}
+@keyframes subagent-dot-7 {
+  0% { opacity: 1; }
+  25% { opacity: 0; }
+  37.5% { opacity: 1; }
+  62.5% { opacity: 0; }
+}
+@keyframes subagent-dot-8 {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  50% { opacity: 0; }
+  62.5% { opacity: 1; }
+  87.5% { opacity: 0; }
+}
+@keyframes subagent-dot-9 {
+  0% { opacity: 1; }
+  12.5% { opacity: 0; }
+  50% { opacity: 1; }
+  75% { opacity: 0; }
+  87.5% { opacity: 1; }
+}
+/* Still: the first frame. */
+@media (prefers-reduced-motion: reduce) {
+  .subagent-dot-grid__dot {
+    animation: none;
+  }
+  .subagent-dot-grid__dot--1,
+  .subagent-dot-grid__dot--3,
+  .subagent-dot-grid__dot--8 {
+    opacity: 0;
+  }
+}
+
+.subagent-card__main {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  gap: 2px;
+}
+.subagent-card__title-row {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.subagent-card__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-weight: 400;
+  line-height: 22px;
+}
+/* Gives way before the title does. */
+.subagent-card__model {
+  flex: 0 2 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tier-3);
+  font-weight: 400;
+  line-height: 22px;
+}
+.subagent-card__status {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-tier-2);
+  font-weight: 400;
+  line-height: 22px;
+}
+.subagent-card__status .shimmer-text {
+  --shimmer-highlight: var(--text-primary);
+}
+
+/* A line whose changes roll: the old value leaves upward as the new one
+   comes in from below. The 6px above and below is where they fade. */
+.text-roll {
+  display: inline-grid;
+  grid-template-areas: 'text';
+  min-width: 0;
+  max-width: 100%;
+  margin-block: -6px;
+  padding-block: 6px;
+  overflow: hidden;
+}
+.text-roll[data-rolling] {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 6px,
+    #000 calc(100% - 6px),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    #000 6px,
+    #000 calc(100% - 6px),
+    transparent 100%
+  );
+}
+.text-roll__item {
+  grid-area: text;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.text-roll__item--enter {
+  animation: text-roll-in 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+.text-roll__item--exit {
+  animation: text-roll-out 0.3s cubic-bezier(0.165, 0.84, 0.44, 1) both;
+}
+@keyframes text-roll-in {
+  from {
+    transform: translateY(calc(100% + 6px));
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes text-roll-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(calc(-100% - 6px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .text-roll__item--enter {
+    animation: none;
+  }
+  .text-roll__item--exit {
+    display: none;
+  }
+}
+
+.subagent-card__actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+  padding-right: 4px;
+}
+.subagent-card__actions-inner {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+}
+.subagent-card__header:hover .subagent-card__actions-inner,
+.subagent-card__header:focus-visible .subagent-card__actions-inner,
+.subagent-card__actions-inner:focus-within {
+  opacity: 1;
+}
+/* No hover on touch screens: keep the actions reachable. */
+@media (hover: none) {
+  .subagent-card__actions-inner {
+    opacity: 1;
+  }
+}
+/* Opaque: the pill sits over the end of a long title. */
+.subagent-card__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 22px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 20px;
+  background-color: color-mix(
+    in srgb,
+    var(--text-primary) 8%,
+    var(--bg-primary)
+  );
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.subagent-card__action:hover:not(:disabled) {
+  background-color: color-mix(
+    in srgb,
+    var(--text-primary) 14%,
+    var(--bg-primary)
+  );
+}
+.subagent-card__action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Pill buttons on other tool rows (a background shell's Stop). */
+.subagent-action-btn,
 .subagent-stop-btn {
   padding: 1px 8px;
   border-radius: 999px;
@@ -11,25 +362,496 @@
   cursor: pointer;
   flex-shrink: 0;
 }
+.subagent-action-btn:hover:not(:disabled) {
+  border-color: var(--border-light);
+  background: rgba(255, 255, 255, 0.08);
+}
 .subagent-stop-btn:hover:not(:disabled) {
   background: rgba(248, 81, 73, 0.12);
   border-color: rgba(248, 81, 73, 0.45);
   color: var(--red);
 }
+.subagent-action-btn:disabled,
 .subagent-stop-btn:disabled {
   opacity: 0.55;
   cursor: default;
 }
 
-/* ── Subagent timeline row (flat tool-row tier) ────────────────── */
-.subagent-timeline-row {
-  margin: 0;
-}
-.subagent-timeline-expanded {
-  margin: 2px 0 4px 14px;
+/* ── Subagent tabs ────────────────────────────────────────────────
+   Opening a subagent gives it a tab beside the chat's own. The tab that
+   is showing takes the chat's place with the agent's page. */
+.chat-stage {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
+}
+.chat-stage__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Kept as it was, scroll position and all, for when its tab is picked. */
+.chat-stage[data-subagent-tab-active] .chat-view-wrap {
+  visibility: hidden;
+}
+
+.subagent-tabs {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+  min-width: 0;
+  height: 36px;
+  background-color: var(--bg-secondary);
+  box-shadow: inset 0 -1px 0 var(--border);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+}
+.subagent-tabs__tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 0 1 220px;
+  gap: 7px;
+  min-width: 0;
+  padding: 0 8px 0 12px;
+  border: 0;
+  border-right: 1px solid var(--border);
+  background-color: transparent;
+  color: var(--text-tier-3);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.subagent-tabs__tab:hover {
+  background-color: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--text-primary);
+}
+.subagent-tabs__tab:focus-visible {
+  outline: 1px solid var(--border-light);
+  outline-offset: -1px;
+}
+/* The tab that is showing sits on the page, under a line of accent. */
+.subagent-tabs__tab[aria-selected='true'] {
+  background-color: var(--bg-primary);
+  box-shadow: inset 0 2px 0 var(--accent);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+.subagent-tabs__icon {
+  flex-shrink: 0;
+  color: var(--text-tier-3);
+}
+.subagent-tabs__mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 14px;
+}
+.subagent-tabs__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.subagent-tabs__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  color: var(--text-tier-3);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+.subagent-tabs__tab:hover .subagent-tabs__close,
+.subagent-tabs__tab[aria-selected='true'] .subagent-tabs__close,
+.subagent-tabs__close:focus-visible {
+  opacity: 1;
+}
+.subagent-tabs__close:hover,
+.subagent-tabs__close:focus-visible {
+  background-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
+  color: var(--text-primary);
+}
+.subagent-tabs__close:focus-visible {
+  outline: 1px solid var(--border-light);
+}
+@media (hover: none) {
+  .subagent-tabs__close {
+    opacity: 1;
+  }
+}
+
+/* ── Subagent page ────────────────────────────────────────────────
+   Header: title, status, and the run in a few facts. Then, for each time
+   the agent was asked: Task (a card), Activity (a timeline, folded once
+   there is a result) and Result (the answer, with Copy). */
+.subagent-page {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background-color: var(--bg-primary);
+  font-family: var(--font-sans);
+}
+.subagent-page__scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 24px 20px 40px;
+}
+.subagent-page__column {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+/* The fade the chat gives a new row would replay on every tab switch. */
+.subagent-page .msg {
+  animation: none;
+}
+
+.subagent-page__header {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--border);
+}
+.subagent-page__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.subagent-page__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 26px;
+  letter-spacing: -0.01em;
+}
+.subagent-page__heading .subagent-btn {
+  margin-left: auto;
+}
+.subagent-page__facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 16px;
+  min-height: 22px;
+  list-style: none;
+  color: var(--text-tier-2);
+  font-size: 12.5px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.subagent-page__facts li {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.subagent-page__facts svg {
+  flex-shrink: 0;
+  color: var(--text-tier-3);
+}
+.subagent-page__badge {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 500;
+}
+/* When, at the far end of the row. */
+.subagent-page__when {
+  margin-left: auto;
+  color: var(--text-tier-3);
+}
+
+/* Status: a tinted pill, its mark in the same colour. */
+.subagent-status {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px 0 7px;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, currentColor 13%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+}
+.subagent-status--running {
+  color: var(--accent);
+}
+.subagent-status--completed {
+  color: var(--green);
+}
+.subagent-status--error {
+  color: var(--red);
+}
+.subagent-status--stopped,
+.subagent-status--background {
+  color: var(--text-tier-2);
+}
+.subagent-status .subagent-card__mark,
+.subagent-status .subagent-card__mark[data-subagent-task-status='running'] {
+  color: inherit;
+}
+.subagent-status .subagent-card__dot {
+  background-color: currentColor;
+}
+
+/* Small quiet button: Copy, Stop. */
+.subagent-btn {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: transparent;
+  color: var(--text-tier-2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+.subagent-btn:hover:not(:disabled),
+.subagent-btn:focus-visible {
+  border-color: var(--border-light);
+  background-color: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-primary);
+}
+.subagent-btn:focus-visible {
+  outline: 1px solid var(--border-light);
+  outline-offset: 1px;
+}
+.subagent-btn--danger:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--red) 55%, transparent);
+  background-color: color-mix(in srgb, var(--red) 12%, transparent);
+  color: var(--red);
+}
+.subagent-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.subagent-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+.subagent-section__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+}
+.subagent-section__head > .subagent-btn {
+  margin-left: auto;
+}
+.subagent-section__label {
+  color: var(--text-tier-3);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.subagent-section__head--toggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background-color: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.subagent-section__head--toggle:focus-visible {
+  outline: 1px solid var(--border-light);
+  outline-offset: 2px;
+}
+.subagent-section__head--toggle:hover .subagent-section__label,
+.subagent-section__head--toggle:hover .subagent-section__chevron {
+  color: var(--text-primary);
+}
+.subagent-section__count {
+  color: var(--text-tier-4);
+  font-size: 12px;
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.subagent-section__chevron {
+  flex-shrink: 0;
+  color: var(--text-tier-3);
+  transition: transform 0.1s ease-in-out;
+}
+.subagent-section__chevron.open {
+  transform: rotate(90deg);
+}
+
+/* Task: a quiet card; five lines, the last ones fading, until asked for
+   the rest. */
+.subagent-task {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background-color: var(--bg-secondary);
+}
+.subagent-task__text {
+  max-height: 110px;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13.5px;
+  line-height: 22px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.subagent-task[data-clamped] .subagent-task__text {
+  -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
+}
+.subagent-task[data-expanded] .subagent-task__text {
+  max-height: none;
+}
+.subagent-task__more {
+  margin-top: 6px;
+  padding: 0;
+  border: 0;
+  background-color: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 18px;
+  cursor: pointer;
+}
+.subagent-task__more:hover {
+  text-decoration: underline;
+}
+.subagent-task__more:focus-visible {
+  outline: 1px solid var(--border-light);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Activity: a rail down the left, a node on it for every step. */
+.subagent-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-left: 5px;
+  padding: 2px 0 2px 18px;
+  border-left: 1px solid var(--border);
+  list-style: none;
+}
+.subagent-activity[hidden] {
+  display: none;
+}
+.subagent-activity__step {
+  position: relative;
+  min-width: 0;
+}
+.subagent-activity__step::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  left: -22px;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid var(--border-light);
+  border-radius: 50%;
+  background-color: var(--bg-primary);
+}
+.subagent-activity__step--live {
+  color: var(--text-tier-2);
+  font-size: 13px;
+  line-height: 20px;
+}
+.subagent-activity__step--live::before {
+  border-color: var(--accent);
+  background-color: var(--accent);
+}
+/* What it said between steps: a note, not the answer. */
+.subagent-activity .msg-assistant .content {
+  color: var(--text-tier-2);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* Result: the answer, set apart. */
+.subagent-result-card {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  min-width: 0;
+}
+.subagent-error {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--red) 40%, var(--border));
+  border-radius: 10px;
+  background-color: color-mix(in srgb, var(--red) 8%, transparent);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.subagent-page__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 120px;
+  color: var(--text-tier-3);
+  font-size: 13px;
+}
+.subagent-page__note {
+  color: var(--text-tier-3);
+  font-size: 13px;
+  line-height: 20px;
 }
 
 .waiting-for-subagent {
@@ -76,11 +898,6 @@
 .subagent-steps > .tool-card,
 .subagent-steps > .subagent-nested-step {
   margin: 0;
-}
-.subagent-omitted {
-  margin: 0 0 2px 14px;
-  color: var(--text-tier-4);
-  font-size: 11.5px;
 }
 .subagent-nested-step > .tool-row,
 .subagent-nested-step > .tool-card {
@@ -157,19 +974,17 @@
   border-radius: 4px;
   overflow: auto;
 }
-.subagent-result--error {
-  color: var(--text-secondary);
-}
-.subagent-result-error {
-  margin: 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--text-secondary);
-  white-space: pre-wrap;
-}
 
 [data-theme='light'] .subagent-result code {
   background: rgba(0, 0, 0, 0.05);
+}
+
+[data-theme='light'] .subagent-action-btn,
+[data-theme='light'] .subagent-stop-btn {
+  background: rgba(0, 0, 0, 0.03);
+}
+[data-theme='light'] .subagent-action-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
 }
 
 [data-theme='light'] .subagent-stop-btn:hover:not(:disabled) {

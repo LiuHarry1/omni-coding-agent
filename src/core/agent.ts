@@ -40,6 +40,13 @@ export async function runAgent(
     next = await turn.next()
   }
   const result = next.value
+  // A stop that races the model can surface as `error` with no text; callers
+  // that asked for throwOnError still want an AbortError, not a hard failure.
+  if (opts.abortSignal?.aborted) {
+    const err = new Error('Subagent stopped by user.')
+    err.name = 'AbortError'
+    throw err
+  }
   if (opts.throwOnError && result.reason === 'error') {
     const detail = result.finalText.trim()
     throw new Error(
