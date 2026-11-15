@@ -12,13 +12,15 @@ src/
 ├── entrypoints/          # 启动入口：cli.ts 按参数分发到 server/ · cli/ · acp/ · worker/
 ├── tools/                # PascalCase *Tool 包（BashTool、FileReadTool、AgentTool…）
 ├── turn/                 # 一轮对话的宿主：run-chat-turn.ts、prepare-chat-turn.ts
-├── core/                 # agent 循环（agent.ts → query.ts）、LLM、registry、plugins、permission mode
-├── services/             # compact、lsp、auto-memory、session-memory…
+├── core/                 # agent 循环（agent.ts → query.ts）、工具注册、hooks、协议输出、类型
+├── services/             # 按功能分：llm、mcp、plugins、compact、lsp、auto-memory、session-memory…
 ├── commands/             # slash commands
 ├── skills/               # Skill 加载与 fork
 ├── server/               # HTTP / SSE / stdio / workspace API
 ├── acp/ · cli/           # ACP 与 stdio CLI
-├── prompts/ · utils/ · constants/
+├── session/              # 会话存储：store.ts、paths.ts、rewind.ts、sidechain.ts
+├── utils/                # 按主题分：permissions/、settings/、workspace/、shell/…
+├── prompts/ · constants/
 ├── tests/                # 旧式测试脚本 test-*.ts,经 tests/suites/*.test.ts 由 vitest 运行;tests/suites/live/ 需要 Chrome / 运行中服务
 └── dev/                  # 开发者工具(browser-pair、browser-dev-chrome)
 ```
@@ -63,8 +65,8 @@ tools/FooTool/
 
 ### 添加 LLM Provider
 
-1. 在 `core/llm/strategies/` 实现策略
-2. 在 `core/llm/index.ts` 注册
+1. 在 `services/llm/strategies/` 实现策略
+2. 在 `services/llm/index.ts` 注册
 3. 扩展 `ProviderId` 类型
 
 ### 项目规则

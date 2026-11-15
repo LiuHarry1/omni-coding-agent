@@ -3,7 +3,10 @@
  */
 import assert from 'node:assert/strict'
 import { StreamingToolExecutor } from '../services/tools/StreamingToolExecutor.js'
-import { allowAllTools, type CanUseToolFn } from '../core/can-use-tool.js'
+import {
+  allowAllTools,
+  type CanUseToolFn,
+} from '../utils/permissions/can-use-tool.js'
 import { createAbortController } from '../utils/abortController.js'
 import type { ToolUseContext } from '../core/agent/tool-use-context.js'
 import type { AnyTool, ToolDefinition } from '../core/types.js'

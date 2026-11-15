@@ -1,6 +1,6 @@
 import * as path from 'path'
 import type { MarketplaceProviderConfig } from '../../core/types.js'
-import { resolveSettings } from '../../core/settings-manager.js'
+import { resolveSettings } from '../../utils/settings/manager.js'
 import { DemeterProvider } from './demeter-provider.js'
 import { MarketplaceError, validateProviderURL } from './http.js'
 import { SkillsShProvider } from './skills-sh-provider.js'

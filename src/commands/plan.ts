@@ -5,7 +5,7 @@ import type { Session } from '../core/types.js'
 import {
   handlePlanModeTransition,
   prepareContextForPlanMode,
-} from '../core/permission-mode.js'
+} from '../utils/permissions/permission-mode.js'
 import { getPlan, getPlanFilePath } from '../utils/plans.js'
 
 const PLAN_RE = /^\/plan(?:[ \t]+([\s\S]*))?$/i

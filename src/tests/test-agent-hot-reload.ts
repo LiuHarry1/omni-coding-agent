@@ -8,7 +8,7 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { fileURLToPath } from 'url'
-import { loadPlugins } from '../core/plugins/loader.js'
+import { loadPlugins } from '../services/plugins/loader.js'
 import { registerSubagents, BUILTIN_AGENTS } from '../tools/AgentTool/index.js'
 import { defaultRegistry } from '../tools.js'
 

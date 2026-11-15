@@ -10,7 +10,7 @@
  * refuses the same path.
  */
 import * as path from 'path'
-import { isReadableInternalPath } from '../core/session-paths.js'
+import { isReadableInternalPath } from '../session/paths.js'
 
 /**
  * True when `requested` names an agent-host harness path. Only absolute

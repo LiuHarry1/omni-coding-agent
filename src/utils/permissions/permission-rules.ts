@@ -16,7 +16,7 @@ import {
   LSP_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../../constants/tool_names.js'
-import { isPathInWorkspace } from '../../core/workspace.js'
+import { isPathInWorkspace } from '../workspace/workspace.js'
 
 export type ParsedPermissionRule = {
   toolName: string

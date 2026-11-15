@@ -4,8 +4,8 @@
 import {
   bashExeFromGitExe,
   findGitBashPath,
-} from '../core/shell/windows-paths.js'
-import { resolveShellCapabilities } from '../core/shell/shell-utils.js'
+} from '../utils/shell/windows-paths.js'
+import { resolveShellCapabilities } from '../utils/shell/shell-utils.js'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg)

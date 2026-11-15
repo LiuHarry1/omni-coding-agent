@@ -9,7 +9,7 @@ import { ENTER_PLAN_MODE_TOOL_NAME } from '../../constants/tool_names.js'
 import {
   handlePlanModeTransition,
   prepareContextForPlanMode,
-} from '../../core/permission-mode.js'
+} from '../../utils/permissions/permission-mode.js'
 
 export type EnterPlanModeOutput = { message: string }
 

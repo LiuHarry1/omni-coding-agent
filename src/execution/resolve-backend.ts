@@ -6,7 +6,7 @@ import {
   isWorkerExecutionBackend,
 } from './worker-execution-backend.js'
 import type { WorkspaceHandle } from './types.js'
-import { getDefaultWorkspace } from '../core/workspace.js'
+import { getDefaultWorkspace } from '../utils/workspace/workspace.js'
 
 /** Any non-local environment: SSH hosts and cloud workspace containers. */
 export function isRemoteWorkspace(workspace?: WorkspaceHandle | null): boolean {

@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { getProcessAppDir } from '../../core/session-paths.js'
+import { getProcessAppDir } from '../../session/paths.js'
 import {
   MAX_CRON_JOBS,
   RECURRING_JITTER_CAP_MS,

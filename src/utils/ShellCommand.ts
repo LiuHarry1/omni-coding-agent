@@ -5,7 +5,7 @@
  * Output uses file-fd mode: stdout+stderr → task `.output` file.
  */
 import type { ChildProcess } from 'child_process'
-import { forceKillChild } from '../core/platform.js'
+import { forceKillChild } from './platform.js'
 import {
   prepareShellSpawn,
   openShellOutputFdSync,
@@ -13,7 +13,7 @@ import {
   spawnPreparedShell,
   cleanupCwdFile,
   type ShellKind,
-} from '../core/shell/spawn-shell.js'
+} from './shell/spawn-shell.js'
 import { getTaskOutputPath, initTaskOutput } from './task/diskOutput.js'
 
 type InProcessBg = {

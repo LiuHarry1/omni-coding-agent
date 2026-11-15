@@ -10,14 +10,14 @@ vi.mock('../../turn/run-chat-turn.js', () => ({
   }),
 }))
 
-import { resetSettingsCache } from '../../core/settings-manager.js'
+import { resetSettingsCache } from '../../utils/settings/manager.js'
 import { runChatTurn } from '../../turn/run-chat-turn.js'
 import {
   createSession,
   deleteSession,
   setSessionWorkspace,
 } from '../../session/store.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { fireScheduledTask } from './fire.js'
 import {
   _setCronStorePathForTest,

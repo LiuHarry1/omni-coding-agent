@@ -17,13 +17,16 @@ import type {
 import type { QueryStopReason } from '../core/query/types.js'
 import { offloadChatImageRefs } from '../utils/chat-uploads.js'
 import { isRoleMessage } from '../core/types.js'
-import type { ModelRegistry } from '../core/llm/index.js'
+import type { ModelRegistry } from '../services/llm/index.js'
 import { EventBus } from '../core/event-bus.js'
-import { createModelRegistry, resolveSidePathModel } from '../core/llm/index.js'
+import {
+  createModelRegistry,
+  resolveSidePathModel,
+} from '../services/llm/index.js'
 import {
   resolveSettings,
   resolveAutoMemoryConfig,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 import { isRemoteWorkspace } from '../execution/index.js'
 import {
   cloudSandboxSeesSessionFiles,
@@ -38,11 +41,11 @@ import {
   getSessionTranscriptPath,
 } from '../session/index.js'
 import { prepareChatTurn, type PreparedChatTurn } from './prepare-chat-turn.js'
-import { createCanUseTool } from '../core/can-use-tool.js'
+import { createCanUseTool } from '../utils/permissions/can-use-tool.js'
 import { createTurnProfiler, profileSpan } from '../utils/startupProfiler.js'
 import { systemPrompt as defaultSystemPrompt } from '../prompts/system.js'
 import { getSystemPromptForAgentProfile } from '../prompts/agent-profile.js'
-import { withModeGate } from '../core/mode-restrictions.js'
+import { withModeGate } from '../utils/permissions/mode-restrictions.js'
 import { isToolReadOnly } from '../core/tool-definition.js'
 import { createMemoryLifecycleHooks } from './memory-lifecycle.js'
 import { stampTurnTiming } from './turn-timing.js'
@@ -66,8 +69,8 @@ import {
 import { createCacheSafeParams } from '../core/forked-agent.js'
 import { defaultRegistry } from '../tools.js'
 import { Middleware, createTimingMiddleware } from '../core/middleware/index.js'
-import { createPlanModeGuardMiddleware } from '../core/middleware/plan-mode-guard.js'
-import { applyPluginHooks, hasPluginHooks } from '../core/plugins/index.js'
+import { createPlanModeGuardMiddleware } from '../utils/permissions/plan-mode-guard.js'
+import { applyPluginHooks, hasPluginHooks } from '../services/plugins/index.js'
 import { attachUsageTelemetry, flushUsage } from '../server/telemetry.js'
 import { accountBackgroundUsage } from '../server/background-usage.js'
 import { createWireEmitter } from '../core/wire-emitter.js'
@@ -79,7 +82,7 @@ import {
   handlePlanModeTransition,
   isValidExternalMode,
   transitionPermissionMode,
-} from '../core/permission-mode.js'
+} from '../utils/permissions/permission-mode.js'
 import type { SSETransport } from '../core/types.js'
 import { respondSkillFork } from '../skills/respond-fork.js'
 import {

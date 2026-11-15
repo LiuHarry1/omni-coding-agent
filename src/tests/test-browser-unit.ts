@@ -35,7 +35,7 @@ import type { BrowserBackend } from '../browser/types.js'
 import {
   resetSettingsCache,
   resolveSettings,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 import {
   BrowserOutputSchema,
   browserErrorText,
@@ -89,7 +89,7 @@ import {
 } from '../browser/playwright/settle.js'
 import { denyCdpMethod } from '../browser/cdp-policy.js'
 import { sendCdpCommand } from '../browser/cdp-command.js'
-import { getBrowserLogsSessionDir } from '../core/session-paths.js'
+import { getBrowserLogsSessionDir } from '../session/paths.js'
 import {
   ACTION_TIMEOUT_MS,
   CDP_INLINE_MAX_CHARS,

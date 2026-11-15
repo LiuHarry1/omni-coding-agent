@@ -2,7 +2,7 @@
  * System-prompt blurb when File tools deny paths outside the workspace.
  * Combines AUTH-derived mode with settings `permissions.defaultMode`.
  */
-import { resolveSettings } from '../../core/settings-manager.js'
+import { resolveSettings } from '../settings/manager.js'
 import {
   resolveFilesystemPermissionMode,
   workspaceBoundaryPromptSection as renderWorkspaceBoundary,

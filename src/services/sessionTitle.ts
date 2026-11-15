@@ -6,7 +6,7 @@
  */
 
 import { generateText } from 'ai'
-import type { IProvider } from '../core/llm/types.js'
+import type { IProvider } from './llm/types.js'
 
 const SESSION_TITLE_PROMPT = `Generate a concise, sentence-case title (3-7 words) that captures the main topic or goal of this coding session. The title should be clear enough that the user recognizes the session in a list. Use sentence case: capitalize only the first word and proper nouns.
 

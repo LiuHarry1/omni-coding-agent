@@ -7,7 +7,7 @@
  * Configure in JetBrains / VS Code ACP client as the agent command.
  */
 import type { RunAgentFn } from '../core/types.js'
-import { resolveDefaultWorkspace } from '../core/workspace.js'
+import { resolveDefaultWorkspace } from '../utils/workspace/workspace.js'
 import { runAcp } from './run-acp.js'
 
 export async function startAcpAgent(runAgent: RunAgentFn): Promise<void> {

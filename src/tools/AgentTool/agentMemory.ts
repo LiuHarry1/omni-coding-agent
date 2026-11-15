@@ -5,9 +5,9 @@
  */
 import * as fs from 'fs'
 import { join, normalize, sep } from 'path'
-import { getAgentHome } from '../../utils/request-scope.js'
+import { getAgentHome } from '../../utils/workspace/request-scope.js'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { getCwd } from '../../utils/cwd.js'
+import { getCwd } from '../../utils/workspace/cwd.js'
 import { findCanonicalGitRoot } from '../../utils/git-root.js'
 import { sanitizePath } from '../../utils/sanitize-path.js'
 import { AUTO_MEM_ENTRYPOINT } from '../../services/auto-memory/paths.js'

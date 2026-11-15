@@ -15,8 +15,8 @@ import type {
   MCPServerConfig,
   Message,
 } from '../../core/types.js'
-import { MCPManager } from '../../core/mcp-manager.js'
-import { filterHttpMCPServers } from '../../core/mcp-policy.js'
+import { MCPManager } from '../../services/mcp/manager.js'
+import { filterHttpMCPServers } from '../../services/mcp/policy.js'
 import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
 import { loadSkillsFromDisk } from '../../skills/loadSkillsDir.js'
 import { expandSkillBody } from '../../skills/expand.js'

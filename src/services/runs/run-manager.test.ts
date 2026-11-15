@@ -7,7 +7,7 @@ import type { ServerResponse } from 'node:http'
 import {
   registerSessionLocation,
   unregisterSessionLocation,
-} from '../../core/session-paths.js'
+} from '../../session/paths.js'
 import { upsertSessionIndexEntry } from '../../session/session-index.js'
 import { deleteSession } from '../../session/store.js'
 import {

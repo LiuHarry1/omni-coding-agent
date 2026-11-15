@@ -17,7 +17,7 @@ import {
 } from '../../constants/api_limits.js'
 import { ATTACHMENT_MAX_BYTES } from '../../constants/attachment-types.js'
 import { isBinaryContent } from '../../constants/files.js'
-import { getScratchDataDir } from '../../core/session-paths.js'
+import { getScratchDataDir } from '../../session/paths.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import { saveChatAttachment } from '../chat-uploads.js'
 import {

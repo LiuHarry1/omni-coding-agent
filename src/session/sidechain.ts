@@ -7,7 +7,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { Message } from '../core/types.js'
 import { isAttachmentMessage } from '../core/types.js'
-import { getSessionDataDir } from '../core/session-paths.js'
+import { getSessionDataDir } from './paths.js'
 import {
   parseSessionJsonLine,
   stringifySessionJsonLine,

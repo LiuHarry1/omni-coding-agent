@@ -2,12 +2,12 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { registerSessionLocation } from '../../core/session-paths.js'
+import { registerSessionLocation } from '../../session/paths.js'
 import {
   dequeueAll,
   resetCommandQueue,
 } from '../../utils/messageQueueManager.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { _resetTaskOutputDirForTest } from '../../utils/task/diskOutput.js'
 import {
   clearSessionTasks,

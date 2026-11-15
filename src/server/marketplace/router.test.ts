@@ -9,7 +9,7 @@ import type {
   WorkspaceHandle,
 } from '../../execution/types.js'
 import type { AuthedRequest } from '../auth/identity.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   resolveMarketplaceCwd,
   resolveMarketplaceTarget,

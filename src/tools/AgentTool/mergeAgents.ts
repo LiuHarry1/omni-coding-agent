@@ -6,7 +6,7 @@ import type {
   AgentSource,
   MCPServerConfig,
 } from '../../core/types.js'
-import { parseHooksConfig } from '../../core/settings-manager.js'
+import { parseHooksConfig } from '../../utils/settings/manager.js'
 import {
   sourceRank,
   type MarkdownFile,
@@ -18,7 +18,7 @@ import {
   parseString,
   parseIdentifier,
 } from '../../utils/frontmatterParser.js'
-import { isModelTier } from '../../core/llm/index.js'
+import { isModelTier } from '../../services/llm/index.js'
 import {
   AGENT_TOOL_NAME,
   INTERACTIVE_TOOLS,

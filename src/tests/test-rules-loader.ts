@@ -8,7 +8,7 @@ import {
   loadProjectRules,
   loadUserRules,
 } from '../utils/rules-loader.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import {
   createAttachmentMessage,
   getAttachments,

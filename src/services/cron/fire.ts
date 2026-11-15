@@ -3,7 +3,7 @@ import { runAgent } from '../../core/agent.js'
 import { EventBus } from '../../core/event-bus.js'
 import { scheduledTurnMessage } from '../../core/protocol-messages.js'
 import { runChatTurn } from '../../turn/run-chat-turn.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { createSessionLiveTransport } from '../session-live-hub.js'
 import {
   checkQuota,

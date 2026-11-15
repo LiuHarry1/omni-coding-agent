@@ -22,7 +22,7 @@ import type {
   SSETransport,
   ToolContext,
 } from '../core/types.js'
-import { createModelRegistry } from '../core/llm/index.js'
+import { createModelRegistry } from '../services/llm/index.js'
 import { runSkillFork } from './run-fork.js'
 import type { SkillDefinition } from './types.js'
 

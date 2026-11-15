@@ -4,11 +4,11 @@
 import * as fs from 'fs'
 import { claimAiAgentPath } from '../../utils/sandbox-owner.js'
 import * as path from 'path'
-import { getAgentHome } from '../../utils/request-scope.js'
+import { getAgentHome } from '../../utils/workspace/request-scope.js'
 import { getAppDirName, getUserAppDir } from '../../utils/app-dir.js'
 import { findCanonicalGitRoot } from '../../utils/git-root.js'
 import { sanitizePath } from '../../utils/sanitize-path.js'
-import { isPathInWorkspace } from '../../core/workspace.js'
+import { isPathInWorkspace } from '../../utils/workspace/workspace.js'
 import { isAuthEnabled } from '../../utils/env.js'
 
 export const AUTO_MEM_ENTRYPOINT = 'MEMORY.md'

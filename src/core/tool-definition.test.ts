@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import '../tools.js'
 import { BROWSER_READ_ONLY_TOOL_NAMES } from '../constants/tool_names.js'
-import { modeDenial } from './mode-restrictions.js'
+import { modeDenial } from '../utils/permissions/mode-restrictions.js'
 import {
   defineTool,
   instantiateTool,

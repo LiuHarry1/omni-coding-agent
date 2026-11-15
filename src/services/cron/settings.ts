@@ -1,9 +1,9 @@
-import { resolveSettings } from '../../core/settings-manager.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
+import { resolveSettings } from '../../utils/settings/manager.js'
+import { getDefaultWorkspace } from '../../utils/workspace/workspace.js'
 import type { Session } from '../../core/types.js'
 import { getSession } from '../../session/store.js'
 import { findSessionLocation } from '../../session/session-index.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   resolveWorkspaceContext,
   type WorkspaceContext,

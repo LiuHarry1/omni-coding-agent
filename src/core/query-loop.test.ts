@@ -10,7 +10,7 @@ import {
 import { createQueryHarness, type StepScript } from './query-test-harness.js'
 import type { HookRunner } from './hooks/hooks.js'
 import type { AggregatedHookResult } from './hooks/types.js'
-import type { IProvider } from './llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import type { AnyTool, AttachmentMessage, TodoItem } from './types.js'
 
 const toolStep = (toolName: string): StepScript => ({

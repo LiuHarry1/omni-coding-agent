@@ -8,10 +8,10 @@ import {
   loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
-} from '../../core/agent-picker-workspace.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
-import { normalizeWorkspacePath } from '../../core/workspace-path.js'
-import { isValidExternalMode } from '../../core/permission-mode.js'
+} from '../agent-picker-workspace.js'
+import { getDefaultWorkspace } from '../../utils/workspace/workspace.js'
+import { normalizeWorkspacePath } from '../../utils/workspace/path.js'
+import { isValidExternalMode } from '../../utils/permissions/permission-mode.js'
 import { isScheduledTasksEnabled } from '../../services/cron/settings.js'
 import {
   cancelCronTask,

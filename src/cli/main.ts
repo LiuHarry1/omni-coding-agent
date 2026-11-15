@@ -10,7 +10,7 @@
  * Stderr: boot logs only.
  */
 import type { RunAgentFn } from '../core/types.js'
-import { resolveDefaultWorkspace } from '../core/workspace.js'
+import { resolveDefaultWorkspace } from '../utils/workspace/workspace.js'
 import { createSession, getSession } from '../session/index.js'
 import { createStdioTransport } from '../server/stdio-transport.js'
 import { readStdioClientMessages } from '../server/stdio-input.js'

@@ -17,7 +17,7 @@ import {
   registerSessionLocation,
   clearSessionLocationCache,
   getSessionDataDir,
-} from '../core/session-paths.js'
+} from '../session/paths.js'
 import {
   saveChatAttachment,
   parseChatUploadRef,
@@ -41,7 +41,7 @@ import { expandAttachmentMessagesForAPI } from '../utils/messages.js'
 import { sessionToUIMessages } from '../server/session-ui.js'
 import { attachmentKind as clientAttachmentKind } from '../../web/src/lib/composer-attachments.js'
 import { messagesToBubbles } from '../../web/src/lib/bubbles/messages-to-bubbles.js'
-import type { IProvider } from '../core/llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import type { Message } from '../core/types.js'
 import { buildUserMessage } from '../core/query/helpers.js'
 

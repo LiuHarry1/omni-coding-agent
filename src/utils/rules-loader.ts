@@ -3,14 +3,14 @@ import * as path from 'path'
 import { execSync } from 'child_process'
 import matter from 'gray-matter'
 import ignore from 'ignore'
-import { normalizeGitPath } from '../core/platform.js'
+import { normalizeGitPath } from './platform.js'
 import { getAppDirName, getUserAppDir } from './app-dir.js'
 import {
   getExtensionDir,
   getManagedDir,
   getManagedMemoryEntryPaths,
 } from './managed-path.js'
-import { getAgentHome } from './request-scope.js'
+import { getAgentHome } from './workspace/request-scope.js'
 import { isAuthEnabled } from './env.js'
 
 /**

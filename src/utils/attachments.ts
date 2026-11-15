@@ -21,7 +21,7 @@ import {
   clearAllLSPDiagnostics,
 } from '../services/lsp/LSPDiagnosticRegistry.js'
 import { getLspWorkspaceKey, hasLspServers } from '../services/lsp/manager.js'
-import { getAvailableShellToolNames } from '../core/shell/shell-utils.js'
+import { getAvailableShellToolNames } from './shell/shell-utils.js'
 import { getAgentListingDeltaAttachments } from '../tools/AgentTool/agentListing.js'
 import { loadConditionalRulesForPaths } from './rules-loader.js'
 import { extractAgentMentions } from './attachments/extract-mentions.js'

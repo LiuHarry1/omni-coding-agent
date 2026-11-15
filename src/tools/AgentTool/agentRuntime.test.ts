@@ -4,8 +4,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../../core/event-bus.js'
-import { createDefaultPermissionMode } from '../../core/permission-mode.js'
-import { registerSessionLocation } from '../../core/session-paths.js'
+import { createDefaultPermissionMode } from '../../utils/permissions/permission-mode.js'
+import { registerSessionLocation } from '../../session/paths.js'
 import { ToolRegistry } from '../../core/tool-registry.js'
 import type {
   AgentDefinition,
@@ -14,9 +14,9 @@ import type {
   ToolContext,
 } from '../../core/types.js'
 import { WireEmitter } from '../../core/wire-emitter.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { readSidechain } from '../../session/sidechain.js'
-import { MCPManager } from '../../core/mcp-manager.js'
+import { MCPManager } from '../../services/mcp/manager.js'
 import { createTaskTool } from './AgentTool.js'
 import { connectAgentMcp } from './agentRuntime.js'
 

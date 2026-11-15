@@ -5,7 +5,7 @@
 import assert from 'node:assert/strict'
 import { defaultRegistry } from '../tools.js'
 import { assembleToolPool } from '../tools/assembleToolPool.js'
-import { loadWorkspaceContributions } from '../core/workspace-load.js'
+import { loadWorkspaceContributions } from '../utils/workspace/load.js'
 import {
   BROWSER_AGENT_TOOLS,
   BROWSER_AGENT_TYPE,

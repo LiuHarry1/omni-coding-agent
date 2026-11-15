@@ -3,8 +3,8 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { EventBus } from '../../core/event-bus.js'
-import { createDefaultPermissionMode } from '../../core/permission-mode.js'
-import { registerSessionLocation } from '../../core/session-paths.js'
+import { createDefaultPermissionMode } from '../../utils/permissions/permission-mode.js'
+import { registerSessionLocation } from '../../session/paths.js'
 import { ToolRegistry } from '../../core/tool-registry.js'
 import type {
   AgentDefinition,
@@ -21,7 +21,7 @@ import {
   dequeueAll,
   resetCommandQueue,
 } from '../../utils/messageQueueManager.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   _resetTaskOutputDirForTest,
   setTaskSessionId,

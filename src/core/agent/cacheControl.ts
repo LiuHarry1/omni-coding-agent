@@ -32,7 +32,7 @@
  */
 
 import type { SystemModelMessage } from 'ai'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import type { Message } from '../types.js'
 
 /**

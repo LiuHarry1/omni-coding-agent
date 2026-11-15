@@ -19,9 +19,9 @@ import {
 } from '../services/cloud-workspaces/index.js'
 import { busyCloudWorkspaceIds } from './routes/cloud-workspaces.js'
 import * as os from 'os'
-import { resolveSettings } from '../core/settings-manager.js'
-import { getDefaultWorkspace } from '../core/workspace.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { resolveSettings } from '../utils/settings/manager.js'
+import { getDefaultWorkspace } from '../utils/workspace/workspace.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import {
   initBrowserLifecycle,
   shutdownBrowserLifecycle,

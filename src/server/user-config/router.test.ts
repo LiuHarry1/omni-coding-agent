@@ -8,7 +8,7 @@ import { PassThrough } from 'stream'
 import * as archiverModule from 'archiver'
 import type { Archiver } from 'archiver'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   getUserConfigGeneration,
   USER_CONFIG_GENERATION_FILE,

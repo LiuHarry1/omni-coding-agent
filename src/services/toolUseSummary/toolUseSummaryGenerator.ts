@@ -6,7 +6,7 @@
  * (services/toolUseSummary/toolUseSummaryGenerator.ts).
  */
 import { generateText } from 'ai'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../llm/types.js'
 
 const TOOL_USE_SUMMARY_SYSTEM_PROMPT = `Write a short summary label describing what these tool calls accomplished. It appears as a single-line row in a mobile app and truncates around 30 characters, so think git-commit-subject, not sentence.
 

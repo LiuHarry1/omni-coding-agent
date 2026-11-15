@@ -12,10 +12,10 @@ import {
   TOOL_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { getDefaultShellToolName } from '../core/shell/shell-utils.js'
+import { getDefaultShellToolName } from '../utils/shell/shell-utils.js'
 import { SKILL_TOOL_NAME } from '../tools/SkillTool/SkillTool.js'
 import { computeSimpleEnvInfo } from '../constants/prompts.js'
-import { setCwd } from '../utils/cwd.js'
+import { setCwd } from '../utils/workspace/cwd.js'
 import { workspaceBoundaryPromptSection } from '../utils/permissions/workspace-boundary-prompt.js'
 
 // Static system prompt sections. Uses tool/agent names via constants.

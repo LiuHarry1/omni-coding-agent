@@ -3,10 +3,13 @@
  * the same in every mode.
  */
 import '../tools.js'
-import { modeDenial, withModeGate } from '../core/mode-restrictions.js'
+import {
+  modeDenial,
+  withModeGate,
+} from '../utils/permissions/mode-restrictions.js'
 import { isToolReadOnly } from '../core/tool-definition.js'
 import { defaultRegistry } from '../core/tool-registry.js'
-import type { ExternalMode } from '../core/permission-mode.js'
+import type { ExternalMode } from '../utils/permissions/permission-mode.js'
 import {
   BASH_TOOL_NAME,
   EDIT_FILE_TOOL_NAME,

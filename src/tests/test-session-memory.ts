@@ -41,8 +41,8 @@ import {
   computeProjectKey,
   registerSessionLocation,
   unregisterSessionLocation,
-} from '../core/session-paths.js'
-import { resolveAgentHome } from '../utils/request-scope.js'
+} from '../session/paths.js'
+import { resolveAgentHome } from '../utils/workspace/request-scope.js'
 import { compactIfNeeded } from '../services/compact/index.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

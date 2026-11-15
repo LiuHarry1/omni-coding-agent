@@ -6,7 +6,7 @@ import {
 } from './server-manager.js'
 import type { LspServerState } from './types.js'
 import { resetAllLSPDiagnosticState } from './LSPDiagnosticRegistry.js'
-import { normalizeWorkspacePath } from '../../core/workspace-path.js'
+import { normalizeWorkspacePath } from '../../utils/workspace/path.js'
 
 const managers = new Map<string, LspServerManager>()
 
@@ -27,7 +27,7 @@ export function hasLspServers(
   return Boolean(servers && Object.keys(servers).length > 0)
 }
 
-/** @deprecated Prefer normalizeWorkspacePath from core/workspace.js */
+/** @deprecated Prefer normalizeWorkspacePath from utils/workspace/path.js */
 export function normalizeWorkspaceCwd(cwd: string): string {
   return normalizeWorkspacePath(cwd)
 }

@@ -8,7 +8,7 @@ import {
   isModeAllowedByPicker,
   isSpecialistOnlyPicker,
   resolveAgentPicker,
-} from '../core/agent-picker.js'
+} from '../server/agent-picker.js'
 
 function primary(name: string): AgentDefinition {
   return {

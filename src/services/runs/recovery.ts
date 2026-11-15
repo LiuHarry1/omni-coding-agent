@@ -31,7 +31,7 @@ import {
   type RunChatTurnInput,
   type RunChatTurnResult,
 } from '../../turn/run-chat-turn.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   adoptInterruptedRun,
   checkpointDurableRun,

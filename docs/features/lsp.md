@@ -23,7 +23,7 @@ There are two paths:
 ## Configuration
 
 `lspServers` maps server definitions to commands and file patterns. The exact
-schema is defined by `src/core/settings-schema.ts`; use project settings for
+schema is defined by `src/utils/settings/schema.ts`; use project settings for
 workspace-specific servers and user settings for personal defaults.
 
 ## Failure modes

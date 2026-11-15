@@ -7,12 +7,12 @@
  * system prompt bytes.
  */
 import * as os from 'os'
-import { getCwd } from '../utils/cwd.js'
+import { getCwd } from '../utils/workspace/cwd.js'
 import { getIsGit } from '../utils/git.js'
 import {
   isBashToolEnabled,
   isPowerShellToolEnabled,
-} from '../core/shell/shell-utils.js'
+} from '../utils/shell/shell-utils.js'
 
 const isWindows = process.platform === 'win32'
 

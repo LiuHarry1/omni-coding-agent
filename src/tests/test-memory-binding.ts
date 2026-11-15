@@ -13,8 +13,8 @@ import {
   resolveMemoryBinding,
 } from '../services/auto-memory/index.js'
 import { getAutoMemPath } from '../services/auto-memory/paths.js'
-import { setCwd } from '../utils/cwd.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { setCwd } from '../utils/workspace/cwd.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 
 function assert(cond: boolean, msg: string) {
   if (!cond) throw new Error(msg)

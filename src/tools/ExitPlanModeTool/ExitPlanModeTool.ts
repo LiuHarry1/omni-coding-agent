@@ -10,7 +10,7 @@ import { EXIT_PLAN_MODE_TOOL_NAME } from '../../constants/tool_names.js'
 import {
   handlePlanModeTransition,
   transitionPermissionMode,
-} from '../../core/permission-mode.js'
+} from '../../utils/permissions/permission-mode.js'
 import { registerPlanApproval } from '../../core/brokers/plan-approval-broker.js'
 import {
   getPlan,

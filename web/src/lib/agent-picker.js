@@ -1,5 +1,5 @@
 /**
- * Client-side picker allowlist — mirrors src/core/agent-picker.ts.
+ * Client-side picker allowlist — mirrors src/server/agent-picker.ts.
  * Trust GET /agents `picker` lists; do not re-discover primaries locally.
  */
 

@@ -9,11 +9,14 @@ import type {
   RunAgentFn,
   SessionMemoryConfig,
 } from '../core/types.js'
-import type { IProvider } from '../core/llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import { createCacheSafeParams } from '../core/forked-agent.js'
 import { extractSessionMemoryInBackground } from '../services/session-memory/index.js'
 import { extractAutoMemoriesInBackground } from '../services/auto-memory/index.js'
-import { getRequestScope, runWithRequestScope } from '../utils/request-scope.js'
+import {
+  getRequestScope,
+  runWithRequestScope,
+} from '../utils/workspace/request-scope.js'
 import { getActiveModelMessages } from '../services/compact/index.js'
 
 export function createMemoryLifecycleHooks(opts: {

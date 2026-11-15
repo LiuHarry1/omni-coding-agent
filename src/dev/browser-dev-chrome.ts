@@ -9,7 +9,7 @@
  */
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { resolveSettings } from '../core/settings-manager.js'
+import { resolveSettings } from '../utils/settings/manager.js'
 import { getUserAppDir } from '../utils/app-dir.js'
 import { launchChromeWithExtension } from './chrome-launcher.js'
 

@@ -11,15 +11,15 @@ import {
   getRequestScope,
   getShellHome,
   runWithRequestScope,
-} from '../utils/request-scope.js'
+} from '../utils/workspace/request-scope.js'
 import { getAppDirName, getUserAppDir } from '../utils/app-dir.js'
 import { getAutoMemPath } from '../services/auto-memory/paths.js'
-import { prepareShellSpawn } from '../core/shell/spawn-shell.js'
+import { prepareShellSpawn } from '../utils/shell/spawn-shell.js'
 import {
   parseWritableScope,
   resetSettingsCache,
   resolveSettings,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 import {
   canAccessSession,
   canMutateSession,
@@ -30,7 +30,7 @@ import {
   computeProjectKey,
   registerSessionLocation,
   unregisterSessionLocation,
-} from '../core/session-paths.js'
+} from '../session/paths.js'
 import {
   getSessionMemoryState,
   getSessionMemoryStatePath,

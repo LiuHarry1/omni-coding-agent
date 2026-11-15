@@ -26,7 +26,7 @@ import {
   getChatUploadsSessionDir,
   getSessionDataDir,
   requireSessionLocation,
-} from '../core/session-paths.js'
+} from '../session/paths.js'
 import type { ImageMediaType } from '../core/types.js'
 
 export const CHAT_UPLOAD_MAX_BYTES = 10 * 1024 * 1024

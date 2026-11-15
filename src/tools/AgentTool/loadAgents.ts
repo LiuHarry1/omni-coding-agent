@@ -10,7 +10,7 @@ import {
   loadMarkdownConfigs,
   type MarkdownFile,
 } from '../../utils/markdownConfigLoader.js'
-import { loadPlugins } from '../../core/plugins/loader.js'
+import { loadPlugins } from '../../services/plugins/loader.js'
 import { definition as exploreDef } from './built-in/exploreAgent.js'
 import { definition as planDef } from './built-in/planAgent.js'
 import { definition as generalPurposeDef } from './built-in/generalPurposeAgent.js'

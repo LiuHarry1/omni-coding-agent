@@ -28,7 +28,7 @@ import {
 import type { AutoMemoryConfig, Message } from '../core/types.js'
 import { expandAttachmentMessagesForAPI } from '../utils/messages.js'
 import { createAttachmentMessage } from '../utils/attachments.js'
-import type { IProvider } from '../core/llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(`FAIL: ${msg}`)

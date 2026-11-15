@@ -1,5 +1,5 @@
 import * as path from 'path'
-import { getSessionDataDir } from '../../core/session-paths.js'
+import { getSessionDataDir } from '../../session/paths.js'
 
 export function getSessionMemoryDir(sessionId: string): string {
   return path.join(getSessionDataDir(sessionId), 'session-memory')

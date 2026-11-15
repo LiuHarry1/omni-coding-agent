@@ -15,7 +15,7 @@ import type {
   WorkerInstallInfo,
 } from '../../types.js'
 import { EnvironmentRegistry } from '../../environment-registry.js'
-import { getDefaultWorkspace } from '../../../core/workspace.js'
+import { getDefaultWorkspace } from '../../../utils/workspace/workspace.js'
 import {
   resolveWorkerLaunch,
   readWorkerVersion,
@@ -23,7 +23,7 @@ import {
   buildAgentSpawnEnv,
 } from '../../worker-paths.js'
 import { StdioRuntimePort, bindStdioRuntime } from '../../stdio-runtime-port.js'
-import { getAgentHome } from '../../../utils/request-scope.js'
+import { getAgentHome } from '../../../utils/workspace/request-scope.js'
 
 /**
  * A local worker either starts in a couple of seconds or is misconfigured.

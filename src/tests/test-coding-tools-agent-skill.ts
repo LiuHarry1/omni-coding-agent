@@ -10,7 +10,7 @@ import type {
   Session,
   ToolContext,
 } from '../core/types.js'
-import { createDefaultPermissionMode } from '../core/permission-mode.js'
+import { createDefaultPermissionMode } from '../utils/permissions/permission-mode.js'
 import {
   BUILTIN_AGENTS,
   registerBuiltinSubagents,

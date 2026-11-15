@@ -2,7 +2,7 @@
  * Unit checks for tools/utils resolvePath (Windows abs / join antipattern).
  */
 import * as path from 'path'
-import { normalizeWorkspacePath } from '../core/workspace-path.js'
+import { normalizeWorkspacePath } from '../utils/workspace/path.js'
 import {
   isWindowsAbsolute,
   resolvePath,

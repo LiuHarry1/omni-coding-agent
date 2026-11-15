@@ -16,7 +16,7 @@ import {
 } from '../browser/relay/open-connect-page.js'
 import { startRelayServer } from '../browser/relay/server.js'
 import { BRIDGE_EXTENSION_ID } from '../browser/relay/extension-id.js'
-import { resolveSettings } from '../core/settings-manager.js'
+import { resolveSettings } from '../utils/settings/manager.js'
 
 async function main(): Promise<void> {
   const config = resolveSettings(process.cwd()).config.browser ?? {}

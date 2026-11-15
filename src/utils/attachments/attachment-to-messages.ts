@@ -1,7 +1,7 @@
 import type { Message, UserContentPart, UserMessage } from '../../core/types.js'
 import type { Attachment } from './types.js'
 import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
-import { getDefaultShellToolName } from '../../core/shell/shell-utils.js'
+import { getDefaultShellToolName } from '../shell/shell-utils.js'
 import { MAX_LINES_TO_READ } from '../../constants/api_limits.js'
 import { formatReadOutputAsToolString } from '../read/index.js'
 import type { ReadOutput } from '../read/types.js'

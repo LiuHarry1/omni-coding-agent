@@ -1,6 +1,6 @@
 /**
  * Classify tool names for UI routing. MCP tools are merged as
- * `{mcpServerName}_{toolName}` (see src/core/mcp-manager.ts).
+ * `{mcpServerName}_{toolName}` (see src/services/mcp/manager.ts).
  */
 
 /** Longest-first MCP server names for prefix matching (set from live config). */

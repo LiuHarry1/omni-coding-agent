@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { isRoleMessage, type Message } from '../../core/types.js'
-import { registerSessionLocation } from '../../core/session-paths.js'
+import { registerSessionLocation } from '../../session/paths.js'
 import {
   appendMessage,
   forgetSession,
@@ -11,7 +11,7 @@ import {
 } from '../../session/index.js'
 import { upsertSessionIndexEntry } from '../../session/session-index.js'
 import type { RunChatTurnInput } from '../../turn/run-chat-turn.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   getDurableRunState,
   resetRunManagerForTesting,

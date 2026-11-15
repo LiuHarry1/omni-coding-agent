@@ -4,12 +4,9 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import {
-  getSessionIndexPath,
-  type SessionLocation,
-} from '../core/session-paths.js'
+import { getSessionIndexPath, type SessionLocation } from './paths.js'
 import { getAppDirName } from '../utils/app-dir.js'
-import { resolveAgentHome } from '../utils/request-scope.js'
+import { resolveAgentHome } from '../utils/workspace/request-scope.js'
 import { isAuthEnabled } from '../utils/env.js'
 
 export type SessionIndexEntry = {

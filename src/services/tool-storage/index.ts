@@ -21,7 +21,7 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getToolResultFilePath } from '../../core/session-paths.js'
+import { getToolResultFilePath } from '../../session/paths.js'
 import { BROWSER_MODEL_RESULT_MAX_CHARS } from '../../browser/limits.js'
 import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
 

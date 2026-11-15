@@ -44,7 +44,7 @@ import {
   resolveAutoMemoryConfig,
   resolveSettings,
   resetSettingsCache,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 
 function assert(cond: boolean, msg: string): void {
   if (!cond) {

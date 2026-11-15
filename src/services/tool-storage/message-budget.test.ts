@@ -6,8 +6,8 @@ import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
 import {
   getToolResultFilePath,
   registerSessionLocation,
-} from '../../core/session-paths.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+} from '../../session/paths.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { isPersistedReference } from './index.js'
 import { enforceToolResultBudget } from './message-budget.js'
 

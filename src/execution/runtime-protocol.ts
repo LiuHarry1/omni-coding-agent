@@ -6,7 +6,7 @@
  * Worker owns all FS/shell/LSP. Messages below are the Worker RPC surface.
  */
 
-import type { ShellKind } from '../core/shell/spawn-shell.js'
+import type { ShellKind } from '../utils/shell/spawn-shell.js'
 
 export type PermissionDecision =
   | { behavior: 'allow'; updatedInput?: Record<string, unknown> }

@@ -7,7 +7,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { EventBus } from '../core/event-bus.js'
-import { createDefaultPermissionMode } from '../core/permission-mode.js'
+import { createDefaultPermissionMode } from '../utils/permissions/permission-mode.js'
 import type {
   DualChannelToolResult,
   Message,

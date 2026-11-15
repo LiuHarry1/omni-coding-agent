@@ -22,7 +22,7 @@ import { SKILL_TOOL_NAME } from '../tools/SkillTool/SkillTool.js'
 import { SUBAGENT_NO_OUTPUT_MARKER } from '../tools/AgentTool/finalizeAgentTool.js'
 import { isToolNameDisallowed } from '../tools/AgentTool/toolGlob.js'
 import { enhanceSystemPromptWithEnvDetails } from '../constants/prompts.js'
-import { setCwd } from '../utils/cwd.js'
+import { setCwd } from '../utils/workspace/cwd.js'
 import type { SkillDefinition } from './types.js'
 
 export interface RunSkillForkOptions {

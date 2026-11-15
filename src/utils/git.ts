@@ -2,7 +2,7 @@
  * Minimal git helpers.
  */
 import { spawnSync } from 'child_process'
-import { getCwd } from './cwd.js'
+import { getCwd } from './workspace/cwd.js'
 
 /** Whether `getCwd()` is inside a git work tree. */
 export async function getIsGit(): Promise<boolean> {

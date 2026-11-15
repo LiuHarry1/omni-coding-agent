@@ -19,7 +19,7 @@ import type { RunAgentFn } from '../core/types.js'
 import {
   handlePlanModeTransition,
   transitionPermissionMode,
-} from '../core/permission-mode.js'
+} from '../utils/permissions/permission-mode.js'
 import { appendModeChange } from '../session/index.js'
 import { acpModeToExternal, sessionModeState } from './modes.js'
 import { promptBlocksToUserTurn } from './prompt-input.js'

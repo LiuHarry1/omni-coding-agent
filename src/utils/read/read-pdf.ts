@@ -17,7 +17,7 @@ import {
   PDF_MAX_PAGES_PER_READ,
   PDF_TARGET_RAW_SIZE,
 } from '../../constants/api_limits.js'
-import { getSessionDataDir } from '../../core/session-paths.js'
+import { getSessionDataDir } from '../../session/paths.js'
 import type { ReadPdfOutput, ReadPdfPartsOutput } from './types.js'
 
 const execFileAsync = promisify(execFile)

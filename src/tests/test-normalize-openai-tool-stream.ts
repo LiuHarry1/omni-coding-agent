@@ -8,7 +8,7 @@ import {
   createNormalizedOpenAICompatibleFetch,
   createOpenAIToolCallNormalizeTransform,
   normalizeOpenAICompatibleSse,
-} from '../core/llm/strategies/normalize-openai-tool-stream.js'
+} from '../services/llm/strategies/normalize-openai-tool-stream.js'
 
 type ToolCallDelta = {
   index?: number

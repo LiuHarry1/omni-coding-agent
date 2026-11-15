@@ -21,7 +21,7 @@ import {
   TOOL_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
 } from '../constants/tool_names.js'
-import { modeDenial } from '../core/mode-restrictions.js'
+import { modeDenial } from '../utils/permissions/mode-restrictions.js'
 import { isToolReadOnly } from '../core/tool-definition.js'
 import { ToolRegistry, defaultRegistry } from '../core/tool-registry.js'
 import type {

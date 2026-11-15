@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../llm/types.js'
 import { compactionLimits } from './autoCompact.js'
 
 const withWindow = (contextWindow: number | undefined): IProvider =>

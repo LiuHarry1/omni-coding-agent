@@ -4,7 +4,7 @@ import { ensureMessageUuid } from '../services/session-memory/index.js'
 import { extractPartialResult } from '../tools/AgentTool/finalizeAgentTool.js'
 import { finalizeInterruptedTurn } from '../utils/interrupt.js'
 import type { TodoItem } from './types.js'
-import type { IProvider } from './llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import type { ConcurrencyPolicyFn } from './concurrency-policy.js'
 import type {
   QueryOptions,

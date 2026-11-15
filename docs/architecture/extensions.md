@@ -116,8 +116,8 @@ Remote execution is a deliberate split boundary: declarative plugins, skills, MC
 - Skill loading and expansion: `src/skills/`
 - Slash lookup and dispatch: `src/commands/`
 - Deferred discovery: `src/tools/ToolSearchTool/ToolSearchTool.ts`
-- Declarative plugin loading: `src/core/plugins/loader.ts`
-- Code-plugin boot lifecycle: `src/core/plugins/index.ts`, `src/core/plugins/code-plugins.ts`, `src/core/plugin-manager.ts`
-- MCP connections and pooling: `src/core/mcp-manager.ts`, `src/core/mcp-lifecycle.ts`
+- Declarative plugin loading: `src/services/plugins/loader.ts`
+- Code-plugin boot lifecycle: `src/services/plugins/index.ts`, `src/services/plugins/code-plugins.ts`, `src/services/plugins/manager.ts`
+- MCP connections and pooling: `src/services/mcp/manager.ts`, `src/services/mcp/lifecycle.ts`
 
 Last verified: 2026-09-13

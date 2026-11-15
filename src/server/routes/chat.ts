@@ -28,19 +28,19 @@ import {
   handlePlanModeTransition,
   isValidExternalMode,
   transitionPermissionMode,
-} from '../../core/permission-mode.js'
+} from '../../utils/permissions/permission-mode.js'
 import { appendModeChange, appendAgentChange } from '../session.js'
 import type { Message, RunAgentFn } from '../../core/types.js'
 import { runChatTurn } from '../../turn/run-chat-turn.js'
-import { loadWorkspaceContributions } from '../../core/workspace-load.js'
+import { loadWorkspaceContributions } from '../../utils/workspace/load.js'
 import { findPrimaryAgent } from '../../tools/AgentTool/mergeAgents.js'
 import {
   applyPickerDefaultsToSession,
   loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
-} from '../../core/agent-picker-workspace.js'
-import { normalizeWorkspacePath } from '../../core/workspace-path.js'
+} from '../agent-picker-workspace.js'
+import { normalizeWorkspacePath } from '../../utils/workspace/path.js'
 import {
   isChatAttachmentRef,
   type ChatAttachmentRef,
@@ -52,7 +52,10 @@ import {
   RunAlreadyActiveError,
   startDurableRun,
 } from '../../services/runs/run-manager.js'
-import { getRequestScope, resolveAgentHome } from '../../utils/request-scope.js'
+import {
+  getRequestScope,
+  resolveAgentHome,
+} from '../../utils/workspace/request-scope.js'
 
 export function resolveChatWorkspaceBinding(
   req: IncomingMessage,

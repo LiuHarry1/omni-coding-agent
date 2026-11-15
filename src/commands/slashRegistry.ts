@@ -19,8 +19,11 @@ import {
   loadSkillsFromDisk,
   mergeSkillsByName,
 } from '../skills/loadSkillsDir.js'
-import { loadPlugins } from '../core/plugins/loader.js'
-import { pluginErrorMessage, pluginErrorSource } from '../core/plugins/types.js'
+import { loadPlugins } from '../services/plugins/loader.js'
+import {
+  pluginErrorMessage,
+  pluginErrorSource,
+} from '../services/plugins/types.js'
 import { mergeCommands } from './loadCommandsFromFiles.js'
 import type { SlashCommand } from './types.js'
 import type { SkillDefinition } from '../skills/types.js'

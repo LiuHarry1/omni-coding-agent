@@ -9,8 +9,8 @@ import type {
 } from '../core/types.js'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
 import { isCompactBoundaryMessage } from '../core/messages/compact-boundary.js'
-import type { ExternalMode } from '../core/permission-mode.js'
-import { createDefaultPermissionMode } from '../core/permission-mode.js'
+import type { ExternalMode } from '../utils/permissions/permission-mode.js'
+import { createDefaultPermissionMode } from '../utils/permissions/permission-mode.js'
 import { resetSessionMemoryState } from '../services/session-memory/state.js'
 import { resetAutoMemoryState } from '../services/auto-memory/state.js'
 import { resetMicroCompactState } from '../services/compact/microCompact.js'
@@ -28,10 +28,10 @@ import {
   registerSessionLocation,
   unregisterSessionLocation,
   type SessionLocation,
-} from '../core/session-paths.js'
-import { getDefaultWorkspace } from '../core/workspace.js'
-import { normalizeWorkspacePath } from '../core/workspace-path.js'
-import { resolveAgentHome } from '../utils/request-scope.js'
+} from './paths.js'
+import { getDefaultWorkspace } from '../utils/workspace/workspace.js'
+import { normalizeWorkspacePath } from '../utils/workspace/path.js'
+import { resolveAgentHome } from '../utils/workspace/request-scope.js'
 import {
   findSessionLocation,
   listSessionAgentHomes,

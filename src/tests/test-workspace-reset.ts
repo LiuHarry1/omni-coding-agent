@@ -6,8 +6,8 @@ import {
   bootstrapExecutionPlane,
   shutdownExecutionPlane,
 } from '../execution/bootstrap.js'
-import { seedUserWorkspaceIfNeeded } from '../core/workspace-seed.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { seedUserWorkspaceIfNeeded } from '../utils/workspace/seed.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import { createSession } from '../server/session.js'
 import { resetTenantWorkspace } from '../server/routes/workspace-reset.js'
 

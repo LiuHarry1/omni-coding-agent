@@ -16,7 +16,7 @@ import { runAgent } from '../../core/agent.js'
 import { EventBus } from '../../core/event-bus.js'
 import { queuedTurnMessage } from '../../core/protocol-messages.js'
 import type { Session } from '../../core/types.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
+import { getDefaultWorkspace } from '../../utils/workspace/workspace.js'
 import {
   checkQuota,
   commitQuota,
@@ -44,7 +44,7 @@ import {
   subscribeToCommandQueue,
   type QueuedCommand,
 } from '../../utils/messageQueueManager.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import {
   resolveWorkspaceContext,
   type WorkspaceContext,

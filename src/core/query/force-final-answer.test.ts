@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { StreamResult } from '../agent/streamConsumer.js'
 import { EventBus } from '../event-bus.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import type { Message } from '../types.js'
 import { noopWireEmitter } from '../wire-emitter.js'
 import { forceFinalAnswerOnMaxSteps } from './force-final-answer.js'

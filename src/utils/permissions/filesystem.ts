@@ -15,10 +15,10 @@ import {
   getProjectsRoot,
   getBrowserLogsDir,
   getChatUploadsRoot,
-} from '../../core/session-paths.js'
+} from '../../session/paths.js'
 import { getDefaultPlansDirectory } from '../plans.js'
-import { isPathInWorkspace } from '../../core/workspace.js'
-import { normalizeWorkspacePath } from '../../core/workspace-path.js'
+import { isPathInWorkspace } from '../workspace/workspace.js'
+import { normalizeWorkspacePath } from '../workspace/path.js'
 import { resolvePath } from '../../tools/utils.js'
 import { matchingPermissionRule } from './permission-rules.js'
 import { isAgentMemoryPath } from '../../tools/AgentTool/agentMemory.js'

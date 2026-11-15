@@ -21,7 +21,7 @@
  */
 import * as os from 'os'
 import * as path from 'path'
-import { isPathInWorkspace } from '../../core/workspace.js'
+import { isPathInWorkspace } from '../../utils/workspace/workspace.js'
 import {
   splitCommand,
   tokenizeCommand,

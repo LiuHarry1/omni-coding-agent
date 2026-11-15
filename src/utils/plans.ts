@@ -8,7 +8,7 @@ import * as path from 'path'
 import { randomBytes } from 'crypto'
 import type { Session } from '../core/types.js'
 import { getAppDirName } from './app-dir.js'
-import { resolveAgentHome } from './request-scope.js'
+import { resolveAgentHome } from './workspace/request-scope.js'
 
 const ADJECTIVES = [
   'brave',

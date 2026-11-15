@@ -15,7 +15,7 @@ import type {
   RunAgentFn,
   TodoItem,
 } from '../types.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import { createCacheSafeParams } from '../forked-agent.js'
 import type { WireEmitter } from '../wire-emitter.js'
 import type { CompactionConfig, SessionMemoryConfig } from '../types.js'

@@ -11,8 +11,8 @@ import {
   createExtensionConfigRouter,
   createUserConfigRouter,
 } from './user-config/router.js'
-import { getDefaultWorkspace } from '../core/workspace.js'
-import { getCachedSessionLocation } from '../core/session-paths.js'
+import { getDefaultWorkspace } from '../utils/workspace/workspace.js'
+import { getCachedSessionLocation } from '../session/paths.js'
 import { defaultRegistry } from '../tools.js'
 import { registerBuiltinSubagents } from '../tools/AgentTool/index.js'
 import { listSlashCommands } from '../commands/dispatcher.js'
@@ -36,12 +36,12 @@ import {
   loadResolvedAgentPickerForWorkspace,
   pickerAgentTypeError,
   pickerModeError,
-} from '../core/agent-picker-workspace.js'
+} from './agent-picker-workspace.js'
 import {
   handlePlanModeTransition,
   isValidExternalMode,
   transitionPermissionMode,
-} from '../core/permission-mode.js'
+} from '../utils/permissions/permission-mode.js'
 import {
   authenticateRequest,
   getUsersRoot,
@@ -49,25 +49,25 @@ import {
   AuthError,
   type AuthedRequest,
 } from './auth/identity.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import { serveStaticFile } from './static.js'
 import { stripMountPath } from './public-base.js'
 import {
   getMCPManagerForServers,
   initMcpLifecycle,
   invalidateMCPManagersForCwd,
-} from '../core/mcp-lifecycle.js'
+} from '../services/mcp/lifecycle.js'
 import {
   filterHttpMCPServers,
   getSafeMCPServerMetadata,
-} from '../core/mcp-policy.js'
+} from '../services/mcp/policy.js'
 import { getLspStatusForCwd } from '../services/lsp/manager.js'
 import { getExecutionPlane } from '../execution/bootstrap.js'
 import { ShellFsPort } from '../execution/shell-fs.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { WorkerExecutionBackend } from '../execution/worker-execution-backend.js'
 import { resolveWorkspaceContext } from '../services/cloud-workspaces/turn-scope.js'
-import { initCodePlugins } from '../core/plugins/index.js'
+import { initCodePlugins } from '../services/plugins/index.js'
 import { bumpUserConfigGeneration } from '../services/user-config-generation.js'
 import { handleChat } from './routes/chat.js'
 import { handleScheduledTasks } from './routes/scheduled-tasks.js'
@@ -94,7 +94,7 @@ import {
   resolveEffectiveSettings,
   setMCPServer,
   validateMCPRemoval,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 import {
   resolveSettingsRequestCwd,
   resolveStatusWorkspaceHandle,
@@ -437,7 +437,7 @@ export function createRouter({ staticDir }: RouterOptions) {
           return
         }
         const { getBrowserLogsSessionDir, requireSessionLocation } =
-          await import('../core/session-paths.js')
+          await import('../session/paths.js')
         const fsp = await import('fs/promises')
         try {
           const location = requireSessionLocation(id)

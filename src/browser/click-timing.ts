@@ -9,7 +9,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import fs from 'node:fs'
 import path from 'node:path'
-import { getBrowserLogsDir } from '../core/session-paths.js'
+import { getBrowserLogsDir } from '../session/paths.js'
 
 interface Phase {
   name: string

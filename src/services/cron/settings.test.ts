@@ -2,13 +2,13 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { resetSettingsCache } from '../../core/settings-manager.js'
+import { resetSettingsCache } from '../../utils/settings/manager.js'
 import {
   createSession,
   deleteSession,
   setSessionWorkspace,
 } from '../../session/store.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { fireScheduledTask } from './fire.js'
 import { createCronScheduler } from './scheduler.js'
 import { isScheduledTaskEnabled } from './settings.js'

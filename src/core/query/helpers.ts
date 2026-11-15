@@ -29,7 +29,7 @@ import {
   DEFAULT_MAX_OUTPUT_TOKENS,
   applyMaxTokensToChatBody,
   getMaxOutputTokens,
-} from '../llm/max-tokens.js'
+} from '../../services/llm/max-tokens.js'
 
 export {
   DEFAULT_MAX_OUTPUT_TOKENS,

@@ -2,7 +2,7 @@ import { defaultRegistry } from './core/tool-registry.js'
 import {
   isBashToolEnabled,
   isPowerShellToolEnabled,
-} from './core/shell/shell-utils.js'
+} from './utils/shell/shell-utils.js'
 import { definition as bash } from './tools/BashTool/BashTool.js'
 import { definition as powershell } from './tools/PowerShellTool/PowerShellTool.js'
 import { definition as readFile } from './tools/FileReadTool/FileReadTool.js'

@@ -15,14 +15,14 @@ import { promises as fs } from 'fs'
 import * as path from 'path'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
-import { isWindows } from '../core/platform.js'
-import { getDefaultShellKind } from '../core/shell/shell-utils.js'
+import { isWindows } from '../utils/platform.js'
+import { getDefaultShellKind } from '../utils/shell/shell-utils.js'
 import type { ExecutionBackend } from '../execution/execution-backend.js'
 import { substituteArguments } from './argumentSubstitution.js'
 import {
   resolveBashExecutable,
   resolvePowerShellExecutable,
-} from '../core/shell/windows-paths.js'
+} from '../utils/shell/windows-paths.js'
 
 const execFileAsync = promisify(execFile)
 

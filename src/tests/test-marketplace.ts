@@ -20,8 +20,8 @@ import type { MarketplaceProviderConfig } from '../core/types.js'
 import {
   resetSettingsCache,
   resolveSettings,
-} from '../core/settings-manager.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+} from '../utils/settings/manager.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 
 const ZipArchive = (
   archiverModule as unknown as { ZipArchive: new () => Archiver }

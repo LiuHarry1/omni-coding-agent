@@ -865,10 +865,10 @@ Compaction:
 
 Configuration and persistence:
 
-- `src/core/settings-manager.ts`
-- `src/core/settings-schema.ts`
+- `src/utils/settings/manager.ts`
+- `src/utils/settings/schema.ts`
 - `src/core/types.ts`
-- `src/core/session-paths.ts`
+- `src/session/paths.ts`
 - `src/session/store.ts`
 - `src/session/json-serialize.ts`
 - `src/session/compact-replay.ts`

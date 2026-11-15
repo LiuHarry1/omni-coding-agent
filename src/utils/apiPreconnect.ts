@@ -10,7 +10,7 @@
  * Skipped when a proxy/mTLS transport is configured: the SDK then uses its own
  * dispatcher, which would not reuse the pool we warmed.
  */
-import type { ModelProfiles } from '../core/llm/model-registry.js'
+import type { ModelProfiles } from '../services/llm/model-registry.js'
 
 let fired = false
 

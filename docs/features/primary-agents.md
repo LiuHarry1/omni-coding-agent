@@ -62,8 +62,8 @@ Omitting `modes` shows all modes; `[]` hides mode rows. Omitting `primaries` sho
 ## Source map
 
 - `src/tools/AgentTool/mergeAgents.ts` — parsing, validation, precedence, and reserved names.
-- `src/core/agent-picker.ts` — picker visibility and defaults.
-- `src/core/agent-picker-workspace.ts` — workspace resolution and session application.
+- `src/server/agent-picker.ts` — picker visibility and defaults.
+- `src/server/agent-picker-workspace.ts` — workspace resolution and session application.
 - `src/prompts/agent-profile.ts` — primary system-prompt assembly.
 - `src/core/types.ts` — `AgentDefinition` and session `agentType`.
 - `src/tests/test-primary-agent-parse.ts` — parser and prompt behavior checks.

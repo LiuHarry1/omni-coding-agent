@@ -12,7 +12,7 @@ import {
 import {
   detectPowerShellEdition,
   type PowerShellEdition,
-} from '../../core/shell/powershell-edition.js'
+} from '../../utils/shell/powershell-edition.js'
 import { getMaxOutputLength } from '../../utils/shell/outputLimits.js'
 import {
   getDefaultBashTimeoutMs,

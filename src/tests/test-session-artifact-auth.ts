@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
-import { getBrowserLogsSessionDir } from '../core/session-paths.js'
+import { getBrowserLogsSessionDir } from '../session/paths.js'
 import { AUTH_COOKIE_NAME, slugifyEmail } from '../server/auth/identity.js'
 import { createRouter } from '../server/router.js'
 import {
@@ -13,7 +13,7 @@ import {
 } from '../services/runs/run-manager.js'
 import { createSession } from '../session/store.js'
 import { getChatUploadsDir } from '../utils/chat-uploads.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 
 function b64url(value: string | Buffer): string {
   return Buffer.from(value)

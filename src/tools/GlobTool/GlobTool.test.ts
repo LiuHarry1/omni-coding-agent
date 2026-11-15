@@ -6,7 +6,7 @@ import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { definition } from './GlobTool.js'
 
 const previousAuth = process.env.AUTH_ENABLED

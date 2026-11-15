@@ -170,7 +170,7 @@ flowchart LR
   - 把现在写死只提升 `BROWSER_TOOL_NAMES` 的逻辑，泛化成“按主 Agent 类型取工具族”。
 - `src/services/compact/microCompact.ts`、`src/services/tokenEstimation.ts`、`src/utils/project-tool-use-result.ts`：在出现 `BROWSER_TOOL_NAMES` 的地方同时纳入 desktop 工具。
 - `src/tests/test-coding-tools-manifest.ts`：把 desktop 工具加入排除列表。
-- `src/core/settings-schema.ts`、`src/core/settings-manager.ts`：新增 `desktop` 配置。
+- `src/utils/settings/schema.ts`、`src/utils/settings/manager.ts`：新增 `desktop` 配置。
 - `src/server/routes/capabilities.ts`：新增 `desktopAutomation` 能力开关。
 - `src/server/router.ts`：新增 `/desktop/control` 路由。
 - `desktop/main.mjs`、`desktop/preload.cjs`、`desktop/agent-launch.mjs`：状态卡片、急停快捷键、用户输入检测、程序路径。

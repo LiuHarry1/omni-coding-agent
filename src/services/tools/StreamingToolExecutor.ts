@@ -2,7 +2,7 @@
  * Streaming tool executor.
  * Tools start as soon as tool_use blocks arrive during model streaming.
  */
-import type { CanUseToolFn } from '../../core/can-use-tool.js'
+import type { CanUseToolFn } from '../../utils/permissions/can-use-tool.js'
 import { createChildAbortController } from '../../utils/abortController.js'
 import { BASH_TOOL_NAME } from '../../constants/tool_names.js'
 import type { Message, ToolDefinition } from '../../core/types.js'

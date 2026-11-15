@@ -22,7 +22,7 @@ import type {
   ToolResultPart,
   UserMessage,
 } from '../core/types.js'
-import type { IProvider } from '../core/llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import { buildImageBlock } from '../utils/tool-result-content.js'
 import {
   compressImageBufferWithTokenLimit,

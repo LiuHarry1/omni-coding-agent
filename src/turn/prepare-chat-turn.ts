@@ -18,7 +18,7 @@ import {
   loadPlugins,
   pluginErrorMessage,
   pluginErrorSource,
-} from '../core/plugins/index.js'
+} from '../services/plugins/index.js'
 import { loadAllAgentRules, loadUserAgentRules } from '../utils/rules-loader.js'
 import { buildConcurrencyPolicy } from '../core/concurrency-policy.js'
 import { TOOL_SEARCH_TOOL_NAME } from '../constants/tool_names.js'
@@ -43,15 +43,15 @@ import type {
 import type { ToolRegistry } from '../core/tool-registry.js'
 import type { SlashEntry } from '../commands/slashRegistry.js'
 import { extractFilePathCandidates } from './path-candidates.js'
-import { mergeMCPServers } from '../core/settings-manager.js'
+import { mergeMCPServers } from '../utils/settings/manager.js'
 import { noopWireEmitter, type WireEmitter } from '../core/wire-emitter.js'
 import type { TurnProfiler } from '../utils/startupProfiler.js'
-import { getMCPManagerForServers } from '../core/mcp-lifecycle.js'
+import { getMCPManagerForServers } from '../services/mcp/lifecycle.js'
 import {
   createFilesystemPermissionContext,
   settingsPermissionOpts,
 } from '../utils/permissions/filesystem.js'
-import { resolveAutoMemoryConfig } from '../core/settings-manager.js'
+import { resolveAutoMemoryConfig } from '../utils/settings/manager.js'
 import {
   buildMemorySystemAppend,
   describeMemoryBinding,

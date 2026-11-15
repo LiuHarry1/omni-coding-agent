@@ -1,5 +1,5 @@
 import type { SessionMode, SessionModeState } from '@agentclientprotocol/sdk'
-import type { ExternalMode } from '../core/permission-mode.js'
+import type { ExternalMode } from '../utils/permissions/permission-mode.js'
 import type { Session } from '../core/types.js'
 
 export const ACP_MODES: SessionMode[] = [

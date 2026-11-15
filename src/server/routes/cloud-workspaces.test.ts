@@ -24,7 +24,7 @@ import {
   setSessionWorkspace,
   tryBeginTurn,
 } from '../../session/store.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 
 let dir: string
 let manager: CloudWorkspaceManager

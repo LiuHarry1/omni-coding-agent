@@ -1,6 +1,6 @@
 import { MockLanguageModelV3 } from 'ai/test'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../llm/types.js'
 import {
   cleanSummary,
   generateToolUseSummary,

@@ -2,7 +2,7 @@
  * Unified tool execution surface — always backed by Agent Worker (RuntimePort).
  */
 import type { EnvironmentId, FsPort } from './types.js'
-import type { ShellKind } from '../core/shell/spawn-shell.js'
+import type { ShellKind } from '../utils/shell/spawn-shell.js'
 
 export type ExecResult = {
   stdout: string

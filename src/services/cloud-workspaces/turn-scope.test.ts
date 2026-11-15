@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   registerSessionLocation,
   unregisterSessionLocation,
-} from '../../core/session-paths.js'
-import { getDefaultWorkspace } from '../../core/workspace.js'
+} from '../../session/paths.js'
+import { getDefaultWorkspace } from '../../utils/workspace/workspace.js'
 import { loadCloudWorkspaceConfig } from '../../execution/providers/cloud/config.js'
 import { WorkspaceContainers } from '../../execution/providers/cloud/containers.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { setCloudWorkspaceManagerForTesting } from './index.js'
 import { CloudWorkspaceManager } from './manager.js'
 import { CloudWorkspaceStore } from './store.js'

@@ -19,7 +19,7 @@ import type {
 import type { CacheSafeParams } from '../../core/forked-agent.js'
 import type { WireEmitter } from '../../core/wire-emitter.js'
 import { isRoleMessage } from '../../core/types.js'
-import { DEFAULTS } from '../../core/settings-manager.js'
+import { DEFAULTS } from '../../utils/settings/manager.js'
 import type { ReadFileState } from '../../utils/read/types.js'
 import { clearReadFileState } from '../../utils/read/read-file-state.js'
 import { tokenCountWithEstimation } from './tokens.js'

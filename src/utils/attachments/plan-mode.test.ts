@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { ExternalMode } from '../../core/permission-mode.js'
+import type { ExternalMode } from '../permissions/permission-mode.js'
 import type { Message, ToolUseContext } from '../../core/types.js'
 import { createAttachmentMessage } from '../attachments.js'
 import { expandAttachmentMessagesForAPI } from '../messages.js'

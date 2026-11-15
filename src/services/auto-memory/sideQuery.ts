@@ -4,7 +4,7 @@
  */
 import { generateText, Output } from 'ai'
 import { jsonSchema, type FlexibleSchema } from '@ai-sdk/provider-utils'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../llm/types.js'
 
 /** Output schema for the memory relevance selection side query. */
 export const selectedMemoriesJsonSchema = jsonSchema<{

@@ -1,6 +1,6 @@
 import * as path from 'path'
 import type { IncomingMessage, ServerResponse } from 'http'
-import { loadWorkspaceContributions } from '../../core/workspace-load.js'
+import { loadWorkspaceContributions } from '../../utils/workspace/load.js'
 import {
   getExecutionPlane,
   type ExecutionPlane,
@@ -10,7 +10,7 @@ import { type AuthedRequest } from '../auth/identity.js'
 import { resolveRequestCwd } from '../request-cwd.js'
 import { isCloudWorkspacesEnabled } from '../../execution/providers/cloud/config.js'
 import type { WorkspaceHandle } from '../../execution/types.js'
-import { getAgentHome } from '../../utils/request-scope.js'
+import { getAgentHome } from '../../utils/workspace/request-scope.js'
 import { canUseEnvironment } from '../routes/execution.js'
 import {
   decorateInstallState,

@@ -2,7 +2,7 @@
  * LocalShellTask state + type guards.
  */
 import type { TaskStateBase } from '../../Task.js'
-import type { ShellKind } from '../../core/shell/spawn-shell.js'
+import type { ShellKind } from '../../utils/shell/spawn-shell.js'
 
 export type BashTaskKind = 'bash'
 

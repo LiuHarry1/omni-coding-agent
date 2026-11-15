@@ -20,13 +20,16 @@ import type {
   RunAgentFn,
   ToolContext,
 } from './types.js'
-import type { CanUseToolFn } from './can-use-tool.js'
+import type { CanUseToolFn } from '../utils/permissions/can-use-tool.js'
 import type { ReadFileState } from '../utils/read/types.js'
 import { runWithForkedReadFileState } from '../utils/read/read-file-state.js'
-export type { CanUseToolFn, PermissionDecision } from './can-use-tool.js'
+export type {
+  CanUseToolFn,
+  PermissionDecision,
+} from '../utils/permissions/can-use-tool.js'
 import { EventBus } from './event-bus.js'
 import { noopWireEmitter, type WireEmitter } from './wire-emitter.js'
-import { DEFAULTS } from './settings-manager.js'
+import { DEFAULTS } from '../utils/settings/manager.js'
 import * as path from 'path'
 
 // ── Cache-safe params ───────────────────────────

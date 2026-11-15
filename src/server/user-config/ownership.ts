@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs'
 import * as path from 'path'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { getAgentHome } from '../../utils/request-scope.js'
+import { getAgentHome } from '../../utils/workspace/request-scope.js'
 import { readMarketplaceLockStrict } from '../marketplace/installer.js'
 import { UserConfigError } from './errors.js'
 import { parseUserConfigPath } from './path-safety.js'

@@ -30,7 +30,7 @@ import {
 } from '../../constants/api_limits.js'
 import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
 import { isBinaryContent } from '../../constants/files.js'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import type {
   Message,
   UserContentPart,

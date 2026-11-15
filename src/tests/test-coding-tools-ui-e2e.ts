@@ -16,7 +16,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { chromium, type Page } from 'playwright-core'
 import { findChrome } from '../browser/chrome-path.js'
-import { resolveSettings } from '../core/settings-manager.js'
+import { resolveSettings } from '../utils/settings/manager.js'
 
 const REPLAY_SESSION_ID =
   process.env.CODING_TOOLS_E2E_REPLAY_SESSION?.trim() ?? ''

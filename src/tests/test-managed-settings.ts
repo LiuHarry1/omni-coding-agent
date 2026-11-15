@@ -9,7 +9,7 @@ import {
   parseWritableScope,
   resetSettingsCache,
   resolveSettings,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 import {
   _resetManagedDirCacheForTest,
   getManagedSettingsPath,

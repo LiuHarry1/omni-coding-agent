@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { applyWorkspaceSeedMigrations } from '../core/workspace-seed.js'
+import { applyWorkspaceSeedMigrations } from '../utils/workspace/seed.js'
 
 const root = await mkdtemp(path.join(tmpdir(), 'workspace-seed-migration-'))
 const workspace = path.join(root, 'workspace')

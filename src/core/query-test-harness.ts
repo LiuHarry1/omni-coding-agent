@@ -1,7 +1,7 @@
 import { vi } from 'vitest'
 import type { StreamResult } from './agent/streamConsumer.js'
 import { EventBus } from './event-bus.js'
-import type { IProvider } from './llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import type { QueryDeps } from './query/deps.js'
 import type { QueryOptions } from './query/types.js'
 import type { Message, TodoItem } from './types.js'

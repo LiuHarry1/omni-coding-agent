@@ -64,7 +64,7 @@ When `AUTH_ENABLED=true`, the effective mode is always `dontAsk`; `allow` and `a
 - `src/tools/BashTool/bashPermissions.ts` — command rules and the allow / ask / deny decision.
 - `src/tools/BashTool/readOnlyValidation.ts`, `src/utils/shell/readOnlyCommandValidation.ts` — read-only command recognition.
 - `src/utils/bash/commands.ts` — splitting a command line into simple commands.
-- `src/core/can-use-tool.ts` — prompts, timeout, and Always allow handling.
-- `src/core/settings-schema.ts` — validated settings.
-- `src/core/permission-mode.ts` — Agent, Ask, and Plan session modes.
+- `src/utils/permissions/can-use-tool.ts` — prompts, timeout, and Always allow handling.
+- `src/utils/settings/schema.ts` — validated settings.
+- `src/utils/permissions/permission-mode.ts` — Agent, Ask, and Plan session modes.
 - `deploy/README.md` — deployment-specific SSO boundary and limitations.

@@ -4,7 +4,7 @@ import {
   PDF_MAX_PAGES_PER_READ,
 } from './limits.js'
 import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
-import { getAvailableShellToolNames } from '../../core/shell/shell-utils.js'
+import { getAvailableShellToolNames } from '../../utils/shell/shell-utils.js'
 
 export { FILE_READ_TOOL_NAME }
 

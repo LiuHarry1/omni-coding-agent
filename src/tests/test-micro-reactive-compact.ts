@@ -31,7 +31,7 @@ import {
   getCachedSessionLocation,
   getToolResultFilePath,
   sessionDataDir,
-} from '../core/session-paths.js'
+} from '../session/paths.js'
 import { shouldAttemptReactiveCompaction } from '../core/query/run-step.js'
 import { maxTokensOverrideFromError } from '../core/query/helpers.js'
 import { applyCompactOutcome } from '../core/query/pre-turn.js'

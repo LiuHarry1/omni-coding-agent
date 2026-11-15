@@ -1,8 +1,8 @@
 import * as fs from 'fs'
 import * as path from 'path'
-import { getSessionDataDir } from '../../core/session-paths.js'
+import { getSessionDataDir } from '../../session/paths.js'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { resolveAgentHome } from '../../utils/request-scope.js'
+import { resolveAgentHome } from '../../utils/workspace/request-scope.js'
 import {
   listSessionAgentHomes,
   readSessionIndex,

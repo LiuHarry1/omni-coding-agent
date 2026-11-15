@@ -4,10 +4,10 @@ import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
-import { registerSessionLocation } from '../../core/session-paths.js'
+import { registerSessionLocation } from '../../session/paths.js'
 import type { ExecutionBackend } from '../../execution/execution-backend.js'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { definition } from './FileReadTool.js'
 
 const previousAuth = process.env.AUTH_ENABLED

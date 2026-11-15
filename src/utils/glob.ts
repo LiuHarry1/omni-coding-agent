@@ -15,7 +15,7 @@
 
 import { basename, dirname, isAbsolute, join, sep } from 'path'
 import { ripGrep } from './ripgrep.js'
-import { isWindows } from '../core/platform.js'
+import { isWindows } from './platform.js'
 import { buildRgExcludeGlobs, envBool } from '../constants/file_filters.js'
 
 /**

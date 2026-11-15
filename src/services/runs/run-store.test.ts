@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   registerSessionLocation,
   unregisterSessionLocation,
-} from '../../core/session-paths.js'
+} from '../../session/paths.js'
 import { upsertSessionIndexEntry } from '../../session/session-index.js'
 import { getAppDirName } from '../../utils/app-dir.js'
 import {

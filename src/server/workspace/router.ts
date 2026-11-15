@@ -18,7 +18,7 @@ import {
   handleRemotePreview,
   type RemotePreviewFs,
 } from './preview.js'
-import { isPathInWorkspace } from '../../core/workspace.js'
+import { isPathInWorkspace } from '../../utils/workspace/workspace.js'
 import {
   assertAccessibleResolved,
   createFilesystemPermissionContext,

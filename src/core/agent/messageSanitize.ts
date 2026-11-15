@@ -6,7 +6,7 @@ import type {
   UserContentPart,
 } from '../types.js'
 import { isAttachmentMessage, isRoleMessage } from '../types.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import { toolResultOutputToText } from '../../utils/tool-result-content.js'
 import { reviveBuffersInMessages } from '../../session/json-serialize.js'
 import { hydrateToolResultImagesFromDisk } from '../../session/persist-project.js'

@@ -22,7 +22,7 @@
 
 import type { ChildProcess, ExecFileException } from 'child_process'
 import { execFile } from 'child_process'
-import { isWindows } from '../core/platform.js'
+import { isWindows } from './platform.js'
 import { ripGrepFallback } from './ripgrep-fallback.js'
 import { resolveRgCommand } from './resolve-rg-command.js'
 

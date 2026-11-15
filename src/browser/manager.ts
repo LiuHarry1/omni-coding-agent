@@ -11,7 +11,7 @@
 import { createHash } from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
-import { resolveSettings } from '../core/settings-manager.js'
+import { resolveSettings } from '../utils/settings/manager.js'
 import { getUserAppDir } from '../utils/app-dir.js'
 import {
   createExtensionBackend,

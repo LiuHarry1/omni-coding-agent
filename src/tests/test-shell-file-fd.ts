@@ -17,8 +17,8 @@ import {
   openShellOutputHandle,
   closeShellOutputHandle,
   runShellCommand,
-} from '../core/shell/spawn-shell.js'
-import { findGitBashPath } from '../core/shell/windows-paths.js'
+} from '../utils/shell/spawn-shell.js'
+import { findGitBashPath } from '../utils/shell/windows-paths.js'
 import {
   quoteShellCommand,
   rewriteWindowsNullRedirect,

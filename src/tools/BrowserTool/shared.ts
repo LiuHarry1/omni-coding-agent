@@ -43,7 +43,7 @@ import {
   type NetworkEntry,
   type SnapshotMode,
 } from '../../browser/types.js'
-import { getBrowserLogsSessionDir } from '../../core/session-paths.js'
+import { getBrowserLogsSessionDir } from '../../session/paths.js'
 import type {
   ImageMediaType,
   ToolResultBlockParam,

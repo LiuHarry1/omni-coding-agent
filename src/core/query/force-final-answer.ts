@@ -1,7 +1,7 @@
 import { ensureMessageUuid } from '../../services/session-memory/index.js'
 import type { CompactEnrichment } from '../../services/compact/index.js'
 import type { AgentOptions, Message, TodoItem } from '../types.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import type { WireEmitter } from '../wire-emitter.js'
 import { extractPartialResult } from '../../tools/AgentTool/finalizeAgentTool.js'
 import { runStep } from './run-step.js'

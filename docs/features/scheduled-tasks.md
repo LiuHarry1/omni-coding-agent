@@ -48,4 +48,4 @@ Cron syntax is `M H DoM Mon DoW`. Absolute `at` values must parse to a future ti
 - `src/services/cron/fire.ts` — session execution, quota, and cleanup.
 - `src/services/cron/schedule.ts` — validation and public task shape.
 - `src/server/routes/scheduled-tasks.ts` — HTTP API and access checks.
-- `src/core/settings-schema.ts` — `scheduledTasks.enabled`.
+- `src/utils/settings/schema.ts` — `scheduledTasks.enabled`.

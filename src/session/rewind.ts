@@ -6,7 +6,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import type { Message, Session } from '../core/types.js'
 import { isRoleMessage } from '../core/types.js'
-import { getCachedSessionLocation } from '../core/session-paths.js'
+import { getCachedSessionLocation } from './paths.js'
 import {
   fileHistoryCanRestore,
   fileHistoryChangedFiles,

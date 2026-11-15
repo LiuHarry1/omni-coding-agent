@@ -15,7 +15,7 @@ import {
   getManagedSubdir,
 } from '../utils/managed-path.js'
 import { getAppDirName } from '../utils/app-dir.js'
-import { resetSettingsCache } from '../core/settings-manager.js'
+import { resetSettingsCache } from '../utils/settings/manager.js'
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg)

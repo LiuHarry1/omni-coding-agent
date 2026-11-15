@@ -21,8 +21,8 @@ import {
   getProjectsRoot,
   registerSessionLocation,
   computeProjectKey,
-} from '../core/session-paths.js'
-import { resolveAgentHome } from '../utils/request-scope.js'
+} from '../session/paths.js'
+import { resolveAgentHome } from '../utils/workspace/request-scope.js'
 import { spawnShellTask } from '../tasks/LocalShellTask/LocalShellTask.js'
 import { stopTask } from '../tasks/stopTask.js'
 import { getTask, clearSessionTasks } from '../utils/task/framework.js'

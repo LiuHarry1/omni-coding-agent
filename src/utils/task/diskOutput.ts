@@ -10,7 +10,7 @@ import {
   statSync,
 } from 'fs'
 import { join } from 'path'
-import { getSessionDataDir } from '../../core/session-paths.js'
+import { getSessionDataDir } from '../../session/paths.js'
 
 export const MAX_TASK_OUTPUT_BYTES = 5 * 1024 * 1024 * 1024
 export const MAX_TASK_OUTPUT_BYTES_DISPLAY = '5GB'

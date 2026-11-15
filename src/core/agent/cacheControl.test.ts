@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import { systemWithCacheBreakpoint } from './cacheControl.js'
 
 const anthropicOpts = { anthropic: { cacheControl: { type: 'ephemeral' } } }

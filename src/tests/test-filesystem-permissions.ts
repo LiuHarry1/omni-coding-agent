@@ -12,12 +12,12 @@ import {
   getChatUploadsRoot,
   getProjectsRoot,
   isReadableInternalPath,
-} from '../core/session-paths.js'
+} from '../session/paths.js'
 import { FILE_READ_TOOL_NAME } from '../constants/tool_names.js'
 import { definition as fileReadDef } from '../tools/FileReadTool/FileReadTool.js'
-import { createCanUseTool } from '../core/can-use-tool.js'
+import { createCanUseTool } from '../utils/permissions/can-use-tool.js'
 import { noopWireEmitter } from '../core/wire-emitter.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import {
   addAlwaysAllowDirectory,
   assertAccessible,

@@ -5,11 +5,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   resetSettingsCache,
   resolveSettings,
-} from '../../core/settings-manager.js'
-import { loadAgentPickerWorkspace } from '../../core/agent-picker-workspace.js'
+} from '../../utils/settings/manager.js'
+import { loadAgentPickerWorkspace } from '../../server/agent-picker-workspace.js'
 import { loadSkillsFromDisk } from '../../skills/loadSkillsDir.js'
 import { loadUserAgentRules } from '../../utils/rules-loader.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { resolveWorkspaceContext } from './turn-scope.js'
 
 let tmp: string

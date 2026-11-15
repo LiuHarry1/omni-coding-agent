@@ -1,13 +1,16 @@
 import type { Tool } from 'ai'
 import type { ProviderOptions } from '@ai-sdk/provider-utils'
-import type { IProvider } from './llm/types.js'
+import type { IProvider } from '../services/llm/types.js'
 import type {
   ModelProfiles,
   ModelRegistry,
   ModelTier,
-} from './llm/model-registry.js'
+} from '../services/llm/model-registry.js'
 import type { ConcurrencyPolicyFn } from './concurrency-policy.js'
-import type { ExternalMode, PermissionModeContext } from './permission-mode.js'
+import type {
+  ExternalMode,
+  PermissionModeContext,
+} from '../utils/permissions/permission-mode.js'
 import type {
   Attachment,
   Diagnostic,
@@ -92,7 +95,7 @@ export interface ToolContext {
    * The turn's permission gate, so tools that run their own tool loop
    * (subagents) ask through the same prompt as the main agent.
    */
-  canUseTool?: import('./can-use-tool.js').CanUseToolFn
+  canUseTool?: import('../utils/permissions/can-use-tool.js').CanUseToolFn
   /** The turn's hooks, so subagent tool calls run them too. */
   hooks?: import('./hooks/hooks.js').HookRunner
   /**
@@ -630,7 +633,7 @@ export interface AgentOptions {
    * Main-agent filesystem / tool permission gate. Forked agents pass a
    * tighter gate of their own; omitted → allow-all in the streaming executor.
    */
-  canUseTool?: import('./can-use-tool.js').CanUseToolFn
+  canUseTool?: import('../utils/permissions/can-use-tool.js').CanUseToolFn
   /**
    * User-configured lifecycle hooks: PreToolUse / PostToolUse around every
    * tool call, Stop when the model ends the turn.
@@ -713,7 +716,7 @@ export type {
   IProvider,
   AgentStreamTextExtras,
   ProviderStrategy,
-} from './llm/types.js'
+} from '../services/llm/types.js'
 
 // ── Plugin ──────────────────────────────────────
 

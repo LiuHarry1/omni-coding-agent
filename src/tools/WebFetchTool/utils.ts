@@ -14,11 +14,8 @@ import * as fs from 'fs'
 import * as path from 'path'
 import { generateText } from 'ai'
 import { LRUCache } from 'lru-cache'
-import {
-  getScratchDataDir,
-  getSessionDataDir,
-} from '../../core/session-paths.js'
-import type { IProvider } from '../../core/llm/types.js'
+import { getScratchDataDir, getSessionDataDir } from '../../session/paths.js'
+import type { IProvider } from '../../services/llm/types.js'
 import { isPreapprovedHost } from './preapproved.js'
 import { makeSecondaryModelPrompt } from './prompt.js'
 

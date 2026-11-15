@@ -9,13 +9,13 @@ import type {
 import {
   isShellCommandReadOnly,
   isShellInputConcurrencySafe,
-} from '../core/shell/shell-readonly.js'
+} from '../utils/shell/shell-readonly.js'
 import { checkShellCommandPermission } from './BashTool/bashPermissions.js'
 import {
   policyFromContext,
   type ToolPermissionDecision,
 } from '../utils/permissions/filesystem.js'
-import { runShellCommand, type ShellKind } from '../core/shell/spawn-shell.js'
+import { runShellCommand, type ShellKind } from '../utils/shell/spawn-shell.js'
 import { spawnShellTask } from '../tasks/LocalShellTask/LocalShellTask.js'
 import {
   getTaskOutputPath,

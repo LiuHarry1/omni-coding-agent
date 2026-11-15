@@ -33,7 +33,7 @@ import type {
   TodoItem,
 } from '../types.js'
 import { createCacheSafeParams } from '../forked-agent.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import {
   ensureToolResultPairing,
   inlineReasoningAsText,
@@ -56,7 +56,10 @@ import { stripToolExecute } from '../agent/prepareTools.js'
 import { buildToolMessage } from '../../services/tools/tool_execution.js'
 import { enforceToolResultBudget } from '../../services/tool-storage/message-budget.js'
 import { StreamingToolExecutor } from '../../services/tools/StreamingToolExecutor.js'
-import { allowAllTools, type CanUseToolFn } from '../can-use-tool.js'
+import {
+  allowAllTools,
+  type CanUseToolFn,
+} from '../../utils/permissions/can-use-tool.js'
 import type { ToolUseContext } from '../agent/tool-use-context.js'
 import { createAbortController } from '../../utils/abortController.js'
 import {
@@ -87,7 +90,7 @@ import {
   isRetryableRequestError,
   retryDelayMs,
   sleep,
-} from '../llm/with-retry.js'
+} from '../../services/llm/with-retry.js'
 import { applyCompactOutcome } from './pre-turn.js'
 import { getMessagesAfterCompactBoundary } from '../messages/compact-boundary.js'
 

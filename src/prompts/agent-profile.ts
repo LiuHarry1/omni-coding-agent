@@ -5,9 +5,9 @@
  */
 import type { AgentDefinition } from '../core/types.js'
 import { computeSimpleEnvInfo } from '../constants/prompts.js'
-import { setCwd } from '../utils/cwd.js'
+import { setCwd } from '../utils/workspace/cwd.js'
 import { workspaceBoundaryPromptSection } from '../utils/permissions/workspace-boundary-prompt.js'
-import { resolveSettings } from '../core/settings-manager.js'
+import { resolveSettings } from '../utils/settings/manager.js'
 import { getBrowserHandoff } from '../browser/manager.js'
 import { browserAgentSessionSection } from './browser-agent-session.js'
 

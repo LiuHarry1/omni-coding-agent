@@ -31,8 +31,8 @@ import * as crypto from 'crypto'
 import * as fs from 'fs'
 import * as path from 'path'
 import type { IncomingMessage } from 'http'
-import { getDefaultWorkspace } from '../../core/workspace.js'
-import { seedUserWorkspaceIfNeeded } from './workspace-seed.js'
+import { getDefaultWorkspace } from '../../utils/workspace/workspace.js'
+import { seedUserWorkspaceIfNeeded } from '../../utils/workspace/seed.js'
 import { isAuthEnabled } from '../../utils/env.js'
 
 export interface AuthIdentity {

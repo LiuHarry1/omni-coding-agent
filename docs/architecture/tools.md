@@ -87,9 +87,9 @@ Failures stay at the tool boundary: an unknown tool, denial, exception, timeout,
 
 ## Source map
 
-- Registration and composition: `src/tools.ts`, `src/core/tool-registry.ts`, `src/core/plugins/`, `src/skills/index.ts`, `src/tools/AgentTool/`
-- Turn visibility: `src/tools/assembleToolPool.ts`, `src/core/tool-enablement.ts`, `src/core/mode-restrictions.ts`
-- Runtime gates: `src/core/can-use-tool.ts`, `src/core/concurrency-policy.ts`
+- Registration and composition: `src/tools.ts`, `src/core/tool-registry.ts`, `src/services/plugins/`, `src/skills/index.ts`, `src/tools/AgentTool/`
+- Turn visibility: `src/tools/assembleToolPool.ts`, `src/core/tool-enablement.ts`, `src/utils/permissions/mode-restrictions.ts`
+- Runtime gates: `src/utils/permissions/can-use-tool.ts`, `src/core/concurrency-policy.ts`
 - Execution and results: `src/services/tools/StreamingToolExecutor.ts`, `src/services/tools/tool_execution.ts`
 - Shared names and contracts: `src/constants/tool_names.ts`, `src/core/types.ts`
 

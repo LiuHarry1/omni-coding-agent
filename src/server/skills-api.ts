@@ -46,16 +46,16 @@ import {
 import {
   loadWorkspaceContributions,
   mapPluginErrors,
-} from '../core/workspace-load.js'
+} from '../utils/workspace/load.js'
 import type { AgentDefinition, RunAgentFn } from '../core/types.js'
 import type { SkillDefinition } from '../skills/types.js'
 import {
   resolveRequestCwd,
   resolveStatusWorkspaceHandle,
 } from './request-cwd.js'
-import { resolveSettings } from '../core/settings-manager.js'
-import { loadAgentPickerWorkspace } from '../core/agent-picker-workspace.js'
-import { createModelRegistry } from '../core/llm/index.js'
+import { resolveSettings } from '../utils/settings/manager.js'
+import { loadAgentPickerWorkspace } from './agent-picker-workspace.js'
+import { createModelRegistry } from '../services/llm/index.js'
 import { isCloudWorkspacesEnabled } from '../execution/providers/cloud/config.js'
 import { canUseEnvironment } from './routes/execution.js'
 

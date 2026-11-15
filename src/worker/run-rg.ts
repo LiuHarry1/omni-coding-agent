@@ -3,7 +3,7 @@
  * No shell, no `rg || grep` fallthrough.
  */
 import { execFile, type ExecFileException } from 'node:child_process'
-import { isWindows } from '../core/platform.js'
+import { isWindows } from '../utils/platform.js'
 import { resolveRgCommand } from '../utils/resolve-rg-command.js'
 
 const MAX_BUFFER_SIZE = 20 * 1024 * 1024

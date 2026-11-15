@@ -6,13 +6,13 @@ import {
   WORKSPACE_SEEDED_MARKER,
   getWorkspaceSeedDir,
   seedUserWorkspaceIfNeeded,
-} from '../../core/workspace-seed.js'
+} from '../../utils/workspace/seed.js'
 import {
   abortTurn,
   getTurnAbortController,
 } from '../../core/turn-abort-registry.js'
-import { invalidateMCPManagersForCwd } from '../../core/mcp-lifecycle.js'
-import { resetSettingsCache } from '../../core/settings-manager.js'
+import { invalidateMCPManagersForCwd } from '../../services/mcp/lifecycle.js'
+import { resetSettingsCache } from '../../utils/settings/manager.js'
 import { closeBrowser } from '../../browser/manager.js'
 import { getExecutionPlane } from '../../execution/bootstrap.js'
 import { resolveExecutionBackend } from '../../execution/resolve-backend.js'

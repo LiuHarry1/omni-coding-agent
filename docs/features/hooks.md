@@ -128,4 +128,4 @@ Subagents run `PreToolUse` and `PostToolUse` hooks for their tool calls. `Stop` 
 - `src/core/hooks/messages.ts` — what a hook result adds to the transcript.
 - `src/services/tools/StreamingToolExecutor.ts` — `PreToolUse` and `PostToolUse` around a tool call.
 - `src/core/query.ts` — `Stop` hooks and ending a turn a hook stopped.
-- `src/core/can-use-tool.ts` — a hook's `allow` / `ask` decision in the permission check.
+- `src/utils/permissions/can-use-tool.ts` — a hook's `allow` / `ask` decision in the permission check.

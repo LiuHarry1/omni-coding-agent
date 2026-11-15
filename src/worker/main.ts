@@ -19,15 +19,15 @@ import {
   shutdownLspHost,
 } from './lsp-host.js'
 import type { LspServerConfig } from '../core/types.js'
-import { runShellCommand, type ShellKind } from '../core/shell/spawn-shell.js'
+import { runShellCommand, type ShellKind } from '../utils/shell/spawn-shell.js'
 import {
   prepareShellSpawn,
   openShellOutputHandle,
   closeShellOutputHandle,
   spawnPreparedShell,
   cleanupCwdFile,
-} from '../core/shell/spawn-shell.js'
-import { forceKillChild } from '../core/platform.js'
+} from '../utils/shell/spawn-shell.js'
+import { forceKillChild } from '../utils/platform.js'
 import { type ChildProcess } from 'child_process'
 import { runRg } from './run-rg.js'
 import {

@@ -1,16 +1,19 @@
 import * as path from 'path'
-import { requireSessionLocation } from '../../core/session-paths.js'
+import { requireSessionLocation } from '../../session/paths.js'
 import {
   getDefaultWorkspace,
   normalizeWorkspacePath,
-} from '../../core/workspace.js'
+} from '../../utils/workspace/workspace.js'
 import { parseCloudEnvironmentId } from '../../execution/providers/cloud/cloud-provider.js'
 import type { WorkspaceHandle } from '../../execution/types.js'
 import { getAppDirName } from '../../utils/app-dir.js'
-import { getAgentHome, getRequestScope } from '../../utils/request-scope.js'
+import {
+  getAgentHome,
+  getRequestScope,
+} from '../../utils/workspace/request-scope.js'
 import { getCloudWorkspaceManager } from './index.js'
 
-export { filterHttpMCPServers as filterCloudMCPServers } from '../../core/mcp-policy.js'
+export { filterHttpMCPServers as filterCloudMCPServers } from '../mcp/policy.js'
 
 export type WorkspaceContext = {
   /** Execution environment selected by the session. */

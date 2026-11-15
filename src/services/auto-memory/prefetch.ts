@@ -11,7 +11,7 @@ import type {
 import { getAgentMemoryDir } from '../../tools/AgentTool/agentMemory.js'
 import { extractAgentMentions } from '../../utils/attachments/extract-mentions.js'
 import { isAttachmentMessage, isRoleMessage } from '../../core/types.js'
-import type { IProvider } from '../../core/llm/types.js'
+import type { IProvider } from '../llm/types.js'
 import type { Attachment } from '../../utils/attachments/types.js'
 import type { ReadFileState } from '../../utils/read/types.js'
 import { createAttachmentMessage } from '../../utils/attachments.js'

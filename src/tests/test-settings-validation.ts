@@ -9,7 +9,7 @@ import {
   patchSettings,
   resolveSettings,
   resetSettingsCache,
-} from '../core/settings-manager.js'
+} from '../utils/settings/manager.js'
 
 function withTempDir(fn: (dir: string) => void): void {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'settings-val-'))

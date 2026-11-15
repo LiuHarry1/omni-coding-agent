@@ -23,7 +23,7 @@
  */
 
 import * as path from 'path'
-import { getAgentHome } from './request-scope.js'
+import { getAgentHome } from './workspace/request-scope.js'
 
 /** Default basename — change here if the product name ever moves off `.ai-agent`. */
 export const DEFAULT_APP_DIR_NAME = '.ai-agent'

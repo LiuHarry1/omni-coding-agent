@@ -10,7 +10,7 @@ import {
 } from '../../constants/api_limits.js'
 import type { Message, UserContentPart } from '../../core/types.js'
 import { resolvePath } from '../../tools/utils.js'
-import { coerceSanitizedProjectsPath } from '../../core/session-paths.js'
+import { coerceSanitizedProjectsPath } from '../../session/paths.js'
 import {
   fallbackImageForModel,
   isImageResizeError,

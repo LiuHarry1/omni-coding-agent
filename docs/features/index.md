@@ -36,7 +36,7 @@ Most feature configuration lives in user or project `.ai-agent/settings.json`. M
 
 ## Source map
 
-- `src/core/settings-schema.ts` — supported settings surface.
+- `src/utils/settings/schema.ts` — supported settings surface.
 - `src/core/types.ts` — shared session, agent, attachment, and configuration types.
 - `src/utils/markdownConfigLoader.ts` — user, project, managed, and plugin extension loading.
 - `src/server/router.ts` — HTTP feature routing.

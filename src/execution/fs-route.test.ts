@@ -3,7 +3,7 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { getAppDirName } from '../utils/app-dir.js'
-import { runWithRequestScope } from '../utils/request-scope.js'
+import { runWithRequestScope } from '../utils/workspace/request-scope.js'
 import {
   displayPathFromCwd,
   readsFromAgentHost,

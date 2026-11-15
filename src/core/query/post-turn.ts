@@ -7,7 +7,7 @@ import type {
   AnyTool,
   Message,
 } from '../types.js'
-import type { IProvider } from '../llm/types.js'
+import type { IProvider } from '../../services/llm/types.js'
 import type { StreamResult } from '../agent/streamConsumer.js'
 import { agentLogTag, activateDeferredTools } from './helpers.js'
 import type { QueryStopReason } from './types.js'

@@ -1,6 +1,6 @@
 import { combineHookRunners, withoutStopHooks } from '../../core/hooks/hooks.js'
 import { createSessionHookRunner } from '../../core/hooks/session-hooks.js'
-import { withModeGate } from '../../core/mode-restrictions.js'
+import { withModeGate } from '../../utils/permissions/mode-restrictions.js'
 import { isToolReadOnly } from '../../core/tool-definition.js'
 import { isWorkerExecutionBackend } from '../../execution/worker-execution-backend.js'
 import {
@@ -22,7 +22,7 @@ import type {
   ToolContext,
   ToolDefinition,
 } from '../../core/types.js'
-import { createCanUseTool } from '../../core/can-use-tool.js'
+import { createCanUseTool } from '../../utils/permissions/can-use-tool.js'
 import { EventBus } from '../../core/event-bus.js'
 import { noopWireEmitter } from '../../core/wire-emitter.js'
 import { isRemoteWorkspace } from '../../execution/index.js'
@@ -45,7 +45,7 @@ import { EXPLORE_AGENT_TYPE } from './built-in/exploreAgent.js'
 import { PLAN_AGENT_TYPE } from './built-in/planAgent.js'
 import { loadAllAgentRules } from '../../utils/rules-loader.js'
 import { enhanceSystemPromptWithEnvDetails } from '../../constants/prompts.js'
-import { setCwd } from '../../utils/cwd.js'
+import { setCwd } from '../../utils/workspace/cwd.js'
 import { buildConcurrencyPolicy } from '../../core/concurrency-policy.js'
 import { createSubagentWire } from '../../core/brokers/subagent-wire.js'
 import { randomUUID } from 'crypto'

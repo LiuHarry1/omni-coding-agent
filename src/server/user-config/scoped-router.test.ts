@@ -16,7 +16,7 @@ import type {
   WorkerInstallInfo,
 } from '../../execution/types.js'
 import { WorkspaceService } from '../../execution/workspace-service.js'
-import { runWithRequestScope } from '../../utils/request-scope.js'
+import { runWithRequestScope } from '../../utils/workspace/request-scope.js'
 import { createExtensionConfigRouter } from './router.js'
 
 const describePosix = process.platform === 'win32' ? describe.skip : describe

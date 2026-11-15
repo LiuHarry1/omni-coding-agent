@@ -7,7 +7,7 @@
 import { createHash } from 'node:crypto'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { getSessionDataDir } from '../core/session-paths.js'
+import { getSessionDataDir } from '../session/paths.js'
 
 export const MAX_SNAPSHOTS = 100
 

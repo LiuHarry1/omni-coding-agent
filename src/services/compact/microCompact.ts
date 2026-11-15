@@ -51,7 +51,7 @@ import {
   getCachedSessionLocation,
   getToolResultFilePath,
   sessionDataDir,
-} from '../../core/session-paths.js'
+} from '../../session/paths.js'
 
 const MICRO_COMPACT_MARKER = '[Old tool result content cleared to save context]'
 

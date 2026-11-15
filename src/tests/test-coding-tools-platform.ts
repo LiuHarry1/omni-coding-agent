@@ -12,11 +12,8 @@ import { definition as taskOutputDefinition } from '../tools/TaskOutputTool/Task
 import { definition as taskStopDefinition } from '../tools/TaskStopTool/TaskStopTool.js'
 import { definition as webSearchDefinition } from '../tools/WebSearchTool/WebSearchTool.js'
 import { createFilesystemPermissionContext } from '../utils/permissions/filesystem.js'
-import {
-  computeProjectKey,
-  registerSessionLocation,
-} from '../core/session-paths.js'
-import { resolveAgentHome } from '../utils/request-scope.js'
+import { computeProjectKey, registerSessionLocation } from '../session/paths.js'
+import { resolveAgentHome } from '../utils/workspace/request-scope.js'
 
 type ExecutableTool = {
   execute: (

@@ -2,7 +2,7 @@ import {
   getDefaultShellToolName,
   isBashToolEnabled,
   isPowerShellToolEnabled,
-} from '../../core/shell/shell-utils.js'
+} from '../../utils/shell/shell-utils.js'
 import {
   BASH_TOOL_NAME,
   GLOB_TOOL_NAME,
