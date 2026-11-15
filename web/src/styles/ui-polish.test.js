@@ -34,11 +34,10 @@ describe('core UI polish', () => {
     )
   })
 
-  it('uses sans text for workspace names and SVG welcome icons', () => {
+  it('uses sans text for workspace names and no emoji on the home page', () => {
     expect(headerCss).toMatch(
       /\.workspace-chip\s*\{[\s\S]*font-family:\s*var\(--font-sans\);/,
     )
-    expect(welcomeSource).toContain('function WelcomeIcon')
     expect(welcomeSource).not.toMatch(
       /\\u\{(?:1F50D|1F41B|1F4DD|1F40D|1F3AE|1F3B2|1F3D3|1F522|1F4AC)\}/,
     )

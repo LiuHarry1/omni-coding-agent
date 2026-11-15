@@ -1,10 +1,11 @@
 import '../styles/baize-logo.css'
 
 /**
- * @param {"sm" | "lg"} size  sm = header (28px), lg = welcome (56px)
+ * @param {"sm" | "md" | "lg"} size  sm = header (28px), md = home (40px),
+ *   lg = 56px
  */
 export default function BaizeLogo({ size = 'lg', className = '' }) {
-  const mod = size === 'sm' ? 'baize-logo--sm' : 'baize-logo--lg'
+  const mod = `baize-logo--${size === 'sm' || size === 'md' ? size : 'lg'}`
   return (
     <div
       className={['baize-logo', mod, className].filter(Boolean).join(' ')}

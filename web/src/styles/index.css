@@ -5,6 +5,7 @@
 @import './tools/index.css';
 @import './bg-terminals.css';
 @import './input.css';
+@import './home.css';
 @import './workspace-ide.css';
 @import './extensions-hub.css';
 @import './extensions-editor.css';

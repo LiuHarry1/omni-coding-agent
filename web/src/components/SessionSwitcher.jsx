@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useChatStore } from '../stores/chat-store.js'
+import { useSessionSwitcherStore } from '../stores/session-switcher-store.js'
 import { agentApi } from '../lib/api/agent.js'
 import { relativeTime } from '../lib/utils.js'
 import { getUser, isSuperUser } from '../lib/auth.js'
@@ -15,7 +16,8 @@ export default function SessionSwitcher() {
   const switchSession = useChatStore(s => s.switchSession)
   const setSessions = useChatStore(s => s.setSessions)
 
-  const [open, setOpen] = useState(false)
+  const open = useSessionSwitcherStore(s => s.open)
+  const setOpen = useSessionSwitcherStore(s => s.setOpen)
   const [query, setQuery] = useState('')
   const [viewAll, setViewAll] = useState(false)
   const wrapRef = useRef(null)
@@ -41,7 +43,7 @@ export default function SessionSwitcher() {
     }
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
-  }, [open])
+  }, [open, setOpen])
 
   const current = sessions.find(s => s.id === currentSessionId)
   const currentTitle = current?.preview || 'New Chat'
@@ -99,7 +101,7 @@ export default function SessionSwitcher() {
           // Sessions from other tabs and titles generated after a turn ends
           // only arrive through a fresh fetch.
           if (!open) refresh()
-          setOpen(v => !v)
+          setOpen(!open)
         }}
         title={buttonTitle}
         aria-label={buttonTitle}

@@ -317,28 +317,6 @@ body {
     width: 100%;
     min-width: 0;
   }
-  .welcome {
-    padding: 16px 12px 24px;
-  }
-  .welcome-quick-grid,
-  .welcome-integ-grid {
-    grid-template-columns: 1fr;
-  }
-  .hint-grid {
-    grid-template-columns: 1fr;
-  }
-  .hint-grid--2col {
-    grid-template-columns: 1fr;
-  }
-  .hint-grid--3col {
-    grid-template-columns: 1fr 1fr;
-  }
-  .hint-grid--4col {
-    grid-template-columns: 1fr 1fr;
-  }
-  .hint-chip-row {
-    gap: 5px;
-  }
   .msg-user {
     max-width: 90%;
   }

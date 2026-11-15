@@ -5,10 +5,12 @@ import { useWorkspaceContextStore } from './stores/workspace-context-store.js'
 import { useCapabilitiesStore } from './stores/capabilities-store.js'
 import { agentApi } from './lib/api/agent.js'
 import { setKnownMcpServers } from './lib/tool-kind.js'
+import { isHome } from './lib/home.js'
 import { ChatActionsProvider } from './lib/chat-actions.jsx'
 import Header from './components/Header.jsx'
 import BrowserLockBar from './components/BrowserLockBar.jsx'
 import ChatView from './components/ChatView.jsx'
+import { HomeStart } from './components/WelcomeScreen.jsx'
 import BackgroundTerminals from './components/BackgroundTerminals.jsx'
 import InputArea from './components/InputArea.jsx'
 import WorkspaceIDE from './components/workspace-ide/index.js'
@@ -20,6 +22,7 @@ export default function App() {
   const currentSessionId = useChatStore(s => s.currentSessionId)
   const liveNeeded = useChatStore(s => s.liveNeeded || s.backgroundLiveNeeded)
   const switchSession = useChatStore(s => s.switchSession)
+  const home = useChatStore(isHome)
   const connectSessionLive = useChatStore(s => s.connectSessionLive)
   const workspace = useWorkspaceContextStore(s => s.cwd)
   const workspaceEnvId = useWorkspaceContextStore(
@@ -136,7 +139,15 @@ export default function App() {
   return (
     <div className={`app ${theme}`} data-theme={theme}>
       <WorkspaceIDE />
-      <div className={`main-panel ${workspaceIdeOpen ? 'with-ide' : ''}`}>
+      <div
+        className={[
+          'main-panel',
+          workspaceIdeOpen && 'with-ide',
+          home && 'main-panel--home',
+        ]
+          .filter(Boolean)
+          .join(' ')}
+      >
         <Header />
         <BrowserLockBar />
         <ChatActionsProvider>
@@ -145,6 +156,7 @@ export default function App() {
           </SubagentTabsStage>
           <BackgroundTerminals />
           <InputArea />
+          {home && <HomeStart />}
         </ChatActionsProvider>
       </div>
     </div>

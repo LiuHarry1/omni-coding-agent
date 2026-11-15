@@ -20,6 +20,13 @@
   font-size: 28px;
 }
 
+.baize-logo--md {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  font-size: 21px;
+}
+
 .baize-logo--sm {
   width: 28px;
   height: 28px;
