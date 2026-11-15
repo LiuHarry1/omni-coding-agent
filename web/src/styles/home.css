@@ -5,7 +5,8 @@
    scrolls as one, so a short window loses nothing. */
 
 .main-panel--home {
-  --home-column: 720px;
+  /* Same width as .input-wrapper — the composer is not restyled. */
+  --home-column: 860px;
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
@@ -39,7 +40,7 @@
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  max-width: var(--home-column, 720px);
+  max-width: var(--home-column);
   margin: 0 auto;
   padding: 40px 0 26px;
   text-align: center;
@@ -68,36 +69,13 @@
 }
 
 /* ── Composer ──
-   Same component as in a chat; here it is the main thing on the page, so it
-   stands on the page itself, larger, with the text above its controls. */
+   Same chrome as in a chat; on the home page it is taller, with the text
+   above its controls. The bar it usually sits in is gone so it can float in
+   the middle; its menus open downwards where the room is. */
 .main-panel--home > .input-area {
   padding: 0 20px;
   border-top: 0;
   background: transparent;
-}
-.main-panel--home .input-wrapper {
-  max-width: var(--home-column);
-  border-radius: 16px;
-  background: var(--bg-secondary);
-  box-shadow:
-    0 1px 2px rgba(0, 0, 0, 0.24),
-    0 18px 40px -18px rgba(0, 0, 0, 0.6);
-}
-.main-panel--home .input-wrapper:focus-within {
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 16%, transparent),
-    0 18px 40px -18px rgba(0, 0, 0, 0.6);
-}
-[data-theme='light'] .main-panel--home .input-wrapper {
-  background: #fff;
-  box-shadow:
-    0 1px 2px rgba(31, 35, 40, 0.06),
-    0 14px 32px -14px rgba(31, 35, 40, 0.18);
-}
-[data-theme='light'] .main-panel--home .input-wrapper:focus-within {
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent),
-    0 14px 32px -14px rgba(31, 35, 40, 0.18);
 }
 .main-panel--home .input-row {
   flex-wrap: wrap;
@@ -109,20 +87,13 @@
   flex: 0 0 100%;
   min-height: 48px;
   padding: 0 4px;
-  font-size: 15px;
-  line-height: 1.6;
 }
 .main-panel--home .input-row > .composer-btn {
   margin-left: auto;
 }
-
-/* There is more room under a composer in the middle of the page than over
-   it, so what it opens, opens downwards. */
 .main-panel--home .slash-menu {
   top: 100%;
   bottom: auto;
-  width: calc(100% - 40px);
-  max-width: var(--home-column);
   margin: 8px 0 0;
   box-shadow:
     0 12px 28px rgba(0, 0, 0, 0.16),
