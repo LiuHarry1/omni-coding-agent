@@ -214,4 +214,44 @@ describe('WorkspaceQuickSwitcher', () => {
     expect(mocks.selectCloud).toHaveBeenCalledWith('recent')
     expect(mocks.close).toHaveBeenCalledOnce()
   })
+
+  it('folds chatbot workspaces until the group is expanded', async () => {
+    const original = mocks.cloud.workspaces
+    mocks.cloud.workspaces = [
+      ...original,
+      ...[1, 2, 3, 4, 5].map(n => ({
+        id: `bot-${n}`,
+        environmentId: `cloud:bot-${n}`,
+        cwd: '/workspace/repo',
+        name: `Chatbot task ${n}`,
+        status: 'ready',
+        origin: 'chatbot',
+        source: { kind: 'empty' },
+      })),
+    ]
+    mocks.cloud.limit = 3
+    try {
+      await mount()
+      const rowNames = () =>
+        [...document.querySelectorAll('.workspace-quick-row strong')].map(
+          node => node.textContent,
+        )
+      expect(rowNames()).toEqual(['Current project', 'Recent project'])
+
+      const createButton = [...document.querySelectorAll('button')].find(
+        button => button.textContent.includes('Blank cloud'),
+      )
+      expect(createButton.disabled).toBe(false)
+
+      const group = document.querySelector('.workspace-quick-group')
+      expect(group.textContent).toContain('5')
+      await act(async () => {
+        group.dispatchEvent(new window.Event('click', { bubbles: true }))
+      })
+      expect(rowNames()).toHaveLength(7)
+    } finally {
+      mocks.cloud.workspaces = original
+      mocks.cloud.limit = 5
+    }
+  })
 })

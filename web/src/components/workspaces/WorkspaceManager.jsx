@@ -13,9 +13,12 @@ import ConfirmDialog from '../extensions/ConfirmDialog.jsx'
 import ModalShell from '../extensions/ModalShell.jsx'
 import StatusBadge from '../extensions/StatusBadge.jsx'
 import WorkspaceTypeIcon from './WorkspaceTypeIcon.jsx'
+import { APP_NAME } from '../../lib/brand.js'
 import {
   buildCloudWorkspaceItems,
   buildDesktopWorkspaceItems,
+  groupCloudWorkspaceItems,
+  isChatbotWorkspace,
   isWorkspaceProfileLocked,
   resolveWorkspaceCreateMethods,
 } from './workspace-hub-model.js'
@@ -191,6 +194,9 @@ function CloudWorkspaceRow({
             {workspace.runtimeStatus === 'stopped' && (
               <StatusBadge status='stopped'>Stopped</StatusBadge>
             )}
+            {isChatbotWorkspace(workspace) && (
+              <span className='workspace-quick-row__tag'>Chatbot</span>
+            )}
           </div>
           <span
             className={`workspace-manager-row__meta ${
@@ -272,6 +278,7 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
   const currentId = useCloudWorkspaceStore(state => state.currentId)
   const pendingId = useCloudWorkspaceStore(state => state.pendingId)
   const limit = useCloudWorkspaceStore(state => state.limit)
+  const chatbotLimit = useCloudWorkspaceStore(state => state.chatbotLimit)
   const loaded = useCloudWorkspaceStore(state => state.loaded)
   const enabled = useCloudWorkspaceStore(state => state.enabled)
   const load = useCloudWorkspaceStore(state => state.load)
@@ -288,6 +295,7 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
   const [pendingAction, setPendingAction] = useState(false)
   const [actionError, setActionError] = useState(null)
   const [loadError, setLoadError] = useState(null)
+  const [chatbotOpen, setChatbotOpen] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -337,8 +345,16 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
         .includes(needle),
     )
   }, [items, query])
+  const { own: ownItems, chatbot: chatbotItems } = useMemo(
+    () => groupCloudWorkspaceItems(filteredItems),
+    [filteredItems],
+  )
+  const chatbotVisible = chatbotOpen || Boolean(query.trim())
   const chatBusy = isStreaming || sessionLoading
-  const atLimit = limit != null && workspaces.length >= limit
+  const ownWorkspaceCount = workspaces.filter(
+    workspace => !isChatbotWorkspace(workspace),
+  ).length
+  const atLimit = limit != null && ownWorkspaceCount >= limit
 
   const selectWorkspace = workspace => {
     setActionError(null)
@@ -346,6 +362,34 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
       setActionError('Wait for the current chat before changing workspace.')
     }
   }
+
+  const renderRow = workspace => (
+    <CloudWorkspaceRow
+      key={workspace.id}
+      workspace={workspace}
+      menuOpen={menuId === workspace.id}
+      chatBusy={chatBusy}
+      onMenuToggle={event => {
+        event.stopPropagation()
+        setMenuId(value => (value === workspace.id ? null : workspace.id))
+      }}
+      onSelect={() => selectWorkspace(workspace)}
+      onRename={() => {
+        setMenuId(null)
+        setRenaming(workspace)
+      }}
+      onStop={() => {
+        setMenuId(null)
+        setActionError(null)
+        setConfirmation({ type: 'stop', workspace })
+      }}
+      onDelete={() => {
+        setMenuId(null)
+        setActionError(null)
+        setConfirmation({ type: 'delete', workspace })
+      }}
+    />
+  )
 
   const confirmAction = async () => {
     if (!confirmation) return
@@ -410,35 +454,36 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
               Create a blank workspace or clone a repository to get started.
             </ManagerEmpty>
           )}
-          {filteredItems.map(workspace => (
-            <CloudWorkspaceRow
-              key={workspace.id}
-              workspace={workspace}
-              menuOpen={menuId === workspace.id}
-              chatBusy={chatBusy}
-              onMenuToggle={event => {
-                event.stopPropagation()
-                setMenuId(value =>
-                  value === workspace.id ? null : workspace.id,
-                )
-              }}
-              onSelect={() => selectWorkspace(workspace)}
-              onRename={() => {
-                setMenuId(null)
-                setRenaming(workspace)
-              }}
-              onStop={() => {
-                setMenuId(null)
-                setActionError(null)
-                setConfirmation({ type: 'stop', workspace })
-              }}
-              onDelete={() => {
-                setMenuId(null)
-                setActionError(null)
-                setConfirmation({ type: 'delete', workspace })
-              }}
-            />
-          ))}
+          {ownItems.map(renderRow)}
+          {chatbotItems.length > 0 && (
+            <section className='workspace-manager__group'>
+              <button
+                type='button'
+                className={`workspace-quick-group ${
+                  chatbotVisible ? 'is-open' : ''
+                }`}
+                aria-expanded={chatbotVisible}
+                onClick={() => setChatbotOpen(value => !value)}
+              >
+                <span className='workspace-quick-group__caret'>›</span>
+                <span>From {APP_NAME} Chatbot</span>
+                <span className='workspace-quick-group__count'>
+                  {chatbotItems.length}
+                  {chatbotLimit != null ? ` / ${chatbotLimit}` : ''}
+                </span>
+              </button>
+              {chatbotVisible && (
+                <>
+                  <p className='workspace-manager__group-note'>
+                    The chatbot deletes these workspaces when their task is
+                    archived or a while after it ends. Anything you add here
+                    is deleted with them.
+                  </p>
+                  {chatbotItems.map(renderRow)}
+                </>
+              )}
+            </section>
+          )}
         </div>
       </div>
       <RenameWorkspaceDialog

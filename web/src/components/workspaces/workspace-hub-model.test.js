@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   buildCloudWorkspaceItems,
   buildDesktopWorkspaceItems,
+  groupCloudWorkspaceItems,
   isWorkspaceProfileLocked,
   resolveWorkspaceCreateMethods,
   workspaceHandleId,
@@ -139,5 +140,29 @@ describe('cloud workspace records', () => {
         label: 'Cloud · Blank workspace',
       },
     })
+  })
+
+  it('separates chatbot workspaces but keeps the current one visible', () => {
+    const record = (id, origin, lastUsedAt) => ({
+      id,
+      name: id,
+      status: 'ready',
+      source: { kind: 'empty' },
+      origin,
+      lastUsedAt,
+    })
+    const items = buildCloudWorkspaceItems(
+      [
+        record('mine', 'user', 1),
+        record('bot-old', 'chatbot', 2),
+        record('bot-current', 'chatbot', 3),
+        record('bot-new', 'chatbot', 4),
+      ],
+      'bot-current',
+    )
+
+    const { own, chatbot } = groupCloudWorkspaceItems(items)
+    expect(own.map(item => item.id)).toEqual(['bot-current', 'mine'])
+    expect(chatbot.map(item => item.id)).toEqual(['bot-new', 'bot-old'])
   })
 })

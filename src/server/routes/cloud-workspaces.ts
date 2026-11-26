@@ -5,6 +5,7 @@ import { getSession } from '../session.js'
 import {
   CloudWorkspaceError,
   getCloudWorkspaceManager,
+  workspaceOrigin,
   type CloudWorkspaceManager,
   type CloudWorkspaceRecord,
 } from '../../services/cloud-workspaces/index.js'
@@ -145,6 +146,7 @@ export function toPublicWorkspace(
     id: record.id,
     name: record.name,
     source: record.source,
+    origin: workspaceOrigin(record),
     status: record.status,
     error: record.error ?? null,
     createdAt: record.createdAt,
@@ -158,8 +160,8 @@ export function toPublicWorkspace(
 /**
  * Cloud workspace HTTP API (CLOUD_WORKSPACES=docker).
  *
- * GET    /workspaces            { enabled, workspaces }
- * POST   /workspaces            { name?, repoUrl?, ref?, gitToken? } → 202
+ * GET    /workspaces            { enabled, limit, chatbotLimit, workspaces }
+ * POST   /workspaces            { name?, repoUrl?, ref?, gitToken?, origin? } → 202
  * POST   /workspaces/repo-access { repoUrl } → { access }
  * GET    /workspaces/:id
  * PATCH  /workspaces/:id        { name }
@@ -204,6 +206,7 @@ export function createCloudWorkspacesRouter() {
           sendJSON(res, 200, {
             enabled: true,
             limit: manager.config.maxPerUser,
+            chatbotLimit: manager.config.maxChatbotPerUser,
             workspaces: records.map(r => toPublicWorkspace(manager, r, all)),
           })
           return true
@@ -224,6 +227,7 @@ export function createCloudWorkspacesRouter() {
             repoUrl: granted?.url,
             ref: typeof body.ref === 'string' ? body.ref : undefined,
             gitToken: granted?.gitToken,
+            origin: body.origin === 'chatbot' ? 'chatbot' : 'user',
           })
           sendJSON(res, 202, { workspace: toPublicWorkspace(manager, record) })
           return true

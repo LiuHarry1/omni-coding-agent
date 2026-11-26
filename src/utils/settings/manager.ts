@@ -1214,3 +1214,72 @@ export function setMCPServer(
   writeSettingsFile(filePath, existing)
   return resolveSettings(cwd)
 }
+
+/** The MCP server saved under `name` in one writable scope's file. */
+export function getScopedMCPServer(
+  cwd: string,
+  scope: WritableSettingsScope,
+  name: string,
+): MCPServerConfig | null {
+  const servers = readWritableSettings(pathForScope(cwd, scope)).mcpServers
+  if (!servers || typeof servers !== 'object') return null
+  const config = (servers as Record<string, unknown>)[name]
+  return config && typeof config === 'object'
+    ? (config as MCPServerConfig)
+    : null
+}
+
+function mergeSecretMap(
+  saved: Record<string, string> | undefined,
+  edited: unknown,
+): Record<string, string> | undefined {
+  if (!edited || typeof edited !== 'object') return saved
+  const merged: Record<string, string> = {}
+  for (const [rawKey, value] of Object.entries(edited)) {
+    const key = rawKey.trim()
+    if (!key) continue
+    if (typeof value === 'string' && value !== '') merged[key] = value
+    else if (typeof saved?.[key] === 'string') merged[key] = saved[key]
+  }
+  return Object.keys(merged).length > 0 ? merged : undefined
+}
+
+/**
+ * Apply an edit from the UI to a saved MCP server. Secret values are never
+ * sent back to the browser, so a blank header or environment value keeps the
+ * saved one; names missing from the edit are dropped. A blank URL or command
+ * keeps the saved one too.
+ */
+export function mergeMCPServerEdit(
+  saved: MCPServerConfig,
+  edit: Record<string, unknown>,
+): MCPServerConfig {
+  const next: Record<string, unknown> = { ...saved }
+  const setOrDrop = (key: string, value: unknown) => {
+    if (value === undefined) delete next[key]
+    else next[key] = value
+  }
+  if ('command' in saved) {
+    if (typeof edit.command === 'string' && edit.command.trim()) {
+      next.command = edit.command.trim()
+    }
+    if (Array.isArray(edit.args)) {
+      const args = edit.args.filter(
+        (arg): arg is string => typeof arg === 'string' && arg !== '',
+      )
+      setOrDrop('args', args.length > 0 ? args : undefined)
+    }
+    if ('env' in edit) setOrDrop('env', mergeSecretMap(saved.env, edit.env))
+  } else {
+    if (typeof edit.url === 'string' && edit.url.trim()) {
+      next.url = edit.url.trim()
+    }
+    if (edit.transport === 'http' || edit.transport === 'sse') {
+      next.transport = edit.transport
+    }
+    if ('headers' in edit) {
+      setOrDrop('headers', mergeSecretMap(saved.headers, edit.headers))
+    }
+  }
+  return next as unknown as MCPServerConfig
+}

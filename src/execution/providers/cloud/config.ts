@@ -11,6 +11,7 @@ import { WORKER_BUNDLE_NAME } from '../../../brand.js'
  *   WORKSPACE_MEMORY / WORKSPACE_CPUS / WORKSPACE_PIDS_LIMIT  resource caps.
  *   WORKSPACE_IDLE_MINUTES    idle minutes before the container is removed.
  *   WORKSPACE_MAX_PER_USER    workspace count limit per user.
+ *   WORKSPACE_MAX_CHATBOT_PER_USER  separate limit for chatbot-created ones.
  *   WORKSPACE_INSTANCE        owner label; give each control plane sharing a
  *                             Docker host its own value so idle sweeps never
  *                             remove another instance's containers.
@@ -25,6 +26,7 @@ export type CloudWorkspaceConfig = {
   pidsLimit: number
   idleMs: number
   maxPerUser: number
+  maxChatbotPerUser: number
   /** uid:gid the container and every exec run as. */
   user: string
   homeDir: string
@@ -115,6 +117,7 @@ export function loadCloudWorkspaceConfig(
     pidsLimit: positiveInt(env.WORKSPACE_PIDS_LIMIT, 512),
     idleMs: positiveInt(env.WORKSPACE_IDLE_MINUTES, 30) * 60_000,
     maxPerUser: positiveInt(env.WORKSPACE_MAX_PER_USER, 5),
+    maxChatbotPerUser: positiveInt(env.WORKSPACE_MAX_CHATBOT_PER_USER, 20),
     user: '1000:1000',
     homeDir: '/home/agent',
     volumeMount: '/workspace',

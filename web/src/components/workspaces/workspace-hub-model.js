@@ -160,3 +160,21 @@ export function buildCloudWorkspaceItems(
       return (right.lastUsedAt || 0) - (left.lastUsedAt || 0)
     })
 }
+
+export function isChatbotWorkspace(workspace) {
+  return workspace?.origin === 'chatbot'
+}
+
+/**
+ * Split sorted cloud items into the user's own and chatbot-created ones.
+ * The current workspace always stays in `own` so its check mark is visible.
+ */
+export function groupCloudWorkspaceItems(items) {
+  const own = []
+  const chatbot = []
+  for (const item of items || []) {
+    if (isChatbotWorkspace(item) && !item.current) chatbot.push(item)
+    else own.push(item)
+  }
+  return { own, chatbot }
+}

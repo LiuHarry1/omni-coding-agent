@@ -13,6 +13,7 @@ import {
   type RepoAccess,
 } from './repo-access.js'
 import type {
+  CloudWorkspaceOrigin,
   CloudWorkspaceRecord,
   CloudWorkspaceSource,
   CloudWorkspaceStore,
@@ -41,6 +42,7 @@ export type CreateCloudWorkspaceInput = {
    * the workspace record or written into the remote URL.
    */
   gitToken?: string
+  origin?: CloudWorkspaceOrigin
 }
 
 export type { RepoAccess }
@@ -65,6 +67,16 @@ const TOUCH_PERSIST_MS = 60_000
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase()
+}
+
+// Names KnowBot gave its workspaces before it sent an explicit origin.
+const LEGACY_CHATBOT_NAME_RE = /^work-[0-9a-f]{8}$/
+
+export function workspaceOrigin(
+  record: Pick<CloudWorkspaceRecord, 'origin' | 'name'>,
+): CloudWorkspaceOrigin {
+  if (record.origin) return record.origin
+  return LEGACY_CHATBOT_NAME_RE.test(record.name) ? 'chatbot' : 'user'
 }
 
 function newWorkspaceId(): string {
@@ -301,7 +313,18 @@ export class CloudWorkspaceManager {
   create(input: CreateCloudWorkspaceInput): CloudWorkspaceRecord {
     const ownerEmail = input.ownerEmail.trim()
     if (!ownerEmail) throw new CloudWorkspaceError('Missing owner', 400)
-    if (this.list(ownerEmail).length >= this.config.maxPerUser) {
+    const origin: CloudWorkspaceOrigin =
+      input.origin === 'chatbot' ? 'chatbot' : 'user'
+    const sameOrigin = this.list(ownerEmail).filter(
+      record => workspaceOrigin(record) === origin,
+    ).length
+    if (origin === 'chatbot' && sameOrigin >= this.config.maxChatbotPerUser) {
+      throw new CloudWorkspaceError(
+        `Chatbot workspace limit reached (${this.config.maxChatbotPerUser}).`,
+        409,
+      )
+    }
+    if (origin === 'user' && sameOrigin >= this.config.maxPerUser) {
       throw new CloudWorkspaceError(
         `Workspace limit reached (${this.config.maxPerUser}). Delete one first.`,
         409,
@@ -326,6 +349,7 @@ export class CloudWorkspaceManager {
       ownerEmail,
       name,
       source,
+      origin,
       status: 'provisioning',
       createdAt: now,
       updatedAt: now,
@@ -355,12 +379,17 @@ export class CloudWorkspaceManager {
     return record
   }
 
-  /** The user's most recently used workspace, creating a blank one if none. */
+  /**
+   * The user's most recently used workspace, creating a blank one if none.
+   * Chatbot workspaces are skipped: the chatbot deletes them on its own.
+   */
   async ensureDefault(
     ownerEmail: string,
     ownerName?: string,
   ): Promise<CloudWorkspaceRecord> {
-    const mine = this.list(ownerEmail)
+    const mine = this.list(ownerEmail).filter(
+      record => workspaceOrigin(record) === 'user',
+    )
     const ready = mine.find(r => r.status === 'ready')
     if (ready) return ready
     const pending = mine.find(r => r.status === 'provisioning')

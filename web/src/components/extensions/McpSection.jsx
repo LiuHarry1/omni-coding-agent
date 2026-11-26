@@ -25,6 +25,10 @@ const DEFAULT_MCP_TRANSPORTS = ['http', 'sse']
 const SIGN_IN_POLL_MS = 2000
 const SIGN_IN_WAIT_MS = 5 * 60 * 1000
 
+function isRemoteMcpTransport(transport) {
+  return transport === 'http' || transport === 'sse'
+}
+
 function rowsToObject(rows) {
   return Object.fromEntries(
     rows
@@ -33,11 +37,12 @@ function rowsToObject(rows) {
   )
 }
 
-function AddMcpDialog({ open, onClose, onSaved, transports }) {
-  const availableTransports = useMemo(
-    () => normalizeMcpTransports(transports),
-    [transports],
-  )
+function McpServerDialog({ open, server = null, onClose, onSaved, transports }) {
+  const editing = Boolean(server)
+  const availableTransports = useMemo(() => {
+    const allowed = normalizeMcpTransports(transports)
+    return editing ? allowed.filter(item => item !== 'stdio') : allowed
+  }, [editing, transports])
   const [name, setName] = useState('')
   const [transport, setTransport] = useState(
     preferredMcpTransport(availableTransports),
@@ -52,16 +57,24 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
 
   useEffect(() => {
     if (!open) return
-    setName('')
-    setTransport(preferredMcpTransport(availableTransports))
-    setUrl('')
-    setHeaders([{ name: '', value: '' }])
+    setName(server?.name || '')
+    setTransport(
+      server && availableTransports.includes(server.transport)
+        ? server.transport
+        : preferredMcpTransport(availableTransports),
+    )
+    setUrl(server?.url || '')
+    setHeaders(
+      server?.headerNames.length
+        ? server.headerNames.map(header => ({ name: header, value: '' }))
+        : [{ name: '', value: '' }],
+    )
     setCommand('')
     setArgs('')
     setEnvironment([{ name: '', value: '' }])
     setBusy(false)
     setError(null)
-  }, [availableTransports, open])
+  }, [availableTransports, open, server])
 
   const normalizedName = normalizeMcpName(name)
   const config = useMemo(() => {
@@ -87,8 +100,12 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
         : {}),
     }
   }, [args, command, environment, headers, transport, url])
+  // The shown URL is masked; leaving it alone keeps the saved one.
+  const urlUnchanged = editing && url.trim() === server.url
   const valid =
-    normalizedName && isAllowedMcpConfig(config, availableTransports)
+    normalizedName &&
+    isAllowedMcpConfig(config, availableTransports) &&
+    (urlUnchanged || !config.url?.includes(MASKED_SECRET))
 
   const clearAndClose = () => {
     setUrl('')
@@ -105,15 +122,29 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
     setBusy(true)
     setError(null)
     try {
-      const persistedConfig =
-        transport === 'stdio'
-          ? {
-              command: config.command,
-              ...(config.args ? { args: config.args } : {}),
-              ...(config.env ? { env: config.env } : {}),
-            }
-          : config
-      const response = await agentApi.addMcp(normalizedName, persistedConfig)
+      let response
+      if (editing) {
+        const { url: editedUrl, ...rest } = config
+        response = await agentApi.updateMcp(
+          server.name,
+          {
+            ...rest,
+            ...(urlUnchanged ? {} : { url: editedUrl }),
+            headers: config.headers || {},
+          },
+          server.writableScope,
+        )
+      } else {
+        const persistedConfig =
+          transport === 'stdio'
+            ? {
+                command: config.command,
+                ...(config.args ? { args: config.args } : {}),
+                ...(config.env ? { env: config.env } : {}),
+              }
+            : config
+        response = await agentApi.addMcp(normalizedName, persistedConfig)
+      }
       onSaved(response, {
         name: normalizedName,
         transport,
@@ -139,9 +170,11 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
     <ModalShell
       open={open}
       onClose={busy ? undefined : clearAndClose}
-      title='Add MCP server'
+      title={editing ? `Edit ${server.name}` : 'Add MCP server'}
       subtitle={
-        availableTransports.length > 0
+        editing
+          ? 'Saved secrets stay unless you replace them.'
+          : availableTransports.length > 0
           ? `Available transports: ${availableTransports
               .map(item => TRANSPORT_LABELS[item])
               .join(', ')}.`
@@ -156,7 +189,7 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
           <input
             value={name}
             placeholder='docs'
-            disabled={busy}
+            disabled={busy || editing}
             onChange={event => setName(event.target.value)}
           />
         </label>
@@ -282,8 +315,9 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
                 Request headers <em>optional</em>
               </legend>
               <p>
-                Header values are write-only and are masked after this form
-                closes.
+                {editing
+                  ? 'Leave a value blank to keep the saved one. Removing a row deletes that header.'
+                  : 'Header values are write-only and are masked after this form closes.'}
               </p>
               {headers.map((header, index) => (
                 <div className='extensions-header-row' key={index}>
@@ -300,7 +334,11 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
                     type='password'
                     aria-label={`Header ${index + 1} value`}
                     value={header.value}
-                    placeholder='Secret value'
+                    placeholder={
+                      editing && server.headerNames.includes(header.name)
+                        ? 'Unchanged'
+                        : 'Secret value'
+                    }
                     disabled={busy}
                     onChange={event =>
                       updateRow(setHeaders, index, 'value', event.target.value)
@@ -310,7 +348,7 @@ function AddMcpDialog({ open, onClose, onSaved, transports }) {
                     type='button'
                     className='extensions-icon-button'
                     aria-label={`Remove header ${index + 1}`}
-                    disabled={busy || headers.length === 1}
+                    disabled={busy || (!editing && headers.length === 1)}
                     onClick={() =>
                       setHeaders(current =>
                         current.filter((_, itemIndex) => itemIndex !== index),
@@ -387,6 +425,7 @@ export default function McpSection({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [adding, setAdding] = useState(false)
+  const [editTarget, setEditTarget] = useState(null)
   const [removeTarget, setRemoveTarget] = useState(null)
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState(null)
@@ -674,6 +713,23 @@ export default function McpSection({
                     ? 'Reconnecting…'
                     : 'Reconnect'}
                 </button>
+                {isRemoteMcpTransport(server.transport) && (
+                  <button
+                    type='button'
+                    className='extensions-button'
+                    disabled={!canModify || !server.writable}
+                    title={
+                      !server.writable
+                        ? `This server is provided by ${server.configuredBy} and is read-only`
+                        : canModify
+                          ? 'Change the URL or request headers'
+                          : operationReason
+                    }
+                    onClick={() => setEditTarget(server)}
+                  >
+                    Edit
+                  </button>
+                )}
                 <button
                   type='button'
                   className='extensions-button extensions-button--danger-ghost'
@@ -695,10 +751,14 @@ export default function McpSection({
         </div>
       )}
 
-      <AddMcpDialog
-        open={adding}
+      <McpServerDialog
+        open={adding || Boolean(editTarget)}
+        server={editTarget}
         transports={availableTransports}
-        onClose={() => setAdding(false)}
+        onClose={() => {
+          setAdding(false)
+          setEditTarget(null)
+        }}
         onSaved={(response, detail) => {
           setRemembered(current => ({
             ...current,

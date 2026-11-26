@@ -12,18 +12,42 @@ import { useWorkspaceContextStore } from '../../stores/workspace-context-store.j
 import StatusBadge from '../extensions/StatusBadge.jsx'
 import WorkspaceCreateDialog from './WorkspaceCreateDialog.jsx'
 import WorkspaceTypeIcon from './WorkspaceTypeIcon.jsx'
+import { APP_NAME } from '../../lib/brand.js'
 import {
   buildCloudWorkspaceItems,
   buildDesktopWorkspaceItems,
+  groupCloudWorkspaceItems,
+  isChatbotWorkspace,
   isWorkspaceProfileLocked,
   resolveWorkspaceCreateMethods,
 } from './workspace-hub-model.js'
+
+const CHATBOT_EXPANDED_KEY = 'coding_agent_ws_chatbot_expanded'
+
+function readChatbotExpanded() {
+  try {
+    return localStorage.getItem(CHATBOT_EXPANDED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeChatbotExpanded(expanded) {
+  try {
+    localStorage.setItem(CHATBOT_EXPANDED_KEY, expanded ? '1' : '0')
+  } catch {
+    // The group still toggles when persistent storage is unavailable.
+  }
+}
 
 function workspaceMeta(item, cloud) {
   if (!cloud) {
     return `${item.kind === 'ssh' ? 'SSH' : 'Local'} · ${item.handle.cwd}`
   }
   if (item.pending) return 'Importing repository…'
+  if (isChatbotWorkspace(item)) {
+    return `${APP_NAME} Chatbot task · cleaned up automatically`
+  }
   if (item.source?.kind === 'git') {
     return item.sourceDisplay.label.replace(/^Git · /, '')
   }
@@ -79,6 +103,8 @@ function WorkspaceRow({ item, cloud, busy, onSelect }) {
         <StatusBadge status='importing'>Importing</StatusBadge>
       ) : item.status === 'error' ? (
         <StatusBadge status='error'>Failed</StatusBadge>
+      ) : cloud && isChatbotWorkspace(item) ? (
+        <span className='workspace-quick-row__tag'>Chatbot</span>
       ) : null}
     </button>
   )
@@ -133,6 +159,7 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
   const sessionLoading = useChatStore(state => state.sessionLoading)
   const [createMethodId, setCreateMethodId] = useState(null)
   const [error, setError] = useState(null)
+  const [chatbotExpanded, setChatbotExpanded] = useState(readChatbotExpanded)
   const cloud = manifest.profile === 'cloud'
   const locked = isWorkspaceProfileLocked(
     manifest.profile,
@@ -168,6 +195,19 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
       recentHandles,
     ],
   )
+
+  const { own: ownItems, chatbot: chatbotItems } = useMemo(
+    () =>
+      cloud ? groupCloudWorkspaceItems(items) : { own: items, chatbot: [] },
+    [cloud, items],
+  )
+
+  const toggleChatbot = () => {
+    setChatbotExpanded(value => {
+      writeChatbotExpanded(!value)
+      return !value
+    })
+  }
 
   useEffect(() => {
     if (!open) return
@@ -207,8 +247,10 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
     }
   }
 
-  const atLimit =
-    cloud && cloudLimit != null && cloudWorkspaces.length >= cloudLimit
+  const ownWorkspaceCount = cloudWorkspaces.filter(
+    workspace => !isChatbotWorkspace(workspace),
+  ).length
+  const atLimit = cloud && cloudLimit != null && ownWorkspaceCount >= cloudLimit
   const createDisabled =
     !capabilitiesLoaded ||
     !manifest.workspace.enabled ||
@@ -259,7 +301,7 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
                 <div className='workspace-quick-switcher__label'>Recent</div>
               )}
               <div className='workspace-quick-switcher__list thin-scrollbar'>
-                {items.slice(0, 6).map(item => (
+                {ownItems.slice(0, 6).map(item => (
                   <WorkspaceRow
                     key={item.id}
                     item={item}
@@ -270,6 +312,34 @@ export default function WorkspaceQuickSwitcher({ open, onClose, onManage }) {
                 ))}
                 {items.length === 0 && (
                   <p>Choose an option below to create your first workspace.</p>
+                )}
+                {chatbotItems.length > 0 && (
+                  <>
+                    <button
+                      type='button'
+                      className={`workspace-quick-group ${
+                        chatbotExpanded ? 'is-open' : ''
+                      }`}
+                      aria-expanded={chatbotExpanded}
+                      onClick={toggleChatbot}
+                    >
+                      <span className='workspace-quick-group__caret'>›</span>
+                      <span>From {APP_NAME} Chatbot</span>
+                      <span className='workspace-quick-group__count'>
+                        {chatbotItems.length}
+                      </span>
+                    </button>
+                    {chatbotExpanded &&
+                      chatbotItems.map(item => (
+                        <WorkspaceRow
+                          key={item.id}
+                          item={item}
+                          cloud={cloud}
+                          busy={chatBusy}
+                          onSelect={selectWorkspace}
+                        />
+                      ))}
+                  </>
                 )}
               </div>
               {methods.length > 0 && (

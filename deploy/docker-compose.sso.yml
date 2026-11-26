@@ -134,6 +134,7 @@ services:
       WORKSPACE_CPUS: "2"
       WORKSPACE_IDLE_MINUTES: "30"
       WORKSPACE_MAX_PER_USER: "15"
+      WORKSPACE_MAX_CHATBOT_PER_USER: "20"
     volumes:
       - ./workspaces:/workspace:rw
       - ./agent-data:/app/.ai-agent:rw

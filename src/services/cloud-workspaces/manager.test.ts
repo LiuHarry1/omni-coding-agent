@@ -11,6 +11,7 @@ import {
   CloudWorkspaceManager,
   validateRef,
   validateRepoUrl,
+  workspaceOrigin,
 } from './manager.js'
 import { gitCloneAuthConfig, gitTokenBasicValue } from './repo-access.js'
 import type { RepoAccess } from './repo-access.js'
@@ -345,6 +346,41 @@ describe('workspace lifecycle', () => {
     expect(() =>
       manager.create({ ownerEmail: 'amy@example.com' }),
     ).not.toThrow()
+  })
+
+  it('counts chatbot workspaces against their own limit', async () => {
+    manager = build({ WORKSPACE_MAX_CHATBOT_PER_USER: '1' })
+    manager.create({ ownerEmail: 'bob@example.com', origin: 'chatbot' })
+    expect(() =>
+      manager.create({ ownerEmail: 'bob@example.com', origin: 'chatbot' }),
+    ).toThrow(/Chatbot workspace limit/)
+    manager.create({ ownerEmail: 'bob@example.com' })
+    manager.create({ ownerEmail: 'bob@example.com' })
+    expect(() => manager.create({ ownerEmail: 'bob@example.com' })).toThrow(
+      /Workspace limit reached \(2\)/,
+    )
+  })
+
+  it('ensureDefault never picks a chatbot workspace', async () => {
+    const bot = manager.create({
+      ownerEmail: 'bob@example.com',
+      origin: 'chatbot',
+    })
+    await manager.waitReady(bot.id)
+    now += 120_000
+    manager.touch(bot.id)
+    const ws = await manager.ensureDefault('bob@example.com')
+    expect(ws.id).not.toBe(bot.id)
+    expect(ws.origin).toBe('user')
+  })
+
+  it('treats legacy work- names without an origin as chatbot workspaces', () => {
+    expect(workspaceOrigin({ name: 'work-1ef0f7ad' })).toBe('chatbot')
+    expect(workspaceOrigin({ name: 'work-notes' })).toBe('user')
+    expect(workspaceOrigin({ name: 'work-1ef0f7ad', origin: 'user' })).toBe(
+      'user',
+    )
+    expect(workspaceOrigin({ name: 'Blank workspace' })).toBe('user')
   })
 
   it('ensureDefault reuses a ready workspace', async () => {

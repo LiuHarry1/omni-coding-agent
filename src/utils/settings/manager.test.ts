@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { getSafeMCPServerMetadata } from '../../services/mcp/policy.js'
 import {
   getSafeSettings,
+  mergeMCPServerEdit,
   resetSettingsCache,
   resolveEffectiveSettings,
   resolveSettings,
@@ -150,6 +151,50 @@ describe('MCP settings provenance', () => {
     expect(
       validateMCPRemoval(effective.mcpProvenance, 'projectOnly', 'project'),
     ).toBeNull()
+  })
+})
+
+describe('mergeMCPServerEdit', () => {
+  const saved = {
+    url: 'https://docs.example.test/mcp?token=old',
+    transport: 'http' as const,
+    type: 'streamableHttp',
+    headers: { Authorization: 'Bearer old', 'X-Team': 'qa' },
+  }
+
+  it('replaces a typed header and keeps blank ones', () => {
+    expect(
+      mergeMCPServerEdit(saved, {
+        transport: 'http',
+        headers: { Authorization: 'Bearer new', 'X-Team': '' },
+      }),
+    ).toEqual({
+      ...saved,
+      headers: { Authorization: 'Bearer new', 'X-Team': 'qa' },
+    })
+  })
+
+  it('drops removed headers and keeps the URL when none is sent', () => {
+    const next = mergeMCPServerEdit(saved, {
+      headers: { Authorization: '', 'New-Header': '' },
+    })
+    expect(next).toEqual({
+      ...saved,
+      headers: { Authorization: 'Bearer old' },
+    })
+  })
+
+  it('takes a new URL and clears every header', () => {
+    expect(
+      mergeMCPServerEdit(saved, {
+        url: ' https://docs.example.test/v2 ',
+        headers: {},
+      }),
+    ).toEqual({
+      url: 'https://docs.example.test/v2',
+      transport: 'http',
+      type: 'streamableHttp',
+    })
   })
 })
 

@@ -988,6 +988,8 @@ export const useChatStore = create((set, get) => {
       }
 
       const workspace = workspaceSnapshot()
+      // Without a selection the server binds the turn to a default workspace.
+      const adoptSessionWorkspace = !useWorkspaceContextStore.getState().handle
       const body = {
         message: text,
         workspace: workspace.workspace,
@@ -1010,7 +1012,17 @@ export const useChatStore = create((set, get) => {
           },
           onOpen: opened => {
             if (!ownsTurn()) return
-            if (opened.sessionId) get().setSessionId(opened.sessionId)
+            if (opened.sessionId) {
+              get().setSessionId(opened.sessionId)
+              if (
+                adoptSessionWorkspace &&
+                !useWorkspaceContextStore.getState().handle
+              ) {
+                void useWorkspaceContextStore
+                  .getState()
+                  .syncFromSession(opened.sessionId)
+              }
+            }
             set({
               currentRunId: opened.runId,
               lastRunSeq: opened.lastSeq || 0,

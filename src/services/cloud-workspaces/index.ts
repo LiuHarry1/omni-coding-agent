@@ -13,9 +13,11 @@ export {
   CloudWorkspaceManager,
   validateRef,
   validateRepoUrl,
+  workspaceOrigin,
   type CreateCloudWorkspaceInput,
 } from './manager.js'
 export type {
+  CloudWorkspaceOrigin,
   CloudWorkspaceRecord,
   CloudWorkspaceSource,
   CloudWorkspaceStatus,

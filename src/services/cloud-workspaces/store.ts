@@ -7,12 +7,17 @@ export type CloudWorkspaceSource =
 
 export type CloudWorkspaceStatus = 'provisioning' | 'ready' | 'error'
 
+/** Who created the workspace; chatbot workspaces have their own quota. */
+export type CloudWorkspaceOrigin = 'user' | 'chatbot'
+
 export type CloudWorkspaceRecord = {
   version: 1
   id: string
   ownerEmail: string
   name: string
   source: CloudWorkspaceSource
+  /** Absent on records written before origins existed. */
+  origin?: CloudWorkspaceOrigin
   status: CloudWorkspaceStatus
   error?: string
   createdAt: number

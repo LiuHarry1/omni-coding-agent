@@ -103,6 +103,8 @@ import {
 } from '../services/runs/run-manager.js'
 import {
   getSafeSettings,
+  getScopedMCPServer,
+  mergeMCPServerEdit,
   parseWritableScope,
   patchSettings,
   resolveEffectiveSettings,
@@ -738,6 +740,54 @@ export function createRouter({ staticDir }: RouterOptions) {
               return
             }
             setMCPServer(cwd, scope, name, config)
+          } else if (action === 'update') {
+            const name = body.name as string
+            const edit = body.config as Record<string, unknown> | undefined
+            if (!name || !edit || typeof edit !== 'object') {
+              sendJSON(res, 400, { error: "Missing 'name' and/or 'config'" })
+              return
+            }
+            if (typeof body.scope !== 'string') {
+              sendJSON(res, 400, {
+                error: "Editing an MCP server requires its exact 'scope'",
+              })
+              return
+            }
+            const conflict = validateMCPRemoval(
+              resolved.mcpProvenance,
+              name,
+              scope,
+            )
+            if (conflict) {
+              sendJSON(res, conflict.status, { error: conflict.error })
+              return
+            }
+            const saved = getScopedMCPServer(cwd, scope, name)
+            if (!saved) {
+              sendJSON(res, 404, { error: 'MCP server not found' })
+              return
+            }
+            const next = mergeMCPServerEdit(saved, edit)
+            if (
+              isCloudWorkspacesEnabled() &&
+              filterHttpMCPServers({ [name]: next }).dropped.length > 0
+            ) {
+              sendJSON(res, 400, {
+                error:
+                  'Cloud workspaces only support HTTP or SSE MCP servers with an http(s) URL',
+              })
+              return
+            }
+            setMCPServer(cwd, scope, name, next)
+            // A sign-in belongs to the old endpoint.
+            if (
+              isHttpServerConfig(saved) &&
+              (!isHttpServerConfig(next) || next.url !== saved.url)
+            ) {
+              clearMcpCredentials(
+                mcpCredentialsPath(resolveAgentHome(), name, saved.url),
+              )
+            }
           } else if (action === 'remove') {
             const name = body.name as string
             if (!name) {
@@ -768,7 +818,9 @@ export function createRouter({ staticDir }: RouterOptions) {
               )
             }
           } else {
-            sendJSON(res, 400, { error: "action must be 'add' or 'remove'" })
+            sendJSON(res, 400, {
+              error: "action must be 'add', 'update' or 'remove'",
+            })
             return
           }
 

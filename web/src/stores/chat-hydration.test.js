@@ -262,6 +262,44 @@ describe('chat hydration guards', () => {
     expect(useChatStore.getState()).not.toHaveProperty('workspaceHandle')
   })
 
+  it('adopts the server-bound workspace when a turn starts without one', async () => {
+    const originalSync = useWorkspaceContextStore.getState().syncFromSession
+    const syncFromSession = vi.fn(async () => null)
+    useWorkspaceContextStore.setState({ syncFromSession })
+    streamChatTurn.mockImplementation(async options => {
+      options.onOpen({ sessionId: 'default-session', runId: 'run-1' })
+      return { sessionId: 'default-session', permissionMode: null }
+    })
+
+    try {
+      await useChatStore.getState().sendMessage('no workspace selected')
+      expect(syncFromSession).toHaveBeenCalledWith('default-session')
+    } finally {
+      useWorkspaceContextStore.setState({ syncFromSession: originalSync })
+    }
+  })
+
+  it('keeps an explicitly selected workspace when a turn starts', async () => {
+    useWorkspaceContextStore.getState().apply({
+      environmentId: 'cloud:picked',
+      cwd: '/workspace/repo',
+    })
+    const originalSync = useWorkspaceContextStore.getState().syncFromSession
+    const syncFromSession = vi.fn(async () => null)
+    useWorkspaceContextStore.setState({ syncFromSession })
+    streamChatTurn.mockImplementation(async options => {
+      options.onOpen({ sessionId: 'picked-session', runId: 'run-1' })
+      return { sessionId: 'picked-session', permissionMode: null }
+    })
+
+    try {
+      await useChatStore.getState().sendMessage('workspace selected')
+      expect(syncFromSession).not.toHaveBeenCalled()
+    } finally {
+      useWorkspaceContextStore.setState({ syncFromSession: originalSync })
+    }
+  })
+
   it('clears chat history before selecting a different workspace', () => {
     useWorkspaceContextStore
       .getState()

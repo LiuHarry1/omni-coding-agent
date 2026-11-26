@@ -271,6 +271,17 @@ export const agentApi = {
       body: JSON.stringify({ action: 'add', scope, name, config }),
     }),
 
+  /**
+   * Edit a saved MCP server. Blank header values and a missing URL keep the
+   * saved ones on the server.
+   */
+  updateMcp: (name, config, scope) =>
+    fetchJSON('/settings/mcp', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'update', scope, name, config }),
+    }),
+
   /** Remove a user-configured MCP server. */
   removeMcp: (name, scope) =>
     fetchJSON('/settings/mcp', {

@@ -6,6 +6,7 @@
 import { create } from 'zustand'
 import { cloudWorkspacesApi } from '../lib/api/cloud-workspaces.js'
 import { useChatStore } from './chat-store.js'
+import { isChatbotWorkspace } from '../components/workspaces/workspace-hub-model.js'
 import {
   sameWorkspaceHandle,
   useWorkspaceContextStore,
@@ -97,7 +98,10 @@ export const useCloudWorkspaceStore = create((set, get) => {
       context.clear()
     }
     rememberCurrent(null)
-    const fallback = rest.find(workspace => workspace.status === 'ready')
+    const fallback = rest.find(
+      workspace =>
+        workspace.status === 'ready' && !isChatbotWorkspace(workspace),
+    )
     if (fallback) setCurrent(fallback)
     return true
   }
@@ -138,6 +142,7 @@ export const useCloudWorkspaceStore = create((set, get) => {
     loaded: false,
     workspaces: [],
     limit: null,
+    chatbotLimit: null,
     currentId: storedCurrentId(),
     /** Workspace this tab just created and is waiting on. */
     pendingId: null,
@@ -160,13 +165,15 @@ export const useCloudWorkspaceStore = create((set, get) => {
         loaded: true,
         workspaces,
         limit: data.limit ?? null,
+        chatbotLimit: data.chatbotLimit ?? null,
       })
       const ready = workspaces.filter(w => w.status === 'ready')
       const context = useWorkspaceContextStore.getState()
       const contextId = cloudIdFromHandle(context.handle)
       const selected = contextId
         ? ready.find(w => w.id === contextId)
-        : ready.find(w => w.id === get().currentId) || ready[0]
+        : ready.find(w => w.id === get().currentId) ||
+          ready.find(w => !isChatbotWorkspace(w))
       if (selected) {
         rememberCurrent(selected)
         if (!context.handle || contextId === selected.id) {
@@ -205,6 +212,7 @@ export const useCloudWorkspaceStore = create((set, get) => {
         set({
           workspaces,
           limit: data.limit ?? null,
+          chatbotLimit: data.chatbotLimit ?? null,
         })
         const contextId = cloudIdFromHandle(
           useWorkspaceContextStore.getState().handle,
