@@ -143,7 +143,9 @@ describePosix('real Worker process cancellation', () => {
     const terminated = path.join(dir, 'timeout.terminated')
     const execution = backend.exec(longLivedChildCommand(pidFile, terminated), {
       cwd: dir,
-      timeoutMs: 300,
+      // Must outlast Node startup on slow CI runners, or the child is killed
+      // before it writes its pid file.
+      timeoutMs: 3_000,
     })
     await waitFor(() => fs.existsSync(pidFile), 'timeout child did not start')
 
