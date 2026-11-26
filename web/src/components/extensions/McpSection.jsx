@@ -37,7 +37,13 @@ function rowsToObject(rows) {
   )
 }
 
-function McpServerDialog({ open, server = null, onClose, onSaved, transports }) {
+function McpServerDialog({
+  open,
+  server = null,
+  onClose,
+  onSaved,
+  transports,
+}) {
   const editing = Boolean(server)
   const availableTransports = useMemo(() => {
     const allowed = normalizeMcpTransports(transports)
@@ -175,10 +181,10 @@ function McpServerDialog({ open, server = null, onClose, onSaved, transports }) 
         editing
           ? 'Saved secrets stay unless you replace them.'
           : availableTransports.length > 0
-          ? `Available transports: ${availableTransports
-              .map(item => TRANSPORT_LABELS[item])
-              .join(', ')}.`
-          : 'No MCP transports are enabled by the server.'
+            ? `Available transports: ${availableTransports
+                .map(item => TRANSPORT_LABELS[item])
+                .join(', ')}.`
+            : 'No MCP transports are enabled by the server.'
       }
       size='small'
       shouldCloseOnBackdrop={!busy}

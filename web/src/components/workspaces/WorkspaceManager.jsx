@@ -476,8 +476,8 @@ function CloudWorkspaceManager({ methods, onAddWorkspace }) {
                 <>
                   <p className='workspace-manager__group-note'>
                     The chatbot deletes these workspaces when their task is
-                    archived or a while after it ends. Anything you add here
-                    is deleted with them.
+                    archived or a while after it ends. Anything you add here is
+                    deleted with them.
                   </p>
                   {chatbotItems.map(renderRow)}
                 </>
