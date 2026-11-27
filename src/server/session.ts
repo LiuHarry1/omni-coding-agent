@@ -23,6 +23,7 @@ export {
   appendCompaction,
   appendModeChange,
   appendAgentChange,
+  setInjectedMcpServers,
   getSessionTranscriptPath,
 } from '../session/index.js'
 

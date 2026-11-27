@@ -3,7 +3,12 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { getSessionTranscriptPath } from './store.js'
-import { createSession, forgetSession, getSession } from './store.js'
+import {
+  createSession,
+  forgetSession,
+  getSession,
+  setInjectedMcpServers,
+} from './store.js'
 
 describe('session transcript recovery', () => {
   let home = ''
@@ -64,5 +69,25 @@ describe('session transcript recovery', () => {
       environmentId: 'local',
       cwd: repo,
     })
+  })
+
+  it('restores the latest injected MCP servers, and their clearing', () => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'session-injected-mcp-'))
+    const session = createSession({ agentHome: home, cwd: home })
+    sessionId = session.id
+    const servers = {
+      kb_docs: { url: 'http://retrieval.internal/mcp/docs', transport: 'http' as const },
+    }
+    setInjectedMcpServers(sessionId, session, servers)
+
+    forgetSession(sessionId)
+    const reloaded = getSession(sessionId, { agentHome: home })!
+    expect(reloaded.injectedMcpServers).toEqual(servers)
+
+    setInjectedMcpServers(sessionId, reloaded, {})
+    forgetSession(sessionId)
+    expect(
+      getSession(sessionId, { agentHome: home })?.injectedMcpServers,
+    ).toBeUndefined()
   })
 })

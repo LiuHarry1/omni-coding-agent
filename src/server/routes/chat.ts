@@ -29,7 +29,15 @@ import {
   isValidExternalMode,
   transitionPermissionMode,
 } from '../../utils/permissions/permission-mode.js'
-import { appendModeChange, appendAgentChange } from '../session.js'
+import {
+  appendModeChange,
+  appendAgentChange,
+  setInjectedMcpServers,
+} from '../session.js'
+import {
+  InjectedMcpError,
+  validateInjectedMcpServers,
+} from '../../services/mcp/session-injection.js'
 import type { Message, RunAgentFn } from '../../core/types.js'
 import { runChatTurn } from '../../turn/run-chat-turn.js'
 import { loadWorkspaceContributions } from '../../utils/workspace/load.js'
@@ -107,6 +115,7 @@ export async function handleChat(
     mode,
     agentType,
     environmentId,
+    mcpServers,
   } = body as {
     message?: string
     workspace?: string
@@ -118,6 +127,8 @@ export async function handleChat(
     agentType?: string | null
     /** Optional: bind/use execution environment (default local). */
     environmentId?: string
+    /** Optional: session-scoped MCP servers; chatbot cloud workspaces only. */
+    mcpServers?: unknown
   }
   if (!message) {
     sendJSON(res, 400, { error: "Missing 'message' field" })
@@ -173,6 +184,19 @@ export async function handleChat(
       session.workspace?.cwd !== binding.handle.cwd
     ) {
       setSessionWorkspace(session.id, binding.handle)
+    }
+    if (mcpServers !== undefined) {
+      try {
+        const servers = validateInjectedMcpServers(
+          mcpServers,
+          cloud.get(binding.workspaceId),
+        )
+        setInjectedMcpServers(session.id, session, servers)
+      } catch (err) {
+        if (!(err instanceof InjectedMcpError)) throw err
+        sendJSON(res, 400, { error: err.message, session_id: session.id })
+        return
+      }
     }
     await handleChatRequest(req, res, runAgent, session, {
       message,

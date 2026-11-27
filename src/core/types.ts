@@ -781,6 +781,11 @@ export interface Session {
    */
   additionalWorkingDirectories?: string[]
   /**
+   * MCP servers the caller attached to this session (chatbot cloud workspaces
+   * only). Merged under settings servers each turn; never shown in settings.
+   */
+  injectedMcpServers?: Record<string, MCPServerHTTP>
+  /**
    * Inline skills invoked this session. Not written as its
    * own jsonl event — durable copy is the post-compact `invoked_skills`
    * attachment, restored on getSession.

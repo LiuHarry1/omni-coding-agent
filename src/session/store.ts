@@ -5,6 +5,7 @@ import type {
   Session,
   SessionInfo,
   Message,
+  MCPServerHTTP,
   ToolResultPart,
 } from '../core/types.js'
 import { isAttachmentMessage, isRoleMessage } from '../core/types.js'
@@ -698,6 +699,27 @@ export function appendAgentChange(sessionId: string, session: Session): void {
   })
 }
 
+/** Persist the caller-attached MCP servers; an empty set clears them. */
+export function setInjectedMcpServers(
+  sessionId: string,
+  session: Session,
+  servers: Record<string, MCPServerHTTP>,
+): void {
+  const next = Object.keys(servers).length > 0 ? servers : undefined
+  if (
+    JSON.stringify(next ?? null) ===
+    JSON.stringify(session.injectedMcpServers ?? null)
+  ) {
+    return
+  }
+  session.injectedMcpServers = next
+  appendLine(sessionId, {
+    type: 'mcp_injected',
+    servers: next ?? {},
+    timestamp: Date.now(),
+  })
+}
+
 export type SessionModeState = Pick<
   Session,
   | 'permissionMode'
@@ -850,6 +872,12 @@ function restoreFromDisk(id: string): Session {
       if (typeof line.title === 'string' && line.title.trim()) {
         session.title = line.title.trim()
       }
+    } else if (line.type === 'mcp_injected') {
+      const servers = line.servers as Record<string, MCPServerHTTP> | undefined
+      session.injectedMcpServers =
+        servers && typeof servers === 'object' && Object.keys(servers).length > 0
+          ? servers
+          : undefined
     } else if (line.type === 'workspace_bound') {
       const w = line.workspace as
         { environmentId?: unknown; cwd?: unknown } | undefined

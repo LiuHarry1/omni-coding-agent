@@ -17,6 +17,7 @@ export {
   appendCompaction,
   appendModeChange,
   appendAgentChange,
+  setInjectedMcpServers,
   appendRewind,
   resyncDerivedSessionState,
   getSessionTranscriptPath,

@@ -351,7 +351,13 @@ export async function prepareChatTurn(
     `[server] cwd=${cwd}${remote ? ` remote=${session.workspace?.environmentId}` : ''}  agents=[${activeAgents.map(a => a.agentType).join(', ')}]  skills=[${activeSkills.map(s => s.name).join(', ')}]${conditionalHidden > 0 ? `  (+${conditionalHidden} conditional hidden)` : ''}`,
   )
 
-  let mcpServers = mergeMCPServers(plugins.mcpServers, config.mcpServers)
+  let mcpServers = mergeMCPServers(
+    {
+      ...plugins.mcpServers,
+      ...(cloudSession ? (session.injectedMcpServers ?? {}) : {}),
+    },
+    config.mcpServers,
+  )
   if (cloudSession) {
     const filtered = filterCloudMCPServers(mcpServers)
     mcpServers = filtered.servers
