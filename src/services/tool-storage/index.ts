@@ -21,7 +21,11 @@
  */
 import * as fs from 'fs'
 import * as path from 'path'
-import { getToolResultFilePath } from '../../session/paths.js'
+import {
+  getScratchDataDir,
+  getSessionDataDir,
+  getToolResultFilePath,
+} from '../../session/paths.js'
 import { BROWSER_MODEL_RESULT_MAX_CHARS } from '../../browser/limits.js'
 import { FILE_READ_TOOL_NAME } from '../../constants/tool_names.js'
 
@@ -166,6 +170,54 @@ export function writeToolResultFile(
     console.warn(`[tool-storage] persist failed for ${toolCallId}: ${msg}`)
     return null
   }
+}
+
+const BINARY_EXTENSIONS: Record<string, string> = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/gif': 'gif',
+  'image/webp': 'webp',
+  'image/bmp': 'bmp',
+  'image/svg+xml': 'svg',
+  'audio/mpeg': 'mp3',
+  'audio/wav': 'wav',
+  'audio/ogg': 'ogg',
+  'video/mp4': 'mp4',
+  'application/pdf': 'pdf',
+  'application/json': 'json',
+  'application/zip': 'zip',
+  'text/plain': 'txt',
+  'text/html': 'html',
+  'text/csv': 'csv',
+}
+
+/**
+ * Write binary content next to the session's other tool results, so the
+ * model gets a path it can read instead of base64 in its context. Throws
+ * when the file cannot be written.
+ */
+export function saveBinaryToolResult(
+  sessionId: string | undefined,
+  name: string,
+  bytes: Buffer,
+  mimeType: string | undefined,
+): { file: string; size: number } {
+  let dir: string
+  try {
+    dir = sessionId
+      ? path.join(getSessionDataDir(sessionId), 'tool-results')
+      : getScratchDataDir('mcp-resources')
+  } catch {
+    dir = getScratchDataDir('mcp-resources')
+  }
+  fs.mkdirSync(dir, { recursive: true })
+  const type = mimeType?.split(';')[0]?.trim().toLowerCase() ?? ''
+  const file = path.join(
+    dir,
+    `${name.replace(/[^a-zA-Z0-9_-]/g, '_')}.${BINARY_EXTENSIONS[type] ?? 'bin'}`,
+  )
+  fs.writeFileSync(file, bytes)
+  return { file, size: bytes.length }
 }
 
 const HOST_ONLY_NOTICE =

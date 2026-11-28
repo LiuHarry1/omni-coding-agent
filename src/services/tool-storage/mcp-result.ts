@@ -1,15 +1,34 @@
 /**
- * Large MCP tool results.
+ * MCP tool results.
  *
- * Local sessions mirror Claude Code: `transformMCPResult` picks one payload
- * (structuredContent over the content array), `processMCPResult` persists
- * results above MAX_MCP_OUTPUT_TOKENS with `getLargeOutputInstructions`, and
- * `maybePersistLargeToolResult` persists anything above the MCP tool's 50K
- * char cap with a plain preview.
+ * Content blocks are converted as in Claude Code's `transformResultContent`:
+ * text and resources become text, images become image blocks that fit the
+ * API limits, and other binary content is saved to a file whose path is
+ * returned.
+ *
+ * The text is then sized. Local sessions mirror Claude Code:
+ * `transformMCPResult` picks one payload (structuredContent over the content
+ * array), `processMCPResult` persists results above MAX_MCP_OUTPUT_TOKENS
+ * with `getLargeOutputInstructions`, and `maybePersistLargeToolResult`
+ * persists anything above the MCP tool's 50K char cap with a plain preview.
  *
  * Host-only sessions (cloud, SSH) cannot run jq or other shell tools on the
  * spill file, so the file is rendered line-oriented (nested JSON expanded,
  * embedded newlines restored) for Read and Grep.
+ *
+ * A result with images that is still above MAX_MCP_OUTPUT_TOKENS, each image
+ * counted as IMAGE_TOKEN_ESTIMATE, is cut down as in Claude Code's
+ * `truncateMcpContent`: images past the budget are compressed into what is
+ * left of it, or dropped.
+ *
+ * Three differences from Claude Code, where it loses content:
+ * - Images are kept when the result also has structuredContent. Claude Code
+ *   drops the whole content array, so a screenshot tool that also reports
+ *   its dimensions reaches the model without the screenshot.
+ * - An error keeps all of its text, and its structuredContent after it.
+ *   Claude Code keeps the first text block only.
+ * - The text of a result with images is persisted like any other text.
+ *   Claude Code truncates it, because it would persist the images with it.
  */
 import {
   PREVIEW_SIZE_CHARS,
@@ -18,10 +37,24 @@ import {
   generatePreview,
   getPersistThresholdChars,
   isToolResultsHostOnly,
+  saveBinaryToolResult,
   writeToolResultFile,
   PERSISTED_OUTPUT_CLOSE,
   PERSISTED_OUTPUT_OPEN,
 } from './index.js'
+import type {
+  ImageMediaType,
+  ToolResultContentBlockParam,
+} from '../../core/types.js'
+import {
+  compressImageBufferToBytes,
+  toolResultImageBlockFromBuffer,
+} from '../../utils/image/resize-buffer.js'
+import {
+  buildImageBlock,
+  hasImageBlock,
+  toolResultBlocksToText,
+} from '../../utils/tool-result-content.js'
 
 type McpBlock = { type: string; [key: string]: unknown }
 
@@ -30,6 +63,12 @@ export interface McpCallResult {
   structuredContent?: unknown
   toolResult?: unknown
   isError?: boolean
+}
+
+interface McpCallContext {
+  sessionId: string | undefined
+  toolCallId: string
+  toolName: string
 }
 
 type TextBlock = { type: 'text'; text: string }
@@ -43,11 +82,16 @@ interface TransformedMcpResult {
 }
 
 export interface ProcessedMcpResult {
+  /** Text projection; an image appears as `[image]`. */
   result: string
+  /** Model-facing blocks, set only when the result carries images. */
+  blocks?: ToolResultContentBlockParam[]
   isError: boolean
 }
 
 const DEFAULT_MAX_MCP_OUTPUT_TOKENS = 25_000
+/** Claude Code `IMAGE_TOKEN_ESTIMATE`. */
+const IMAGE_TOKEN_ESTIMATE = 1_600
 /** Claude Code: min(MCPTool.maxResultSizeChars 100K, DEFAULT_MAX_RESULT_SIZE_CHARS 50K). */
 const MCP_PERSIST_THRESHOLD_CHARS = 50_000
 
@@ -92,55 +136,151 @@ export function inferCompactSchema(value: unknown, depth = 2): string {
   return typeof value
 }
 
-function toTextBlocks(block: McpBlock, toolName: string): TextBlock[] | null {
+/**
+ * Image type by file signature. Servers mislabel images (a JPEG sent as
+ * image/png, or as image/jpg), and the API rejects a type that does not
+ * match the bytes.
+ */
+function sniffImageType(bytes: Buffer): ImageMediaType | undefined {
+  const head = bytes.subarray(0, 12).toString('latin1')
+  if (head.startsWith('\xff\xd8\xff')) return 'image/jpeg'
+  if (head.startsWith('\x89PNG\r\n\x1a\n')) return 'image/png'
+  if (head.startsWith('GIF8')) return 'image/gif'
+  if (head.startsWith('RIFF') && head.slice(8) === 'WEBP') return 'image/webp'
+  return undefined
+}
+
+/**
+ * Binary content as an image the model can see, or else as the path of the
+ * file it was saved to. Base64 never reaches the context as text. Null when
+ * the block has no data.
+ */
+async function binaryToBlocks(
+  data: unknown,
+  mimeType: unknown,
+  label: string,
+  fileName: string,
+  sessionId: string | undefined,
+): Promise<ToolResultContentBlockParam[] | null> {
+  if (typeof data !== 'string') return null
+  const bytes = Buffer.from(data, 'base64')
+  const mime = typeof mimeType === 'string' ? mimeType : undefined
+
+  const imageType = mime?.startsWith('image/')
+    ? sniffImageType(bytes)
+    : undefined
+  if (imageType) {
+    try {
+      // Within the API limits the image keeps its dimensions, so pixel
+      // coordinates a tool reports about its screenshot still hold.
+      const image = await toolResultImageBlockFromBuffer(bytes, imageType)
+      return label ? [{ type: 'text', text: label.trimEnd() }, image] : [image]
+    } catch {
+      // Not decodable, or too large to shrink: an image the API would refuse
+      // fails every later request of the session. Save it instead.
+    }
+  }
+
+  const described = `${label}Binary content (${mime ?? 'unknown type'}, ${formatFileSize(bytes.length)})`
+  try {
+    const saved = saveBinaryToolResult(sessionId, fileName, bytes, mime)
+    return [{ type: 'text', text: `${described} saved to ${saved.file}` }]
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err)
+    return [
+      {
+        type: 'text',
+        text: `${described} could not be saved to disk: ${reason}`,
+      },
+    ]
+  }
+}
+
+/** Claude Code `transformResultContent`. */
+async function toModelBlocks(
+  block: McpBlock,
+  index: number,
+  ctx: McpCallContext,
+): Promise<ToolResultContentBlockParam[]> {
+  const fileName = `${ctx.toolCallId}-${index}`
+  const binary = (data: unknown, mimeType: unknown, label: string) =>
+    binaryToBlocks(data, mimeType, label, fileName, ctx.sessionId)
+
+  let blocks: ToolResultContentBlockParam[] | null = null
   switch (block.type) {
     case 'text':
-      return [{ type: 'text', text: String(block.text ?? '') }]
+      blocks = [{ type: 'text', text: String(block.text ?? '') }]
+      break
+    case 'image':
+      blocks = await binary(block.data, block.mimeType, '')
+      break
+    case 'audio':
+      blocks = await binary(
+        block.data,
+        block.mimeType,
+        `[Audio from ${ctx.toolName}] `,
+      )
+      break
     case 'resource': {
       const resource = (block.resource ?? {}) as Record<string, unknown>
-      if (typeof resource.text !== 'string') return null
-      return [
-        {
-          type: 'text',
-          text: `[Resource from ${toolName} at ${String(resource.uri)}] ${resource.text}`,
-        },
-      ]
+      const label = `[Resource from ${ctx.toolName} at ${String(resource.uri)}] `
+      blocks =
+        typeof resource.text === 'string'
+          ? [{ type: 'text', text: label + resource.text }]
+          : await binary(resource.blob, resource.mimeType, label)
+      break
     }
     case 'resource_link': {
       let text = `[Resource link: ${String(block.name)}] ${String(block.uri)}`
       if (block.description) text += ` (${String(block.description)})`
-      return [{ type: 'text', text }]
+      blocks = [{ type: 'text', text }]
+      break
     }
-    default:
-      return null
   }
+  return blocks ?? [{ type: 'text', text: `[${block.type} content omitted]` }]
 }
 
-/** Null when the result holds binary blocks (images, audio, blobs). */
-function transformMcpResult(
+/** Whether `text` is `value` serialized, as servers mirror structuredContent. */
+function mirrors(text: string, value: unknown): boolean {
+  const parsed = parseJson(text)
+  return (
+    parsed !== undefined && JSON.stringify(parsed) === JSON.stringify(value)
+  )
+}
+
+/**
+ * The text payload of a result: Claude Code `transformMCPResult`, except
+ * that an error's text is not replaced by its structuredContent.
+ */
+function pickText(
   raw: McpCallResult,
-  toolName: string,
-): TransformedMcpResult | null {
-  if ('toolResult' in raw) {
-    return { content: String(raw.toolResult), type: 'toolResult' }
-  }
-  if (raw.structuredContent !== undefined) {
+  texts: TextBlock[],
+): TransformedMcpResult {
+  const structured = raw.structuredContent
+  const isError = raw.isError === true
+  // An error's message is in its text; structuredContent may hold only a code.
+  const errorWithText = isError && texts.length > 0
+  if (structured !== undefined && !errorWithText) {
     return {
-      content: JSON.stringify(raw.structuredContent),
+      content: JSON.stringify(structured),
       type: 'structuredContent',
-      schema: inferCompactSchema(raw.structuredContent),
+      schema: inferCompactSchema(structured),
     }
   }
-  const blocks: TextBlock[] = []
-  for (const block of raw.content ?? []) {
-    const converted = toTextBlocks(block, toolName)
-    if (!converted) return null
-    blocks.push(...converted)
+  const content = [...texts]
+  if (
+    structured !== undefined &&
+    !texts.some(block => mirrors(block.text, structured))
+  ) {
+    content.push({ type: 'text', text: JSON.stringify(structured) })
+  }
+  if (isError && content.length === 0) {
+    content.push({ type: 'text', text: 'Unknown error' })
   }
   return {
-    content: blocks,
+    content,
     type: 'contentArray',
-    schema: inferCompactSchema(blocks),
+    schema: inferCompactSchema(content),
   }
 }
 
@@ -160,6 +300,89 @@ function estimateTokens(content: string | TextBlock[]): number {
   return typeof content === 'string'
     ? Math.round(content.length / 4)
     : content.reduce((n, b) => n + Math.round(b.text.length / 4), 0)
+}
+
+/** Claude Code `getContentSizeEstimate`: an image counts a flat estimate. */
+function estimateBlockTokens(blocks: ToolResultContentBlockParam[]): number {
+  return blocks.reduce(
+    (n, b) =>
+      n +
+      (b.type === 'text'
+        ? Math.round(b.text.length / 4)
+        : IMAGE_TOKEN_ESTIMATE),
+    0,
+  )
+}
+
+/** Claude Code `getTruncationMessage`. */
+function getTruncationMessage(): string {
+  return `\n\n[OUTPUT TRUNCATED - exceeded ${getMaxMcpOutputTokens()} token limit]
+
+The tool output was truncated. If this MCP server provides pagination or filtering tools, use them to retrieve specific portions of the data. If pagination is not available, inform the user that you are working with truncated output and results may be incomplete.`
+}
+
+/**
+ * Claude Code `truncateContentBlocks`: blocks in order until `maxChars` is
+ * spent. An image that no longer fits is compressed into what is left of the
+ * budget, or dropped.
+ */
+async function truncateContentBlocks(
+  blocks: ToolResultContentBlockParam[],
+  maxChars: number,
+): Promise<ToolResultContentBlockParam[]> {
+  const result: ToolResultContentBlockParam[] = []
+  let currentChars = 0
+
+  for (const block of blocks) {
+    const remainingChars = maxChars - currentChars
+    if (block.type === 'text') {
+      if (remainingChars <= 0) break
+      if (block.text.length <= remainingChars) {
+        result.push(block)
+        currentChars += block.text.length
+      } else {
+        result.push({ type: 'text', text: block.text.slice(0, remainingChars) })
+        break
+      }
+      continue
+    }
+
+    const imageChars = IMAGE_TOKEN_ESTIMATE * 4
+    if (imageChars <= remainingChars) {
+      result.push(block)
+      currentChars += imageChars
+    } else if (remainingChars > 0) {
+      try {
+        // Base64 is 4/3 the size of the bytes it encodes.
+        const compressed = await compressImageBufferToBytes(
+          Buffer.from(block.source.data, 'base64'),
+          Math.floor(remainingChars * 0.75),
+          block.source.media_type,
+        )
+        const data = compressed.buffer.toString('base64')
+        result.push(buildImageBlock(data, compressed.mediaType))
+        currentChars += data.length
+      } catch {
+        // Cannot be made to fit: the image is left out.
+      }
+    }
+  }
+
+  return result
+}
+
+/**
+ * Claude Code `truncateMcpContentIfNeeded`, deciding on the estimate alone;
+ * Claude Code confirms it with a token count from the API.
+ */
+async function truncateBlocksIfNeeded(
+  blocks: ToolResultContentBlockParam[],
+): Promise<ToolResultContentBlockParam[]> {
+  const maxTokens = getMaxMcpOutputTokens()
+  if (estimateBlockTokens(blocks) <= maxTokens) return blocks
+  const truncated = await truncateContentBlocks(blocks, maxTokens * 4)
+  truncated.push({ type: 'text', text: getTruncationMessage() })
+  return truncated
 }
 
 function getFormatDescription(type: McpResultType, schema?: string): string {
@@ -330,25 +553,57 @@ function processHostOnly(
 }
 
 /**
- * Model-facing text for an MCP call result, persisting it when large.
- * Null when the result carries binary blocks the caller must handle.
+ * What the model receives for an MCP call result. The text is persisted
+ * when large; images stay inline, next to it.
  */
-export function processMcpToolResult(
+export async function processMcpToolResult(
   raw: McpCallResult,
-  opts: { sessionId: string | undefined; toolCallId: string; toolName: string },
-): ProcessedMcpResult | null {
-  const transformed = transformMcpResult(raw, opts.toolName)
-  if (!transformed) return null
-  const process = isToolResultsHostOnly(opts.sessionId)
-    ? processHostOnly
-    : processLocal
-  return {
-    result: process(
+  ctx: McpCallContext,
+): Promise<ProcessedMcpResult> {
+  const isError = raw.isError === true
+  const sized = (transformed: TransformedMcpResult): string =>
+    (isToolResultsHostOnly(ctx.sessionId) ? processHostOnly : processLocal)(
       transformed,
-      opts.sessionId,
-      opts.toolCallId,
-      opts.toolName,
-    ),
-    isError: raw.isError === true,
+      ctx.sessionId,
+      ctx.toolCallId,
+      ctx.toolName,
+    )
+
+  if ('toolResult' in raw) {
+    const result = sized({
+      content: String(raw.toolResult),
+      type: 'toolResult',
+    })
+    return { result, isError }
+  }
+
+  const blocks = (
+    await Promise.all(
+      (raw.content ?? []).map((block, i) => toModelBlocks(block, i, ctx)),
+    )
+  ).flat()
+  const texts = blocks.filter((b): b is TextBlock => b.type === 'text')
+  // The API rejects non-text content on an error result.
+  const images = isError ? [] : blocks.filter(b => b.type === 'image')
+
+  const transformed = pickText(raw, texts)
+  const text = sized(transformed)
+  if (images.length === 0) return { result: text, isError }
+
+  // Captions stay next to their images unless the text was replaced, by
+  // structuredContent or by the preview of a persisted result.
+  const inline =
+    transformed.type === 'contentArray' &&
+    text === modelText(transformed.content)
+  const modelBlocks = await truncateBlocksIfNeeded(
+    inline
+      ? blocks
+      : [...(text ? [{ type: 'text' as const, text }] : []), ...images],
+  )
+  return {
+    result: toolResultBlocksToText(modelBlocks),
+    // Truncation may have left no image.
+    ...(hasImageBlock(modelBlocks) ? { blocks: modelBlocks } : {}),
+    isError,
   }
 }

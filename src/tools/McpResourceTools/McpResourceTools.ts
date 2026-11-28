@@ -4,8 +4,6 @@
  * resources at all. Deferred behind tool search, like the MCP tools they
  * accompany.
  */
-import * as fs from 'fs'
-import * as path from 'path'
 import { randomUUID } from 'crypto'
 import { tool } from 'ai'
 import { z } from 'zod'
@@ -19,8 +17,10 @@ import {
   READ_MCP_RESOURCE_TOOL_NAME,
 } from '../../constants/tool_names.js'
 import type { MCPManager, MCPResourceInfo } from '../../services/mcp/manager.js'
-import { formatFileSize } from '../../services/tool-storage/index.js'
-import { getScratchDataDir, getSessionDataDir } from '../../session/paths.js'
+import {
+  formatFileSize,
+  saveBinaryToolResult,
+} from '../../services/tool-storage/index.js'
 
 /** What the tools need from the MCP manager. */
 export type McpResourceSource = Pick<
@@ -52,50 +52,8 @@ const NO_RESOURCES =
 export const McpResourceToolResultSchema = z.object({ text: z.string() })
 type McpResourceToolResult = z.infer<typeof McpResourceToolResultSchema>
 
-const EXTENSIONS: Record<string, string> = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/gif': 'gif',
-  'image/webp': 'webp',
-  'image/svg+xml': 'svg',
-  'application/pdf': 'pdf',
-  'application/json': 'json',
-  'application/zip': 'zip',
-  'text/plain': 'txt',
-  'text/html': 'html',
-  'text/csv': 'csv',
-}
-
 function errorText(err: unknown): string {
   return `Error: ${err instanceof Error ? err.message : String(err)}`
-}
-
-/**
- * Write a binary resource next to the session's other tool results, so the
- * model gets a path it can read instead of base64 in its context.
- */
-function saveBlob(
-  blob: string,
-  mimeType: string | undefined,
-  sessionId: string | undefined,
-): { file: string; size: number } {
-  let dir: string
-  try {
-    dir = sessionId
-      ? path.join(getSessionDataDir(sessionId), 'tool-results')
-      : getScratchDataDir('mcp-resources')
-  } catch {
-    dir = getScratchDataDir('mcp-resources')
-  }
-  fs.mkdirSync(dir, { recursive: true })
-  const type = mimeType?.split(';')[0]?.trim().toLowerCase() ?? ''
-  const file = path.join(
-    dir,
-    `mcp-resource-${randomUUID()}.${EXTENSIONS[type] ?? 'bin'}`,
-  )
-  const bytes = Buffer.from(blob, 'base64')
-  fs.writeFileSync(file, bytes)
-  return { file, size: bytes.length }
 }
 
 const mapResult: ToolDefinition['mapToolResultToToolResultBlockParam'] = (
@@ -177,10 +135,11 @@ function readDefinition(source: McpResourceSource): ToolDefinition {
               }
               if (typeof content.blob !== 'string') return { uri, mimeType }
               try {
-                const saved = saveBlob(
-                  content.blob,
-                  mimeType,
+                const saved = saveBinaryToolResult(
                   context.sessionId,
+                  `mcp-resource-${randomUUID()}`,
+                  Buffer.from(content.blob, 'base64'),
+                  mimeType,
                 )
                 return {
                   uri,

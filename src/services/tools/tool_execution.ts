@@ -212,21 +212,18 @@ export async function executeOneTool(
       result = structured.result
       followUpMessages = structured.followUpMessages ?? structured.newMessages
       isError = result.startsWith('Error:')
+    } else if (isMcpCallResult(raw)) {
+      const mcp = await processMcpToolResult(raw, {
+        sessionId,
+        toolCallId: tc.toolCallId,
+        toolName: tc.toolName,
+      })
+      result = mcp.result
+      resultBlocks = mcp.blocks
+      isError = mcp.isError
+      sizeHandled = true
     } else {
-      const mcp = isMcpCallResult(raw)
-        ? processMcpToolResult(raw, {
-            sessionId,
-            toolCallId: tc.toolCallId,
-            toolName: tc.toolName,
-          })
-        : null
-      if (mcp) {
-        result = mcp.result
-        isError = mcp.isError
-        sizeHandled = true
-      } else {
-        result = JSON.stringify(raw)
-      }
+      result = JSON.stringify(raw)
     }
 
     if (!resultBlocks && !sizeHandled) {

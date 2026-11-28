@@ -324,23 +324,32 @@ async function jsCompressToJpeg(
   const decoded = await decodeRgba(buffer)
   if (!decoded) return null
   const jpeg = await import('jpeg-js')
-  const boxes = [
-    Math.max(decoded.width, decoded.height),
-    ...RESIZE_BOX_LADDER,
-    LAST_RESORT_BOX,
-  ]
-  const qualities = [...JPEG_QUALITY_LADDER, 10]
-  for (const box of boxes) {
+  const scaled = (box: number) => {
     const { width, height } = fitInside(decoded.width, decoded.height, box)
-    const rgba = resizeRgba(
+    const data = resizeRgba(
       decoded.data,
       decoded.width,
       decoded.height,
       width,
       height,
     )
+    return { data, width, height }
+  }
+  const boxes = [
+    Math.max(decoded.width, decoded.height),
+    ...RESIZE_BOX_LADDER,
+    LAST_RESORT_BOX,
+  ]
+  const qualities = [...JPEG_QUALITY_LADDER, 10]
+  // The smallest candidate first: when it does not fit, none will, and the
+  // ladder costs seconds on a screenshot.
+  if (jpeg.encode(scaled(LAST_RESORT_BOX), 10).data.length > maxBytes) {
+    return null
+  }
+  for (const box of boxes) {
+    const frame = scaled(box)
     for (const quality of qualities) {
-      const encoded = jpeg.encode({ data: rgba, width, height }, quality)
+      const encoded = jpeg.encode(frame, quality)
       if (encoded.data.length <= maxBytes) {
         return { buffer: encoded.data, mediaType: 'image/jpeg' }
       }
@@ -349,24 +358,28 @@ async function jsCompressToJpeg(
   return null
 }
 
+/** The smallest JPEG `compressToBytes` can reach with sharp; null without it. */
+async function smallestSharpJpeg(buffer: Buffer): Promise<Buffer | null> {
+  const sharp = await loadSharp()
+  if (!sharp) return null
+  return openImage(sharp, buffer)
+    .resize(LAST_RESORT_BOX, LAST_RESORT_BOX, {
+      fit: 'inside',
+      withoutEnlargement: true,
+    })
+    .flatten({ background: '#ffffff' })
+    .jpeg({ quality: 20 })
+    .toBuffer()
+}
+
 /** Last-resort JPEG small enough for a token budget (tall 水单 / noisy scans). */
 async function lastResortJpeg(
   buffer: Buffer,
   maxBytes: number,
 ): Promise<{ buffer: Buffer; mediaType: 'image/jpeg' } | null> {
-  const sharp = await loadSharp()
-  if (sharp) {
-    const jpeg = await openImage(sharp, buffer)
-      .resize(LAST_RESORT_BOX, LAST_RESORT_BOX, {
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .flatten({ background: '#ffffff' })
-      .jpeg({ quality: 20 })
-      .toBuffer()
-    if (jpeg.length <= maxBytes) {
-      return { buffer: jpeg, mediaType: 'image/jpeg' }
-    }
+  const jpeg = await smallestSharpJpeg(buffer)
+  if (jpeg && jpeg.length <= maxBytes) {
+    return { buffer: jpeg, mediaType: 'image/jpeg' }
   }
   return jsCompressToJpeg(buffer, maxBytes)
 }
@@ -514,6 +527,27 @@ export async function compressImageBufferWithTokenLimit(
   throw new ImageResizeError(
     `Unable to compress image below ${maxTokens} estimated tokens (${maxBytes} bytes)${codecHint}`,
   )
+}
+
+/** Compress a buffer to at most `maxBytes`. Throws when it cannot. */
+export async function compressImageBufferToBytes(
+  buffer: Buffer,
+  maxBytes: number,
+  mediaType: ImageMediaType,
+): Promise<{ buffer: Buffer; mediaType: ImageMediaType }> {
+  if (buffer.length <= maxBytes) return { buffer, mediaType }
+  const tooLarge = () =>
+    new ImageResizeError(`Unable to compress image below ${maxBytes} bytes`)
+
+  // When even the smallest JPEG is too large, walking the whole ladder costs
+  // seconds per image for nothing.
+  const smallest = await smallestSharpJpeg(buffer)
+  if (smallest && smallest.length > maxBytes) throw tooLarge()
+
+  const result = await compressToBytes(buffer, maxBytes, mediaType)
+  if (result) return result
+  if (smallest) return { buffer: smallest, mediaType: 'image/jpeg' }
+  throw tooLarge()
 }
 
 /**
