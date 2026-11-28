@@ -13,6 +13,7 @@ A locally runnable AI coding assistant for chat, reading and editing code, tool 
 | I want to… | Start here |
 |--------|------------|
 | Get started and try browser automation | [Quick Start](docs/readme/getting-started.md) |
+| Drive native Mac apps (TextEdit, Calculator, …) | [Desktop Computer Use](docs/readme/desktop-computer-use.md) |
 | Develop the frontend locally or debug the agent | [Local Development](docs/readme/development.md) |
 | Use Coding Agent in VS Code or Cursor | [VS Code Integration](docs/readme/integrations/vscode-acp.md) |
 | Use Coding Agent in IntelliJ | [IntelliJ Integration](docs/readme/integrations/intellij-acp.md) |
@@ -25,6 +26,7 @@ A locally runnable AI coding assistant for chat, reading and editing code, tool 
 
 - **Coding assistance** — Read and edit files, run shell commands, search the codebase, and explore in parallel with subagents
 - **Browser automation** — Open web pages, click controls, fill forms, take screenshots, and read page content; can control your own Chrome profile for sites that require authentication
+- **Desktop Computer Use** — Drive native macOS apps through Cua Driver (windows, clicks, typing, clipboard)
 - **Extensibility** — Skills, Commands, Plugins, MCP, and custom Subagents
 - **Multiple interfaces** — Electron desktop app, Web UI, ACP (IDE sidebar), and HTTP API / SDK
 - **Memory and compaction** — Session memory, Auto memory, and automatic context compaction
@@ -95,6 +97,32 @@ For complete instructions, see [docs/readme/browser.md](docs/readme/browser.md).
 
 ---
 
+## Desktop Computer Use
+
+On macOS, **Desktop Computer Use** opens and operates native apps (TextEdit, Calculator, and others) through Cua Driver. Install the driver once, grant Accessibility and Screen Recording to **CuaDriver.app**, then pick that agent in the desktop app.
+
+```bash
+/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"
+cua-driver permissions grant
+```
+
+MCP is already listed in `.ai-agent/settings.example.json` and in the desktop workspace seed `settings.local.json`:
+
+```json
+{
+  "mcpServers": {
+    "cua-driver": {
+      "command": "cua-driver",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+Restart the app, select **Desktop Computer Use**, and try: “Open TextEdit and write hello.” Full steps: [Desktop Computer Use](docs/readme/desktop-computer-use.md).
+
+---
+
 ## Production deployment
 
 Deploy the Web UI with Docker. See [deploy/README.md](deploy/README.md) for details.
@@ -137,6 +165,7 @@ docker compose -f deploy/docker-compose.admin.yml --env-file deploy/.env up -d
 |------|------|
 | Installation and first run | [docs/readme/getting-started.md](docs/readme/getting-started.md) |
 | Browser automation | [docs/readme/browser.md](docs/readme/browser.md) |
+| Desktop Computer Use | [docs/readme/desktop-computer-use.md](docs/readme/desktop-computer-use.md) |
 | Local Web development | [docs/readme/development.md](docs/readme/development.md) |
 | VS Code / Cursor | [docs/readme/integrations/vscode-acp.md](docs/readme/integrations/vscode-acp.md) |
 | IntelliJ IDEA | [docs/readme/integrations/intellij-acp.md](docs/readme/integrations/intellij-acp.md) |

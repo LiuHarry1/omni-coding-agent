@@ -126,7 +126,12 @@
     "restoreTabAfterInput": false
   },
 
-  "mcpServers": {},
+  "mcpServers": {
+    "cua-driver": {
+      "command": "cua-driver",
+      "args": ["mcp"]
+    }
+  },
   "disabledTools": [],
 
   "scheduledTasks": {

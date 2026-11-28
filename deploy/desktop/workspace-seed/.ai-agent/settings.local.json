@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "cua-driver": {
+      "command": "cua-driver",
+      "args": ["mcp"]
+    }
+  },
+  "agents": {
+    "picker": {
+      "modes": ["agent"],
+      "primaries": ["desktop", "browser", "assistant"]
+    },
+    "default": {
+      "mode": "agent",
+      "agentType": "desktop"
+    }
+  }
+}
