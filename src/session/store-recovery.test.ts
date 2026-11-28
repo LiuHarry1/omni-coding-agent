@@ -76,7 +76,10 @@ describe('session transcript recovery', () => {
     const session = createSession({ agentHome: home, cwd: home })
     sessionId = session.id
     const servers = {
-      kb_docs: { url: 'http://retrieval.internal/mcp/docs', transport: 'http' as const },
+      kb_docs: {
+        url: 'http://retrieval.internal/mcp/docs',
+        transport: 'http' as const,
+      },
     }
     setInjectedMcpServers(sessionId, session, servers)
 

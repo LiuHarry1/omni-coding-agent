@@ -34,7 +34,10 @@ describe('validateInjectedMcpServers', () => {
         chatbot,
       ),
     ).toEqual({
-      kb_docs: { url: 'https://baix.advantest.com/mcp/docs', transport: 'http' },
+      kb_docs: {
+        url: 'https://baix.advantest.com/mcp/docs',
+        transport: 'http',
+      },
       asst_tdc: {
         url: 'https://mcp.example.com/tdc',
         transport: 'sse',
@@ -44,13 +47,17 @@ describe('validateInjectedMcpServers', () => {
   })
 
   it('treats legacy work- workspaces as chatbot', () => {
-    expect(
-      validateInjectedMcpServers({}, { name: 'work-1ef0f7ad' }),
-    ).toEqual({})
+    expect(validateInjectedMcpServers({}, { name: 'work-1ef0f7ad' })).toEqual(
+      {},
+    )
   })
 
   it.each([
-    ['disabled', () => delete process.env.SESSION_MCP_INJECTION_ENABLED, chatbot],
+    [
+      'disabled',
+      () => delete process.env.SESSION_MCP_INJECTION_ENABLED,
+      chatbot,
+    ],
     ['user workspace', () => {}, user],
     ['no workspace', () => {}, undefined],
   ])('rejects when %s', (_label, setup, record) => {
@@ -69,14 +76,16 @@ describe('validateInjectedMcpServers', () => {
       { url: 'file:///etc/passwd' },
       { command: 'node' },
     ]) {
-      expect(() =>
-        validateInjectedMcpServers({ kb: server }, chatbot),
-      ).toThrow(InjectedMcpError)
+      expect(() => validateInjectedMcpServers({ kb: server }, chatbot)).toThrow(
+        InjectedMcpError,
+      )
     }
   })
 
   it('rejects bad names and non-objects', () => {
-    expect(() => validateInjectedMcpServers([], chatbot)).toThrow(InjectedMcpError)
+    expect(() => validateInjectedMcpServers([], chatbot)).toThrow(
+      InjectedMcpError,
+    )
     expect(() =>
       validateInjectedMcpServers(
         { 'bad name': { url: 'https://baix.advantest.com/mcp' } },

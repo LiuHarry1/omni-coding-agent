@@ -875,7 +875,9 @@ function restoreFromDisk(id: string): Session {
     } else if (line.type === 'mcp_injected') {
       const servers = line.servers as Record<string, MCPServerHTTP> | undefined
       session.injectedMcpServers =
-        servers && typeof servers === 'object' && Object.keys(servers).length > 0
+        servers &&
+        typeof servers === 'object' &&
+        Object.keys(servers).length > 0
           ? servers
           : undefined
     } else if (line.type === 'workspace_bound') {
